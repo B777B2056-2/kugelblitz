@@ -1,0 +1,202 @@
+package chat_completions
+
+import (
+	"context"
+	"testing"
+
+	"kugelblitz/constants"
+	"kugelblitz/core"
+
+	"github.com/openai/openai-go/v3"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func newConverter() *Converter { return NewConverter() }
+
+// --- ConvertMessages ---
+
+func TestConvertMessages_SystemMessage(t *testing.T) {
+	c := newConverter()
+	msgs := []core.Message{
+		{ID: "s1", Role: constants.RoleSystem, Content: core.TextContent{Text: "system prompt"}},
+	}
+	result, err := c.ConvertMessages(msgs)
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+}
+
+func TestConvertMessages_UserTextMessage(t *testing.T) {
+	c := newConverter()
+	msgs := []core.Message{core.NewUserMessage("p1", core.TextContent{Text: "hello"})}
+	result, err := c.ConvertMessages(msgs)
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+}
+
+func TestConvertMessages_AssistantTextMessage(t *testing.T) {
+	c := newConverter()
+	msgs := []core.Message{core.NewAssistantMessage("p1", core.TextContent{Text: "response"})}
+	result, err := c.ConvertMessages(msgs)
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+}
+
+func TestConvertMessages_ToolCallWithReasoning(t *testing.T) {
+	c := newConverter()
+	msg := core.Message{
+		ID:   "a1",
+		Role: constants.RoleAssistant,
+		Content: core.CompositeContent{
+			Parts: []core.Content{
+				core.ReasoningContent{Reasoning: "I need to search"},
+				core.ToolCallContent{Details: []core.ToolCallDetail{
+					{ID: "tc-1", ToolName: "search", Args: map[string]any{"q": "test"}},
+				}},
+			},
+		},
+	}
+	result, err := c.ConvertMessages([]core.Message{msg})
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+}
+
+func TestConvertMessages_ToolResultMessage(t *testing.T) {
+	c := newConverter()
+	msgs := []core.Message{
+		core.NewToolMessage("a1", []core.ToolCallResult{
+			{ToolCallID: "tc-1", ToolName: "search", Outputs: map[string]any{"result": "found"}},
+		}),
+	}
+	result, err := c.ConvertMessages(msgs)
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+}
+
+func TestConvertMessages_EmptyList(t *testing.T) {
+	c := newConverter()
+	result, err := c.ConvertMessages([]core.Message{})
+	require.NoError(t, err)
+	assert.Empty(t, result)
+}
+
+func TestConvertMessages_UnknownRole(t *testing.T) {
+	c := newConverter()
+	_, err := c.ConvertMessages([]core.Message{{Role: constants.RoleType("invalid")}})
+	assert.Error(t, err)
+}
+
+// --- ConvertTools ---
+
+func TestConvertTools_SingleTool(t *testing.T) {
+	c := newConverter()
+	tools := []core.ToolDefinition{
+		{Name: "search", Description: "Search", JsonSchema: map[string]any{"type": "object"}},
+	}
+	result, err := c.ConvertTools(tools)
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+}
+
+func TestConvertTools_Empty(t *testing.T) {
+	c := newConverter()
+	result, err := c.ConvertTools([]core.ToolDefinition{})
+	require.NoError(t, err)
+	assert.Nil(t, result)
+}
+
+// --- ParseResponse ---
+
+func TestParseResponse_TextMessage(t *testing.T) {
+	c := newConverter()
+	raw := openai.ChatCompletionMessage{Content: "hello world"}
+	result, err := c.ParseResponse(context.Background(), "p1", raw)
+	require.NoError(t, err)
+
+	text, ok := result.Content.(core.TextContent)
+	require.True(t, ok)
+	assert.Equal(t, "hello world", text.Text)
+}
+
+func TestParseResponse_ToolCalls(t *testing.T) {
+	c := newConverter()
+	raw := openai.ChatCompletionMessage{
+		ToolCalls: []openai.ChatCompletionMessageToolCallUnion{
+			{ID: "tc-1", Function: openai.ChatCompletionMessageFunctionToolCallFunction{Name: "search", Arguments: `{"q":"t"}`}},
+		},
+	}
+	result, err := c.ParseResponse(context.Background(), "p1", raw)
+	require.NoError(t, err)
+
+	toolContent, ok := result.Content.(core.ToolCallContent)
+	require.True(t, ok)
+	assert.Equal(t, "search", toolContent.Details[0].ToolName)
+}
+
+// --- ParseStreamChunk ---
+
+func TestParseStreamChunk_TextDelta(t *testing.T) {
+	c := newConverter()
+	raw := openai.ChatCompletionChunk{
+		Choices: []openai.ChatCompletionChunkChoice{
+			{Delta: openai.ChatCompletionChunkChoiceDelta{Content: "hello"}},
+		},
+	}
+	result, err := c.ParseStreamChunk(context.Background(), "p1", raw)
+	require.NoError(t, err)
+	text, ok := result.Content.(core.TextContent)
+	require.True(t, ok)
+	assert.Equal(t, "hello", text.Text)
+}
+
+func TestParseStreamChunk_EmptyChoices(t *testing.T) {
+	c := newConverter()
+	result, err := c.ParseStreamChunk(context.Background(), "p1", openai.ChatCompletionChunk{})
+	require.NoError(t, err)
+	assert.Nil(t, result)
+}
+
+func TestParseStreamChunk_WithFinishReason(t *testing.T) {
+	c := newConverter()
+	raw := openai.ChatCompletionChunk{
+		Choices: []openai.ChatCompletionChunkChoice{
+			{FinishReason: "stop", Delta: openai.ChatCompletionChunkChoiceDelta{Content: "final"}},
+		},
+	}
+	result, err := c.ParseStreamChunk(context.Background(), "p1", raw)
+	require.NoError(t, err)
+	assert.Equal(t, "stop", result.FinishReason)
+}
+
+func TestParseStreamChunk_EmptyDelta(t *testing.T) {
+	c := newConverter()
+	raw := openai.ChatCompletionChunk{
+		Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatCompletionChunkChoiceDelta{}}},
+	}
+	result, err := c.ParseStreamChunk(context.Background(), "p1", raw)
+	require.NoError(t, err)
+	assert.Nil(t, result)
+}
+
+// --- reasoning_content parsing ---
+
+func TestParseReasoningFromRaw_Present(t *testing.T) {
+	assert.Equal(t, "thinking...", parseReasoningFromRaw(`{"reasoning_content":"thinking..."}`))
+}
+
+func TestParseReasoningFromRaw_Absent(t *testing.T) {
+	assert.Empty(t, parseReasoningFromRaw(`{"content":"hello"}`))
+}
+
+func TestParseReasoningFromRaw_Empty(t *testing.T) {
+	assert.Empty(t, parseReasoningFromRaw(""))
+}
+
+func TestParseReasoningFromChunkRaw_Present(t *testing.T) {
+	raw := `{"choices":[{"delta":{"reasoning_content":"thinking..."}}]}`
+	assert.Equal(t, "thinking...", parseReasoningFromChunkRaw(raw))
+}
+
+func TestParseReasoningFromChunkRaw_Absent(t *testing.T) {
+	assert.Empty(t, parseReasoningFromChunkRaw(`{"choices":[{"delta":{"content":"hello"}}]}`))
+}
