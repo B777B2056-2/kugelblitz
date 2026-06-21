@@ -15,6 +15,13 @@ func All() []tools.Tool {
 		&FileCopy{},
 		&DirCreate{},
 		&DirCopy{},
+		&PlanCreate{},
+		&PlanQuery{},
+		&PlanStatusUpdate{},
+		&TaskInsert{},
+		&TaskDelete{},
+		&TaskQuery{},
+		&TaskStatusUpdate{},
 	}
 }
 
@@ -22,6 +29,21 @@ func All() []tools.Tool {
 // Called automatically via init(); you can also call it explicitly to re-register after a Reset().
 func RegisterAll() {
 	tools.RegisterAll(All()...)
+}
+
+// RegisterWorkerSpawn registers the worker_spawn tool and sets the factory
+// that creates WorkerAgents. WorkerSpawn is NOT auto-registered by init()
+// because it requires a provider reference.
+//
+// Usage:
+//
+//	internals.RegisterWorkerSpawn(func(goal, action string) (string, error) {
+//	    worker := runtime.NewWorkerAgent(provider, true, []string{"file_read", "file_write"})
+//	    return worker.ExecuteTask(ctx, goal, action)
+//	})
+func RegisterWorkerSpawn(fn WorkerFactory) {
+	RegisterWorkerFactory(fn)
+	tools.Register(&WorkerSpawn{})
 }
 
 func init() {

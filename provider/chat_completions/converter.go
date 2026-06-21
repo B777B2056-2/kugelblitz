@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+
 	"kugelblitz/constants"
 	"kugelblitz/core"
 	"kugelblitz/utils"
@@ -214,16 +216,45 @@ func (c *Converter) ConvertTools(tools []core.ToolDefinition) ([]openai.ChatComp
 	}
 	var result []openai.ChatCompletionToolUnionParam
 	for _, tool := range tools {
+		desc := tool.Description
+		if tool.OutputSchema != nil {
+			desc += "\nReturns: " + formatOutputSchema(tool.OutputSchema)
+		}
 		result = append(result, openai.ChatCompletionFunctionTool(
 			openai.FunctionDefinitionParam{
 				Name:        tool.Name,
 				Strict:      param.NewOpt(true),
-				Description: param.NewOpt(tool.Description),
+				Description: param.NewOpt(desc),
 				Parameters:  openai.FunctionParameters(tool.JsonSchema),
 			},
 		))
 	}
 	return result, nil
+}
+
+// formatOutputSchema produces a concise summary of an output schema.
+// e.g., {"type":"object","properties":{"status":{"type":"string"}}} → "{status: string}"
+func formatOutputSchema(schema map[string]any) string {
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		return "object"
+	}
+	var fields []string
+	for name, raw := range props {
+		if prop, ok := raw.(map[string]any); ok {
+			typ, _ := prop["type"].(string)
+			desc, _ := prop["description"].(string)
+			f := fmt.Sprintf("%s: %s", name, typ)
+			if desc != "" {
+				f += fmt.Sprintf(" (%s)", desc)
+			}
+			fields = append(fields, f)
+		}
+	}
+	result := "{" + strings.Join(fields, ", ") + "}"
+	// All tools may return an error field on failure
+	result += " | on error: {error: string}"
+	return result
 }
 
 // --- Response parsing (API → core) ---

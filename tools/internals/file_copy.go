@@ -20,20 +20,19 @@ func (t *FileCopy) Definition() core.ToolDefinition {
 		JsonSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"source": map[string]any{
-					"type":        "string",
-					"description": "Source file path",
-				},
-				"destination": map[string]any{
-					"type":        "string",
-					"description": "Destination file path",
-				},
-				"move": map[string]any{
-					"type":        "boolean",
-					"description": "If true, move (cut) instead of copy. Default: false.",
-				},
+				"source":      map[string]any{"type": "string", "description": "Source file path"},
+				"destination": map[string]any{"type": "string", "description": "Destination file path"},
+				"move":        map[string]any{"type": "boolean", "description": "If true, move (cut) instead of copy. Default: false."},
 			},
 			"required": []string{"source", "destination"},
+		},
+		OutputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"source":      map[string]any{"type": "string", "description": "Source file path"},
+				"destination": map[string]any{"type": "string", "description": "Destination file path"},
+				"action":      map[string]any{"type": "string", "description": "copied or moved"},
+			},
 		},
 	}
 }
@@ -55,7 +54,6 @@ func (t *FileCopy) Execute(ctx context.Context, detail core.ToolCallDetail) core
 		}
 	}
 
-	// Ensure destination parent directory exists
 	if err := os.MkdirAll(dirOf(dst), 0755); err != nil {
 		return tools.ErrorResult(detail.ID, "file_copy", err)
 	}
@@ -64,7 +62,6 @@ func (t *FileCopy) Execute(ctx context.Context, detail core.ToolCallDetail) core
 	if move {
 		action = "moved"
 		if err := os.Rename(src, dst); err != nil {
-			// Fall back to copy + delete for cross-device moves
 			if err := copyFile(src, dst); err != nil {
 				return tools.ErrorResult(detail.ID, "file_copy", err)
 			}
@@ -83,7 +80,6 @@ func (t *FileCopy) Execute(ctx context.Context, detail core.ToolCallDetail) core
 	})
 }
 
-// copyFile copies a single file from src to dst.
 func copyFile(src, dst string) error {
 	s, err := os.Open(src)
 	if err != nil {

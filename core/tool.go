@@ -11,9 +11,10 @@ type ToolCallFunc func(context.Context, ToolCallDetail) ToolCallResult
 
 // ToolDefinition describes a tool that can be called by the LLM.
 type ToolDefinition struct {
-	Name        string
-	Description string
-	JsonSchema  map[string]any
+	Name         string
+	Description  string
+	JsonSchema   map[string]any // input parameter schema (JSON Schema format)
+	OutputSchema map[string]any // output/return value schema (optional; nil = no schema)
 }
 
 type registryEntry struct {

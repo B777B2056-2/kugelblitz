@@ -14,7 +14,7 @@ type FileRead struct{}
 func (t *FileRead) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "file_read",
-		Description: "Read the contents of a file at the given path. Returns the file content as a string.",
+		Description: "Read the contents of a file at the given path.",
 		JsonSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -24,6 +24,14 @@ func (t *FileRead) Definition() core.ToolDefinition {
 				},
 			},
 			"required": []string{"path"},
+		},
+		OutputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path":    map[string]any{"type": "string", "description": "File path that was read"},
+				"content": map[string]any{"type": "string", "description": "File content as a string"},
+				"size":    map[string]any{"type": "integer", "description": "File size in bytes"},
+			},
 		},
 	}
 }

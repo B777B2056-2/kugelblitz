@@ -29,6 +29,14 @@ func (t *FileWrite) Definition() core.ToolDefinition {
 			},
 			"required": []string{"path", "content"},
 		},
+		OutputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path":     map[string]any{"type": "string", "description": "File path that was written"},
+				"bytes":    map[string]any{"type": "integer", "description": "Number of bytes written"},
+				"consumed": map[string]any{"type": "integer", "description": "Same as bytes"},
+			},
+		},
 	}
 }
 

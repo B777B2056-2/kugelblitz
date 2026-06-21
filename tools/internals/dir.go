@@ -19,12 +19,15 @@ func (t *DirCreate) Definition() core.ToolDefinition {
 		JsonSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"path": map[string]any{
-					"type":        "string",
-					"description": "Path to the directory to create",
-				},
+				"path": map[string]any{"type": "string", "description": "Path to the directory to create"},
 			},
 			"required": []string{"path"},
+		},
+		OutputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"ok": map[string]any{"type": "boolean", "description": "true if created successfully"},
+			},
 		},
 	}
 }
@@ -52,20 +55,19 @@ func (t *DirCopy) Definition() core.ToolDefinition {
 		JsonSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"source": map[string]any{
-					"type":        "string",
-					"description": "Source directory path",
-				},
-				"destination": map[string]any{
-					"type":        "string",
-					"description": "Destination directory path",
-				},
-				"move": map[string]any{
-					"type":        "boolean",
-					"description": "If true, move (cut) instead of copy. Default: false.",
-				},
+				"source":      map[string]any{"type": "string", "description": "Source directory path"},
+				"destination": map[string]any{"type": "string", "description": "Destination directory path"},
+				"move":        map[string]any{"type": "boolean", "description": "If true, move (cut) instead of copy. Default: false."},
 			},
 			"required": []string{"source", "destination"},
+		},
+		OutputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"source":      map[string]any{"type": "string", "description": "Source directory path"},
+				"destination": map[string]any{"type": "string", "description": "Destination directory path"},
+				"action":      map[string]any{"type": "string", "description": "copied or moved"},
+			},
 		},
 	}
 }
@@ -91,7 +93,6 @@ func (t *DirCopy) Execute(ctx context.Context, detail core.ToolCallDetail) core.
 	if move {
 		action = "moved"
 		if err := os.Rename(src, dst); err != nil {
-			// Cross-device move: copy then delete
 			if err := copyDir(src, dst); err != nil {
 				return tools.ErrorResult(detail.ID, "dir_copy", err)
 			}
@@ -110,21 +111,17 @@ func (t *DirCopy) Execute(ctx context.Context, detail core.ToolCallDetail) core.
 	})
 }
 
-// copyDir recursively copies a directory from src to dst.
 func copyDir(src, dst string) error {
 	if err := os.MkdirAll(dst, 0755); err != nil {
 		return err
 	}
-
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		return err
 	}
-
 	for _, entry := range entries {
 		srcPath := filepath.Join(src, entry.Name())
 		dstPath := filepath.Join(dst, entry.Name())
-
 		if entry.IsDir() {
 			if err := copyDir(srcPath, dstPath); err != nil {
 				return err
