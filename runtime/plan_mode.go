@@ -2,8 +2,10 @@ package runtime
 
 import (
 	"context"
+	"errors"
 
 	"kugelblitz/core"
+	"kugelblitz/memory"
 	"kugelblitz/tools/internals"
 )
 
@@ -25,17 +27,18 @@ Rules:
 - Use plan_query or task_query to check current state before decisions.`
 
 // Planner orchestrates complex goals using plan tools and worker_spawn.
-// It wraps a ReactAgent pre-configured with plan/task/worker tools.
+// It maintains session memory across calls and auto-compresses when the
+// context window is exceeded.
 type Planner struct {
 	react           *ReactAgent
+	mem             *memory.SessionMemory
+	compressor      *memory.Compressor
 	enableThinking  *bool
 	reasoningEffort string
 }
 
-// NewPlanner creates a Planner with all plan/task/worker tools.
-// WorkerSpawn and its factory are registered automatically.
+// NewPlanner creates a Planner with session memory and automatic compression.
 func NewPlanner(provider core.ILMProvider, streamMode bool) *Planner {
-	// Register worker_spawn — each worker gets file tools
 	internals.RegisterWorkerSpawn(func(goal, action string) (string, *core.Usage, error) {
 		worker := NewWorkerAgent(provider, streamMode, []string{
 			"file_read", "file_write", "file_copy",
@@ -50,7 +53,15 @@ func NewPlanner(provider core.ILMProvider, streamMode bool) *Planner {
 		"task_insert", "task_delete", "task_query",
 		"worker_spawn",
 	)
-	return &Planner{react: react}
+
+	sessionID := memory.GetSessionMemoryManager().CreateSessionMemory()
+	mem, _ := memory.GetSessionMemoryManager().GetSessionMemory(sessionID)
+
+	return &Planner{
+		react:      react,
+		mem:        mem,
+		compressor: memory.NewCompressor(provider),
+	}
 }
 
 // SetThinking configures thinking mode for the underlying ReactAgent.
@@ -64,12 +75,41 @@ func (p *Planner) RegisterEventHooks(hooks core.AgentEventHooks) {
 }
 
 // Execute runs the Planner against a natural-language goal.
+// If the context window is exceeded, it auto-compresses and retries.
 func (p *Planner) Execute(ctx context.Context, goal string) ([]core.Message, error) {
-	sysMsg := core.NewUserMessage("root", core.TextContent{Text: plannerSystemPrompt})
+	history := p.mem.GetHistoryMessages()
+
+	sysMsg := core.NewUserMessage("planner", core.TextContent{Text: plannerSystemPrompt})
 	sysMsg.Role = "system"
 
-	userMsg := core.NewUserMessage("root", core.TextContent{Text: goal})
-	return p.react.Execute(ctx, sysMsg, []core.Message{userMsg})
+	userMsg := core.NewUserMessage("planner", core.TextContent{Text: goal})
+
+	// Try with current history; compress + retry if context exceeded
+	result, err := p.react.Execute(ctx, sysMsg, append(history, userMsg))
+	if errors.Is(err, core.ErrContextLengthExceeded) {
+		// Compress aggressively: keep only the most recent 4 messages
+		p.mem.Compress(ctx, p.compressor, memory.CompressConfig{
+			KeepLastN:             4,
+			MinMessagesToCompress: 1,
+		})
+		history = p.mem.GetHistoryMessages()
+		result, err = p.react.Execute(ctx, sysMsg, append(history, userMsg))
+	}
+	if err != nil {
+		return result, err
+	}
+
+	p.mem.AppendMessage(userMsg)
+	p.mem.AppendMessages(result)
+
+	// Preventive: compress old messages before they cause context errors
+	_ = p.mem.Compress(ctx, p.compressor, memory.CompressConfig{
+		KeepLastN:             20,
+		MinMessagesToCompress: 10,
+	})
+	_ = p.mem.Persist()
+
+	return result, nil
 }
 
 // Interrupt signals the Planner to stop.

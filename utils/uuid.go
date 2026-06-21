@@ -19,3 +19,7 @@ func GeneratePlanID() string {
 func GenerateTaskID() string {
 	return generateUUID("task")
 }
+
+func GenerateSessionID() string {
+	return generateUUID("session")
+}

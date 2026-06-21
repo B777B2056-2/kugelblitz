@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"testing"
 
 	"kugelblitz/constants"
@@ -102,7 +103,94 @@ func TestMessage_UsageIsNilByDefault(t *testing.T) {
 // This is a compile-time check: any attempt to implement Content outside
 // core will fail to compile.
 func TestContent_SealedInterface(t *testing.T) {
-	// If this test compiles and runs, the interface is correctly sealed.
 	var c Content = TextContent{Text: "hello"}
 	assert.NotNil(t, c)
+}
+
+func TestMessage_JSONRoundTrip_TextContent(t *testing.T) {
+	original := NewUserMessage("p1", TextContent{Text: "hello world"})
+	original.ID = "msg-fixed"
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var restored Message
+	require.NoError(t, json.Unmarshal(data, &restored))
+
+	assert.Equal(t, "msg-fixed", restored.ID)
+	assert.Equal(t, "user", string(restored.Role))
+	text, ok := restored.Content.(TextContent)
+	require.True(t, ok)
+	assert.Equal(t, "hello world", text.Text)
+}
+
+func TestMessage_JSONRoundTrip_ToolCall(t *testing.T) {
+	original := NewAssistantMessage("p1", nil)
+	original.Content = ToolCallContent{
+		Details: []ToolCallDetail{
+			{ID: "tc-1", ToolName: "search", Args: map[string]any{"q": "test"}},
+		},
+	}
+	original.FinishReason = "tool_calls"
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var restored Message
+	require.NoError(t, json.Unmarshal(data, &restored))
+
+	tc, ok := restored.Content.(ToolCallContent)
+	require.True(t, ok)
+	require.Len(t, tc.Details, 1)
+	assert.Equal(t, "search", tc.Details[0].ToolName)
+	assert.Equal(t, "test", tc.Details[0].Args["q"])
+	assert.Equal(t, "tool_calls", restored.FinishReason)
+}
+
+func TestMessage_JSONRoundTrip_Composite(t *testing.T) {
+	original := NewAssistantMessage("p1", CompositeContent{
+		Parts: []Content{
+			ReasoningContent{Reasoning: "let me think"},
+			TextContent{Text: "answer is 42"},
+		},
+	})
+	original.Usage = &Usage{TotalTokens: 100, InputTokens: 50, OutputTokens: 50}
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var restored Message
+	require.NoError(t, json.Unmarshal(data, &restored))
+
+	cc, ok := restored.Content.(CompositeContent)
+	require.True(t, ok)
+	require.Len(t, cc.Parts, 2)
+	assert.Equal(t, "let me think", cc.Parts[0].(ReasoningContent).Reasoning)
+	assert.Equal(t, "answer is 42", cc.Parts[1].(TextContent).Text)
+	assert.Equal(t, int64(100), restored.Usage.TotalTokens)
+}
+
+func TestMessage_JSONRoundTrip_MultiModal(t *testing.T) {
+	original := NewUserMessage("p1", MultiModalContent{
+		Detail: MultiModalDetail{ID: "img-1", Type: constants.MultiModalTypeImage, Path: "/tmp/a.png"},
+	})
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var restored Message
+	require.NoError(t, json.Unmarshal(data, &restored))
+
+	mm, ok := restored.Content.(MultiModalContent)
+	require.True(t, ok)
+	assert.Equal(t, "img-1", mm.Detail.ID)
+}
+
+func TestMessage_JSONRoundTrip_EmptyContent(t *testing.T) {
+	original := NewAssistantMessage("p1", nil)
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var restored Message
+	require.NoError(t, json.Unmarshal(data, &restored))
+	assert.Equal(t, "assistant", string(restored.Role))
 }

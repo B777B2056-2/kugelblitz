@@ -65,7 +65,7 @@ func (f *Format) Block(ctx context.Context, req openai.ChatCompletionNewParams, 
 		if handler != nil {
 			handler.OnError(err)
 		}
-		return nil, fmt.Errorf("chat completions: %w", err)
+		return nil, fmt.Errorf("chat completions: %w", wrapContextError(err))
 	}
 	if completion == nil || len(completion.Choices) == 0 {
 		err := errors.New("no completion choices returned")
@@ -144,7 +144,7 @@ func (f *Format) Stream(ctx context.Context, req openai.ChatCompletionNewParams,
 			if handler != nil {
 				handler.OnError(err)
 			}
-			return nil, fmt.Errorf("stream: %w", err)
+			return nil, fmt.Errorf("stream: %w", wrapContextError(err))
 		}
 
 		// Extract raw tool call deltas BEFORE passing to converter
@@ -225,7 +225,7 @@ func (f *Format) Stream(ctx context.Context, req openai.ChatCompletionNewParams,
 		if handler != nil {
 			handler.OnError(err)
 		}
-		return nil, fmt.Errorf("stream: %w", err)
+		return nil, fmt.Errorf("stream: %w", wrapContextError(err))
 	}
 
 	// Parse accumulated raw arguments JSON strings into parsed maps
@@ -378,4 +378,19 @@ func (f *Format) buildRequest(params core.GenerateParams) (openai.ChatCompletion
 // modify the request before sending (e.g., adding thinking params).
 func (f *Format) BuildRequest(params core.GenerateParams) (openai.ChatCompletionNewParams, error) {
 	return f.buildRequest(params)
+}
+
+// wrapContextError detects context-length errors from the API and wraps them
+// with core.ErrContextLengthExceeded so callers can react (compress + retry).
+func wrapContextError(err error) error {
+	if err == nil {
+		return nil
+	}
+	s := err.Error()
+	if strings.Contains(s, "context_length_exceeded") ||
+		strings.Contains(s, "maximum context length") ||
+		strings.Contains(s, "reduce the length of the messages") {
+		return fmt.Errorf("%w: %w", core.ErrContextLengthExceeded, err)
+	}
+	return err
 }
