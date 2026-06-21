@@ -142,7 +142,13 @@ func (p *Planner) Execute(ctx context.Context, goal string) ([]core.Message, err
 	p.goal = goal
 	history := p.mem.GetHistoryMessages()
 
-	sysMsg := core.NewUserMessage("planner", core.TextContent{Text: plannerSystemPrompt})
+	// Build system prompt: agent context + planner instructions
+	context := core.LoadAgentContext()
+	prompt := plannerSystemPrompt
+	if context != "" {
+		prompt = context + "\n\n" + prompt
+	}
+	sysMsg := core.NewUserMessage("planner", core.TextContent{Text: prompt})
 	sysMsg.Role = "system"
 	userMsg := core.NewUserMessage("planner", core.TextContent{Text: goal})
 
