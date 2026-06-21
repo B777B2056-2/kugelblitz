@@ -3,6 +3,8 @@ package persist
 import (
 	"path/filepath"
 	"sync"
+
+	"kugelblitz/core"
 )
 
 // Manager orchestrates persistence of domain objects (Plans, Sessions).
@@ -67,10 +69,10 @@ var (
 	globalOnce    sync.Once
 )
 
-// GetManager returns the global Manager singleton (FilePersister at ".kugelblitz").
+// GetManager returns the global Manager singleton rooted at the workspace.
 func GetManager() *Manager {
 	globalOnce.Do(func() {
-		globalManager = NewFileManager(".kugelblitz")
+		globalManager = NewFileManager(core.GetWorkspace().Dir())
 	})
 	return globalManager
 }

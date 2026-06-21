@@ -2,8 +2,10 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"kugelblitz/core"
 	"kugelblitz/memory"
@@ -23,10 +25,9 @@ Rules:
 - Only spawn ONE worker at a time via its task_id. Wait for it to finish.
 - worker_spawn handles all task lifecycle automatically.`
 
-// ReviewConfig controls goal-drift review triggers.
 type ReviewConfig struct {
-	FailuresBeforeReview int // consecutive failures before review (0 = disabled)
-	ReActStepInterval    int // ReAct loop steps between reviews (0 = disabled)
+	FailuresBeforeReview int
+	ReActStepInterval    int
 }
 
 func DefaultReviewConfig() ReviewConfig {
@@ -36,6 +37,7 @@ func DefaultReviewConfig() ReviewConfig {
 type Planner struct {
 	react            *ReactAgent
 	mem              *memory.SessionMemory
+	ltm              *memory.LongTermMemory
 	compressor       *memory.Compressor
 	reviewer         *Reviewer
 	reviewCfg        ReviewConfig
@@ -58,23 +60,46 @@ func NewPlanner(provider core.ILMProvider, streamMode bool) *Planner {
 	react.WithTools(
 		"plan_create", "plan_query", "plan_status_update", "plan_rollback",
 		"task_insert", "task_delete", "task_query",
+		"memory_store", "memory_search", "memory_get_section",
 		"worker_spawn",
 	)
 
 	sessionID := memory.GetSessionMemoryManager().CreateSessionMemory()
 	mem, _ := memory.GetSessionMemoryManager().GetSessionMemory(sessionID)
 
+	ltm, _ := memory.NewLongTermMemory()
+	internals.RegisterMemoryTools(ltm)
+
+	// Configure LLM-based semantic judge for memory conflict resolution
+	memory.SetSemanticJudge(func(oldVal, newVal string) bool {
+		prompt := fmt.Sprintf(
+			`Are these two statements semantically equivalent (same fact, different wording)?
+A: %s
+B: %s
+Answer ONLY "YES" or "NO".`, oldVal, newVal)
+		msg := core.NewUserMessage("judge", core.TextContent{Text: prompt})
+		resp, err := provider.Generate(context.Background(), core.GenerateParams{
+			Messages: []core.Message{msg}, Stream: false,
+		})
+		if err != nil {
+			return false
+		}
+		if tc, ok := resp.Content.(core.TextContent); ok {
+			return strings.Contains(strings.ToUpper(tc.Text), "YES")
+		}
+		return false
+	})
+
 	planner := &Planner{
 		react:      react,
 		mem:        mem,
+		ltm:        ltm,
 		compressor: memory.NewCompressor(provider),
 		reviewer:   NewReviewer(provider),
 		reviewCfg:  DefaultReviewConfig(),
 	}
 
-	// Inject OnToolResult: Planner handles step counting + failure tracking + review
 	planner.react.SetOnToolResult(func(results []core.ToolCallResult, step int) bool {
-		// Track consecutive failures
 		hasFailure := false
 		for _, r := range results {
 			if _, isErr := r.Outputs["error"]; isErr {
@@ -87,17 +112,14 @@ func NewPlanner(provider core.ILMProvider, streamMode bool) *Planner {
 		} else {
 			planner.consecutiveFails = 0
 		}
-
-		// Step interval review
 		if planner.reviewCfg.ReActStepInterval > 0 && step%planner.reviewCfg.ReActStepInterval == 0 {
 			planner.maybeReview(context.Background(), "ReAct step", "")
 		}
-		// Consecutive failure review
 		if planner.reviewCfg.FailuresBeforeReview > 0 &&
 			planner.consecutiveFails >= planner.reviewCfg.FailuresBeforeReview {
 			planner.maybeReview(context.Background(), "consecutive failures", "")
 		}
-		return true // continue — replan is a data operation, LLM sees via alert
+		return true
 	})
 
 	planner.ResumeIncomplete(context.Background())
@@ -128,7 +150,6 @@ func (p *Planner) Execute(ctx context.Context, goal string) ([]core.Message, err
 	if errors.Is(err, core.ErrContextLengthExceeded) {
 		p.mem.Compress(ctx, p.compressor, memory.CompressConfig{KeepLastN: 4, MinMessagesToCompress: 1})
 		history = p.mem.GetHistoryMessages()
-		// Review immediately after aggressive compress
 		p.maybeReview(ctx, "context exceeded - aggressive compress", goal)
 		result, err = p.react.Execute(ctx, sysMsg, append(history, userMsg))
 	}
@@ -138,8 +159,10 @@ func (p *Planner) Execute(ctx context.Context, goal string) ([]core.Message, err
 
 	p.mem.AppendMessage(userMsg)
 	p.mem.AppendMessages(result)
-
 	_ = p.mem.Persist()
+
+	go p.extractAndStoreFacts(userMsg, result)
+
 	return result, nil
 }
 
@@ -155,7 +178,6 @@ func (p *Planner) maybeReview(ctx context.Context, trigger, goalOverride string)
 		}
 		summary := fmt.Sprintf("Plan %q (v%d, status=%s), %d tasks, trigger: %s",
 			plan.Name, plan.Version, plan.Status, len(plan.SubTasks), trigger)
-
 		result := p.reviewer.Review(ctx, goalOverride, summary, trigger)
 		if result.Drift {
 			p.replan(plan)
@@ -163,13 +185,10 @@ func (p *Planner) maybeReview(ctx context.Context, trigger, goalOverride string)
 	}
 }
 
-// replan rolls back the plan by one version and injects a drift alert message
-// into the session so the LLM sees it on the next ReAct iteration.
 func (p *Planner) replan(plan *internals.Plan) {
 	if plan.Version <= 1 {
 		return
 	}
-	// Attempt rollback via plan_rollback tool logic (no LLM call)
 	targetVersion := plan.Version - 1
 	var cp internals.Checkpoint
 	if err := persist.LoadCheckpointJSON(plan.ID, targetVersion, &cp); err != nil {
@@ -182,12 +201,79 @@ func (p *Planner) replan(plan *internals.Plan) {
 	plan.FinishedReson = cp.Plan.FinishedReson
 	plan.Persist()
 
-	// Inject a drift alert so the LLM notices on next iteration
 	alert := core.NewUserMessage(plan.ID, core.TextContent{
-		Text: fmt.Sprintf("[System] Goal drift was detected and the plan has been rolled back to version %d. The current plan state differs from what you last saw. Use plan_query to inspect the updated state and replan accordingly.", targetVersion),
+		Text: fmt.Sprintf("[System] Goal drift was detected and the plan has been rolled back to version %d.", targetVersion),
 	})
 	alert.Role = "system"
 	p.mem.AppendMessage(alert)
+}
+
+func (p *Planner) extractAndStoreFacts(userMsg core.Message, result []core.Message) {
+	if p.ltm == nil {
+		return
+	}
+	ctx := context.Background()
+
+	var sb strings.Builder
+	if tc, ok := userMsg.Content.(core.TextContent); ok {
+		sb.WriteString(tc.Text)
+	}
+	sb.WriteString("\n\n---\n\n")
+	for _, msg := range result {
+		if tc, ok := msg.Content.(core.TextContent); ok && len(tc.Text) > 20 {
+			sb.WriteString(tc.Text)
+			sb.WriteString(" ")
+		}
+	}
+	conversation := sb.String()
+	if len(conversation) < 50 {
+		return
+	}
+
+	prompt := fmt.Sprintf(
+		`Extract key facts and lessons from this conversation. Output ONLY valid JSON array:
+[{"section":"...","key":"...","value":"..."}]
+
+Sections: user_preferences, project_facts, lessons_learned
+Be concise. Only include facts that are clearly stated.
+
+Conversation:
+%s`, conversation[:min(3000, len(conversation))])
+
+	userMsg2 := core.NewUserMessage("ltm-extractor", core.TextContent{Text: prompt})
+	resp, err := p.reviewer.provider.Generate(ctx, core.GenerateParams{
+		Messages: []core.Message{userMsg2},
+		Stream:   false,
+	})
+	if err != nil {
+		return
+	}
+
+	text := ""
+	if tc, ok := resp.Content.(core.TextContent); ok {
+		text = tc.Text
+	}
+	start := strings.Index(text, "[")
+	end := strings.LastIndex(text, "]")
+	if start < 0 || end <= start {
+		return
+	}
+	jsonStr := text[start : end+1]
+
+	type fact struct {
+		Section string `json:"section"`
+		Key     string `json:"key"`
+		Value   string `json:"value"`
+	}
+	var facts []fact
+	if err := json.Unmarshal([]byte(jsonStr), &facts); err != nil {
+		return
+	}
+	for _, f := range facts {
+		if f.Section != "" && f.Key != "" && f.Value != "" {
+			p.ltm.Store(f.Section, f.Key, f.Value) // async — conflicts handled by confidence
+		}
+	}
 }
 
 func (p *Planner) ResumeIncomplete(ctx context.Context) {
