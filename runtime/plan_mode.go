@@ -51,6 +51,7 @@ type Planner struct {
 	skillTool        *internals.SkillUse
 	activeSkill      *skills.Skill
 	skillList        []*skills.Skill
+	obs              core.Observer
 }
 
 // PlannerOption configures a Planner at creation time.
@@ -59,6 +60,11 @@ type PlannerOption func(*Planner)
 // WithCustomTools adds additional tool names to the Planner's ReAct agent.
 func WithCustomTools(names ...string) PlannerOption {
 	return func(p *Planner) { p.react.WithTools(names...) }
+}
+
+// WithObserver sets the observability observer for tracing Planner execution.
+func WithObserver(obs core.Observer) PlannerOption {
+	return func(p *Planner) { p.obs = obs }
 }
 
 func NewPlanner(provider core.ILMProvider, streamMode bool, opts ...PlannerOption) *Planner {
@@ -123,9 +129,10 @@ Answer ONLY "YES" or "NO".`, oldVal, newVal)
 		compressor: memory.NewCompressor(provider),
 		reviewer:   NewReviewer(provider),
 		reviewCfg:  DefaultReviewConfig(),
-		skillTool:  skillTool,
+		skillTool:   skillTool,
 		activeSkill: activeSkill,
-		skillList:  skillList,
+		skillList:   skillList,
+		obs:         core.NoopObserver{},
 	}
 
 	planner.react.SetOnToolResult(func(results []core.ToolCallResult, step int) bool {
@@ -172,6 +179,9 @@ func (p *Planner) RegisterEventHooks(hooks core.AgentEventHooks) {
 
 func (p *Planner) Execute(ctx context.Context, goal string) ([]core.Message, error) {
 	p.goal = goal
+	ctx, trace := p.obs.StartTrace(ctx, "planner.execute", goal)
+	defer trace.End()
+
 	history := p.mem.GetHistoryMessages()
 
 	// Build system prompt: agent context + skills + active skill + planner instructions

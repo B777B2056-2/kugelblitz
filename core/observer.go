@@ -1,0 +1,36 @@
+package core
+
+import "context"
+
+// Observer is the top-level observability hook. Each Planner.Execute call
+// creates a new TraceSpan.
+type Observer interface {
+	StartTrace(ctx context.Context, name, goal string) (context.Context, TraceSpan)
+}
+
+// TraceSpan represents a single Planner execution.
+type TraceSpan interface {
+	StartSpan(name string, attrs map[string]any) Span
+	SetAttributes(attrs map[string]any)
+	End()
+}
+
+// Span represents a single operation within a trace (LLM call, tool call, etc.).
+type Span interface {
+	SetAttributes(attrs map[string]any)
+	RecordError(err error)
+	End()
+}
+
+// NoopObserver is a default observer that does nothing.
+type NoopObserver struct{}
+
+type noopSpan struct{}
+
+func (NoopObserver) StartTrace(ctx context.Context, name, goal string) (context.Context, TraceSpan) {
+	return ctx, &noopSpan{}
+}
+func (*noopSpan) StartSpan(_ string, _ map[string]any) Span { return &noopSpan{} }
+func (*noopSpan) SetAttributes(_ map[string]any)            {}
+func (*noopSpan) End()                                      {}
+func (*noopSpan) RecordError(_ error)                       {}
