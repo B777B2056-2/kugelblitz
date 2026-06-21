@@ -165,7 +165,7 @@ func TestRegisterAll_RegistersAllTools(t *testing.T) {
 	assert.True(t, names["file_copy"])
 	assert.True(t, names["dir_create"])
 	assert.True(t, names["dir_copy"])
-	assert.Len(t, names, 12)
+	assert.Len(t, names, 13)
 }
 
 // Compile-time checks

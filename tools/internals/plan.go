@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"kugelblitz/core"
 	"kugelblitz/persist"
@@ -50,6 +51,15 @@ type Plan struct {
 	CurrentActivateSubTaskIDs []string   `json:"current_active_subtask_ids"`
 	Status                    PlanStatus `json:"status"`
 	FinishedReson             string     `json:"finished_reason,omitempty"`
+	Version                   int        `json:"version"`
+}
+
+// Checkpoint is a versioned snapshot of a plan.
+type Checkpoint struct {
+	Version   int       `json:"version"`
+	Timestamp time.Time `json:"timestamp"`
+	Reason    string    `json:"reason"`
+	Plan      Plan      `json:"plan"`
 }
 
 // ---- In-memory store ----
@@ -66,11 +76,26 @@ func getPlan(id string) (*Plan, bool) {
 	return p, ok
 }
 
-func putPlan(p *Plan) {
+func putPlan(p *Plan)                         { putPlanWithReason(p, "") }
+func putPlanWithReason(p *Plan, reason string) { saveCheckpoint(p, reason) }
+
+func saveCheckpoint(p *Plan, reason string) {
+	p.Version++
+	cp := Checkpoint{
+		Version:   p.Version,
+		Timestamp: time.Now(),
+		Reason:    reason,
+		Plan:      *p,
+	}
+	cp.Plan.CurrentActivateSubTaskIDs = append([]string{}, cp.Plan.CurrentActivateSubTaskIDs...)
+	cp.Plan.SubTasks = append([]Task{}, cp.Plan.SubTasks...)
+
 	planStoreMu.Lock()
 	planStore[p.ID] = p
 	planStoreMu.Unlock()
+
 	p.Persist()
+	_ = persist.SaveCheckpointJSON(p.ID, p.Version, cp)
 }
 
 func listPlans() []*Plan {
@@ -150,7 +175,7 @@ func (t *PlanCreate) Execute(ctx context.Context, detail core.ToolCallDetail) co
 		Name:   name,
 		Status: PlanStatusInit,
 	}
-	putPlan(plan)
+	putPlanWithReason(plan, "plan_create")
 	return tools.SuccessResult(detail.ID, "plan_create", planToMap(plan))
 }
 
@@ -244,7 +269,7 @@ func (t *PlanStatusUpdate) Execute(ctx context.Context, detail core.ToolCallDeta
 		reason, _ := tools.Arg(detail, "reason")
 		plan.FinishedReson = reason
 	}
-	putPlan(plan)
+	putPlanWithReason(plan, "plan_status_update")
 	return tools.SuccessResult(detail.ID, "plan_status_update", map[string]any{
 		"plan_id": planID,
 		"status":  string(plan.Status),
@@ -321,7 +346,7 @@ func (t *TaskInsert) Execute(ctx context.Context, detail core.ToolCallDetail) co
 	}
 
 	plan.Status = PlanStatusUpdating
-	putPlan(plan)
+	putPlanWithReason(plan, "task_insert")
 	return tools.SuccessResult(detail.ID, "task_insert", map[string]any{
 		"task_id": task.ID,
 		"plan_id": planID,
@@ -369,7 +394,7 @@ func (t *TaskDelete) Execute(ctx context.Context, detail core.ToolCallDetail) co
 	plan.SubTasks = append(plan.SubTasks[:idx], plan.SubTasks[idx+1:]...)
 	plan.CurrentActivateSubTaskIDs = removeFromSlice(plan.CurrentActivateSubTaskIDs, taskID)
 	plan.Status = PlanStatusUpdating
-	putPlan(plan)
+	putPlanWithReason(plan, "task_delete")
 	return tools.SuccessResult(detail.ID, "task_delete", map[string]any{
 		"deleted": taskID,
 		"plan_id": plan.ID,
@@ -477,7 +502,7 @@ func (t *TaskStatusUpdate) Execute(ctx context.Context, detail core.ToolCallDeta
 	if status == string(TaskStatusDoing) {
 		plan.CurrentActivateSubTaskIDs = append(plan.CurrentActivateSubTaskIDs, taskID)
 	}
-	putPlan(plan)
+	putPlanWithReason(plan, "task_status_update")
 	return tools.SuccessResult(detail.ID, "task_status_update", map[string]any{
 		"task_id": taskID,
 		"status":  string(task.Status),
@@ -555,7 +580,7 @@ func (t *WorkerSpawn) Execute(ctx context.Context, detail core.ToolCallDetail) c
 	// Mark task as doing
 	task.Status = TaskStatusDoing
 	plan.CurrentActivateSubTaskIDs = append(plan.CurrentActivateSubTaskIDs, taskID)
-	putPlan(plan)
+	putPlanWithReason(plan, "worker_spawn_task_start")
 
 	// Execute via the injected worker
 	output, usage, err := workerFactory(task.Goal, task.Action)
@@ -568,7 +593,7 @@ func (t *WorkerSpawn) Execute(ctx context.Context, detail core.ToolCallDetail) c
 		task.FinishedReson = output
 	}
 	plan.CurrentActivateSubTaskIDs = removeFromSlice(plan.CurrentActivateSubTaskIDs, taskID)
-	putPlan(plan)
+	putPlanWithReason(plan, "worker_spawn_task_end")
 
 	// Serialize the updated task for the return value
 	taskMap := taskToMap(task)
@@ -606,8 +631,86 @@ func LoadPlan(planID string) (*Plan, error) {
 	if err := persist.LoadPlanJSON(planID, &p); err != nil {
 		return nil, err
 	}
-	putPlan(&p)
+	// Restore to memory without creating a new checkpoint
+	planStoreMu.Lock()
+	planStore[p.ID] = &p
+	planStoreMu.Unlock()
 	return &p, nil
+}
+
+// ---- PlanRollback ----
+
+type PlanRollback struct{}
+
+func (t *PlanRollback) Definition() core.ToolDefinition {
+	return core.ToolDefinition{
+		Name:        "plan_rollback",
+		Description: "Rollback a plan to a previous checkpoint. Omit version to rollback one step; specify a version number to jump further back. Each rollback creates a new checkpoint.",
+		JsonSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"plan_id": map[string]any{"type": "string", "description": "Plan ID to rollback"},
+				"version": map[string]any{"type": "integer", "description": "Target version (optional; defaults to current-1)"},
+			},
+			"required": []string{"plan_id", "version"},
+		},
+		OutputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"plan_id":      map[string]any{"type": "string", "description": "Plan ID"},
+				"from_version": map[string]any{"type": "integer", "description": "Version rolled back from"},
+				"to_version":   map[string]any{"type": "integer", "description": "Version rolled back to"},
+			},
+		},
+	}
+}
+
+func (t *PlanRollback) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+	planID, err := tools.Arg(detail, "plan_id")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "plan_rollback", err)
+	}
+
+	plan, found := getPlan(planID)
+	if !found {
+		return tools.ErrorResult(detail.ID, "plan_rollback", fmt.Errorf("plan not found: %s", planID))
+	}
+
+	fromVersion := plan.Version
+
+	var targetVersion int
+	if v, ok := detail.Args["version"].(float64); ok {
+		targetVersion = int(v)
+	} else if v, ok := detail.Args["version"].(int); ok {
+		targetVersion = v
+	} else {
+		targetVersion = fromVersion - 1 // default: rollback one step
+	}
+
+	if targetVersion < 1 || targetVersion >= fromVersion {
+		return tools.ErrorResult(detail.ID, "plan_rollback",
+			fmt.Errorf("version must be between 1 and %d", fromVersion-1))
+	}
+
+	// Load checkpoint and restore
+	var cp Checkpoint
+	if err := persist.LoadCheckpointJSON(planID, targetVersion, &cp); err != nil {
+		return tools.ErrorResult(detail.ID, "plan_rollback", err)
+	}
+
+	plan.Name = cp.Plan.Name
+	plan.SubTasks = cp.Plan.SubTasks
+	plan.CurrentActivateSubTaskIDs = cp.Plan.CurrentActivateSubTaskIDs
+	plan.Status = cp.Plan.Status
+	plan.FinishedReson = cp.Plan.FinishedReson
+
+	putPlanWithReason(plan, fmt.Sprintf("rollback from v%d to v%d", fromVersion, targetVersion))
+
+	return tools.SuccessResult(detail.ID, "plan_rollback", map[string]any{
+		"plan_id":      planID,
+		"from_version": fromVersion,
+		"to_version":   plan.Version,
+	})
 }
 
 // ---- Helpers ----

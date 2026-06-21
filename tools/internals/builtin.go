@@ -22,6 +22,7 @@ func All() []tools.Tool {
 		&TaskDelete{},
 		&TaskQuery{},
 		&TaskStatusUpdate{},
+		&PlanRollback{},
 	}
 }
 
