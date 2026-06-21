@@ -53,7 +53,15 @@ type Planner struct {
 	skillList        []*skills.Skill
 }
 
-func NewPlanner(provider core.ILMProvider, streamMode bool) *Planner {
+// PlannerOption configures a Planner at creation time.
+type PlannerOption func(*Planner)
+
+// WithCustomTools adds additional tool names to the Planner's ReAct agent.
+func WithCustomTools(names ...string) PlannerOption {
+	return func(p *Planner) { p.react.WithTools(names...) }
+}
+
+func NewPlanner(provider core.ILMProvider, streamMode bool, opts ...PlannerOption) *Planner {
 	internals.RegisterWorkerSpawn(func(goal, action string) (string, *core.Usage, error) {
 		worker := NewWorkerAgent(provider, streamMode, []string{
 			"file_read", "file_write", "file_copy",
@@ -143,6 +151,9 @@ Answer ONLY "YES" or "NO".`, oldVal, newVal)
 		return true
 	})
 
+	for _, opt := range opts {
+		opt(planner)
+	}
 	planner.ResumeIncomplete(context.Background())
 	return planner
 }
