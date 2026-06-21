@@ -23,7 +23,9 @@ const plannerSystemPrompt = `You are a Planner agent. Follow this workflow:
 
 Rules:
 - Always create a plan first. Never execute without a plan.
-- Only spawn ONE worker at a time via its task_id. Wait for it to finish.
+- When tasks are independent (different files, no shared state), spawn them together in one response. They execute concurrently.
+- When tasks depend on each other, execute sequentially -- wait for the first to finish before spawning the next.
+- Use task_query to verify task independence before parallel spawn.
 - worker_spawn handles all task lifecycle automatically.`
 
 type ReviewConfig struct {
