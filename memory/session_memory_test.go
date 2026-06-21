@@ -2,11 +2,11 @@ package memory
 
 import (
 	"context"
-	"os"
 	"sync"
 	"testing"
 
 	"kugelblitz/core"
+	"kugelblitz/persist"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -84,9 +84,9 @@ func TestDefaultCompressConfig(t *testing.T) {
 }
 
 func TestManager_ReloadAfterRestart(t *testing.T) {
-	oldDir := getPersistDir()
-	SetPersistDir(t.TempDir())
-	defer SetPersistDir(oldDir)
+	oldPM := persist.GetManager()
+	persist.SetManager(persist.NewFileManager(t.TempDir()))
+	defer persist.SetManager(oldPM)
 
 	// Simulate: create session, add messages, persist, then "restart"
 	mgr := GetSessionMemoryManager()
@@ -128,9 +128,9 @@ func TestManager_GetNonexistent(t *testing.T) {
 
 func TestPersistAndLoad_RoundTrip(t *testing.T) {
 	// Use temp dir to avoid cluttering project
-	oldDir := getPersistDir()
-	SetPersistDir(t.TempDir())
-	defer SetPersistDir(oldDir)
+	oldPM := persist.GetManager()
+	persist.SetManager(persist.NewFileManager(t.TempDir()))
+	defer persist.SetManager(oldPM)
 
 	mem := newSessionMemory("persist-test")
 	mem.AppendMessage(core.NewUserMessage("r", core.TextContent{Text: "hello"}))
@@ -152,9 +152,9 @@ func TestPersistAndLoad_RoundTrip(t *testing.T) {
 }
 
 func TestPersistAndLoad_FullFidelity(t *testing.T) {
-	oldDir := getPersistDir()
-	SetPersistDir(t.TempDir())
-	defer SetPersistDir(oldDir)
+	oldPM := persist.GetManager()
+	persist.SetManager(persist.NewFileManager(t.TempDir()))
+	defer persist.SetManager(oldPM)
 
 	mem := newSessionMemory("fidelity-test")
 
@@ -214,16 +214,16 @@ func TestPersistAndLoad_FullFidelity(t *testing.T) {
 }
 
 func TestPersist_ThenDeleteFile(t *testing.T) {
-	oldDir := getPersistDir()
-	SetPersistDir(t.TempDir())
-	defer SetPersistDir(oldDir)
+	oldPM := persist.GetManager()
+	persist.SetManager(persist.NewFileManager(t.TempDir()))
+	defer persist.SetManager(oldPM)
 
 	mem := newSessionMemory("tmp-session")
 	mem.AppendMessage(core.NewUserMessage("r", core.TextContent{Text: "hi"}))
 	require.NoError(t, mem.Persist())
 
-	// Remove the file
-	os.Remove(sessionFilePath("tmp-session"))
+	// Remove the persisted data
+	persist.GetManager().Delete("sessions/tmp-session")
 
 	loaded, err := LoadSessionMemory("tmp-session")
 	assert.NoError(t, err)

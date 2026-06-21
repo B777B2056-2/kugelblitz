@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"kugelblitz/core"
+	"kugelblitz/persist"
 	"kugelblitz/tools"
 	"kugelblitz/utils"
 )
@@ -67,8 +68,9 @@ func getPlan(id string) (*Plan, bool) {
 
 func putPlan(p *Plan) {
 	planStoreMu.Lock()
-	defer planStoreMu.Unlock()
 	planStore[p.ID] = p
+	planStoreMu.Unlock()
+	p.Persist()
 }
 
 func listPlans() []*Plan {
@@ -128,9 +130,9 @@ func (t *PlanCreate) Definition() core.ToolDefinition {
 		OutputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"id":      map[string]any{"type": "string", "description": "Plan ID"},
-				"name":    map[string]any{"type": "string", "description": "Plan name"},
-				"status":  map[string]any{"type": "string", "description": "init"},
+				"id":       map[string]any{"type": "string", "description": "Plan ID"},
+				"name":     map[string]any{"type": "string", "description": "Plan name"},
+				"status":   map[string]any{"type": "string", "description": "init"},
 				"subtasks": map[string]any{"type": "array", "description": "List of tasks (initially empty)"},
 			},
 		},
@@ -584,6 +586,28 @@ func (t *WorkerSpawn) Execute(ctx context.Context, detail core.ToolCallDetail) c
 		"task":   taskMap,
 		"output": output,
 	})
+}
+
+// ---- Plan persistence ----
+
+// IsIncomplete returns true if the plan needs resuming.
+func (p *Plan) IsIncomplete() bool {
+	return p.Status == PlanStatusInit || p.Status == PlanStatusDoing
+}
+
+// Persist delegates to the persist package.
+func (p *Plan) Persist() error {
+	return persist.SavePlanJSON(p.ID, p)
+}
+
+// LoadPlan loads and restores a plan from the persist package.
+func LoadPlan(planID string) (*Plan, error) {
+	var p Plan
+	if err := persist.LoadPlanJSON(planID, &p); err != nil {
+		return nil, err
+	}
+	putPlan(&p)
+	return &p, nil
 }
 
 // ---- Helpers ----

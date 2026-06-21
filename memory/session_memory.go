@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"kugelblitz/core"
+	"kugelblitz/persist"
 	"kugelblitz/utils"
 	"sync"
 )
@@ -105,6 +106,26 @@ func (s *SessionMemory) Compress(ctx context.Context, c *Compressor, cfg Compres
 
 	// Auto-persist: summaries are expensive (LLM call), don't lose them
 	return s.Persist()
+}
+
+// Persist saves the session to disk via the persist package.
+func (s *SessionMemory) Persist() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return persist.SaveSessionJSONL(s.sessionID, s.summary, s.historyMessages)
+}
+
+// LoadSessionMemory loads a session from disk.
+// Returns nil if the session file does not exist.
+func LoadSessionMemory(sessionID string) (*SessionMemory, error) {
+	summary, messages, err := persist.LoadSessionJSONL(sessionID)
+	if err != nil || (summary == "" && len(messages) == 0) {
+		return nil, err
+	}
+	mem := newSessionMemory(sessionID)
+	mem.summary = summary
+	mem.historyMessages = messages
+	return mem, nil
 }
 
 // ---- Manager ----

@@ -3,9 +3,11 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"kugelblitz/core"
 	"kugelblitz/memory"
+	"kugelblitz/persist"
 	"kugelblitz/tools/internals"
 )
 
@@ -38,6 +40,7 @@ type Planner struct {
 }
 
 // NewPlanner creates a Planner with session memory and automatic compression.
+// On creation, it scans for incomplete plans from a previous run and resumes them.
 func NewPlanner(provider core.ILMProvider, streamMode bool) *Planner {
 	internals.RegisterWorkerSpawn(func(goal, action string) (string, *core.Usage, error) {
 		worker := NewWorkerAgent(provider, streamMode, []string{
@@ -57,11 +60,13 @@ func NewPlanner(provider core.ILMProvider, streamMode bool) *Planner {
 	sessionID := memory.GetSessionMemoryManager().CreateSessionMemory()
 	mem, _ := memory.GetSessionMemoryManager().GetSessionMemory(sessionID)
 
-	return &Planner{
+	planner := &Planner{
 		react:      react,
 		mem:        mem,
 		compressor: memory.NewCompressor(provider),
 	}
+	planner.ResumeIncomplete(context.Background())
+	return planner
 }
 
 // SetThinking configures thinking mode for the underlying ReactAgent.
@@ -110,6 +115,38 @@ func (p *Planner) Execute(ctx context.Context, goal string) ([]core.Message, err
 	_ = p.mem.Persist()
 
 	return result, nil
+}
+
+// ResumeIncomplete scans all persisted plans and resumes any that are
+// in "init" or "doing" status. Call once at startup after NewPlanner.
+func (p *Planner) ResumeIncomplete(ctx context.Context) {
+	planIDs, err := persist.GetManager().ListPlans()
+	if err != nil {
+		return
+	}
+	for _, id := range planIDs {
+		plan, err := internals.LoadPlan(id)
+		if err != nil || !plan.IsIncomplete() {
+			continue
+		}
+		p.resume(ctx, id)
+	}
+}
+
+// resume loads a persisted plan and continues execution.
+func (p *Planner) resume(ctx context.Context, planID string) {
+	plan, err := internals.LoadPlan(planID)
+	if err != nil {
+		return
+	}
+	prompt := fmt.Sprintf(
+		`Resume the plan %q (id: %s). It is currently in status %q.
+Use plan_query to see the full state with all subtasks.
+Continue from where it left off — spawn workers for remaining pending tasks.
+When all tasks are done, call plan_status_update "done" and summarize.`,
+		plan.Name, plan.ID, plan.Status,
+	)
+	p.Execute(ctx, prompt)
 }
 
 // Interrupt signals the Planner to stop.

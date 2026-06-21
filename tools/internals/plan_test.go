@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"kugelblitz/core"
+	"kugelblitz/persist"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -172,6 +173,46 @@ func TestTaskStatusUpdate(t *testing.T) {
 	result := ts.Execute(context.Background(), core.ToolCallDetail{ID: "s1", Args: map[string]any{"task_id": taskID, "status": "doing"}})
 	assert.Nil(t, result.Outputs["error"])
 	assert.Equal(t, "doing", result.Outputs["status"])
+}
+
+func TestPlanPersistAndLoad(t *testing.T) {
+	resetStore()
+	oldPM := persist.GetManager()
+	persist.SetManager(persist.NewFileManager(t.TempDir()))
+	defer persist.SetManager(oldPM)
+
+	// Create a plan with tasks and persist
+	pc := &PlanCreate{}
+	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "Test"}})
+	planID := pres.Outputs["id"].(string)
+
+	ti := &TaskInsert{}
+	ires := ti.Execute(context.Background(), core.ToolCallDetail{ID: "i1", Args: map[string]any{"plan_id": planID, "goal": "do it", "action": "run"}})
+	taskID := ires.Outputs["task_id"].(string)
+
+	ts := &TaskStatusUpdate{}
+	ts.Execute(context.Background(), core.ToolCallDetail{ID: "s1", Args: map[string]any{"task_id": taskID, "status": "done", "reason": "completed"}})
+
+	// Verify persisted (check via PersistManager)
+	pm := persist.GetManager()
+	data, err := pm.LoadPlan(planID)
+	require.NoError(t, err)
+	require.NotEmpty(t, data)
+
+	// Simulate restart: clear in-memory store
+	planStoreMu.Lock()
+	planStore = make(map[string]*Plan)
+	planStoreMu.Unlock()
+
+	// Load from disk
+	loaded, err := LoadPlan(planID)
+	require.NoError(t, err)
+	require.NotNil(t, loaded)
+	assert.Equal(t, "Test", loaded.Name)
+	assert.Equal(t, PlanStatusUpdating, loaded.Status)
+	require.Len(t, loaded.SubTasks, 1)
+	assert.Equal(t, "done", string(loaded.SubTasks[0].Status))
+	assert.Equal(t, "completed", loaded.SubTasks[0].FinishedReson)
 }
 
 func TestWorkerSpawn_FactoryNotRegistered(t *testing.T) {
