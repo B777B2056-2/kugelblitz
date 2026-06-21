@@ -10,6 +10,7 @@ import (
 	"kugelblitz/core"
 	"kugelblitz/memory"
 	"kugelblitz/persist"
+	"kugelblitz/skills"
 	"kugelblitz/tools/internals"
 )
 
@@ -45,6 +46,9 @@ type Planner struct {
 	consecutiveFails int
 	enableThinking   *bool
 	reasoningEffort  string
+	skillTool        *internals.SkillUse
+	activeSkill      *skills.Skill
+	skillList        []*skills.Skill
 }
 
 func NewPlanner(provider core.ILMProvider, streamMode bool) *Planner {
@@ -61,6 +65,7 @@ func NewPlanner(provider core.ILMProvider, streamMode bool) *Planner {
 		"plan_create", "plan_query", "plan_status_update", "plan_rollback",
 		"task_insert", "task_delete", "task_query",
 		"memory_store", "memory_search", "memory_get_section",
+		"skill_use",
 		"worker_spawn",
 	)
 
@@ -69,6 +74,17 @@ func NewPlanner(provider core.ILMProvider, streamMode bool) *Planner {
 
 	ltm, _ := memory.NewLongTermMemory()
 	internals.RegisterMemoryTools(ltm)
+
+	// Load skills and register skill_use tool
+	activeSkill := &skills.Skill{}
+	skillNames, _ := skills.List()
+	skillList := make([]*skills.Skill, 0, len(skillNames))
+	for _, name := range skillNames {
+		if s, err := skills.Load(name); err == nil {
+			skillList = append(skillList, s)
+		}
+	}
+	skillTool := internals.RegisterSkillTool(skillList, activeSkill)
 
 	// Configure LLM-based semantic judge for memory conflict resolution
 	memory.SetSemanticJudge(func(oldVal, newVal string) bool {
@@ -97,6 +113,9 @@ Answer ONLY "YES" or "NO".`, oldVal, newVal)
 		compressor: memory.NewCompressor(provider),
 		reviewer:   NewReviewer(provider),
 		reviewCfg:  DefaultReviewConfig(),
+		skillTool:  skillTool,
+		activeSkill: activeSkill,
+		skillList:  skillList,
 	}
 
 	planner.react.SetOnToolResult(func(results []core.ToolCallResult, step int) bool {
@@ -142,13 +161,37 @@ func (p *Planner) Execute(ctx context.Context, goal string) ([]core.Message, err
 	p.goal = goal
 	history := p.mem.GetHistoryMessages()
 
-	// Build system prompt: agent context + planner instructions
+	// Build system prompt: agent context + skills + active skill + planner instructions
 	context := core.LoadAgentContext()
-	prompt := plannerSystemPrompt
+	var promptBuilder strings.Builder
 	if context != "" {
-		prompt = context + "\n\n" + prompt
+		promptBuilder.WriteString(context)
+		promptBuilder.WriteString("\n\n")
 	}
-	sysMsg := core.NewUserMessage("planner", core.TextContent{Text: prompt})
+	// Skill list
+	if len(p.skillList) > 0 {
+		var names []string
+		for _, s := range p.skillList {
+			desc := s.Description
+			if desc == "" {
+				desc = s.Name
+			}
+			names = append(names, fmt.Sprintf("- %s: %s", s.Name, desc))
+		}
+		promptBuilder.WriteString("Available skills (use skill_use to activate):\n")
+		promptBuilder.WriteString(strings.Join(names, "\n"))
+		promptBuilder.WriteString("\n\n")
+	}
+	// Active skill
+	if p.activeSkill.Name != "" {
+		promptBuilder.WriteString("Active skill: ")
+		promptBuilder.WriteString(p.activeSkill.Name)
+		promptBuilder.WriteString(" — ")
+		promptBuilder.WriteString(p.activeSkill.Prompt)
+		promptBuilder.WriteString("\n\n")
+	}
+	promptBuilder.WriteString(plannerSystemPrompt)
+	sysMsg := core.NewUserMessage("planner", core.TextContent{Text: promptBuilder.String()})
 	sysMsg.Role = "system"
 	userMsg := core.NewUserMessage("planner", core.TextContent{Text: goal})
 

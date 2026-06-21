@@ -51,6 +51,11 @@ func (w *Workspace) PlansDir() string {
 	return filepath.Join(w.Dir(), "plans")
 }
 
+// SkillsDir returns the skills subdirectory path.
+func (w *Workspace) SkillsDir() string {
+	return filepath.Join(w.Dir(), "skills")
+}
+
 // MemoryFile returns the MEMORY.md file path.
 func (w *Workspace) MemoryFile() string {
 	return filepath.Join(w.Dir(), "MEMORY.md")
