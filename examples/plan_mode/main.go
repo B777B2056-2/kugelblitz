@@ -1,10 +1,12 @@
 // Example: Planner agent with plan tools + worker_spawn.
+// Supports optional Langfuse observability.
 //
 // Usage:
 //
 //	go run . -apikey sk-xxx
 //	go run . -apikey sk-xxx -model deepseek-chat -thinking=false
 //	go run . -apikey sk-xxx -stream=false
+//	go run . -apikey sk-xxx -langfuse-host http://localhost:3000 -langfuse-pk pk-xxx -langfuse-sk sk-xxx
 package main
 
 import (
@@ -15,6 +17,7 @@ import (
 	"strings"
 
 	"kugelblitz/core"
+	"kugelblitz/observability"
 	"kugelblitz/provider"
 	"kugelblitz/runtime"
 )
@@ -25,18 +28,42 @@ func main() {
 	model := flag.String("model", "deepseek-v4-flash", "Model name")
 	enableThinking := flag.Bool("thinking", true, "Enable thinking mode")
 	streamMode := flag.Bool("stream", true, "Streaming output")
+
+	// Langfuse flags (all optional — observability is disabled unless all three are provided)
+	lfHost := flag.String("langfuse-host", "http://localhost:3000", "Langfuse host (e.g. http://localhost:3000)")
+	lfPK := flag.String("langfuse-pk", "", "Langfuse public key")
+	lfSK := flag.String("langfuse-sk", "", "Langfuse secret key")
 	flag.Parse()
 
 	if *apiKey == "" {
-		fmt.Fprintf(os.Stderr, "Usage: go run . -apikey <key> [-model deepseek-v4-flash] [-thinking=true] [-stream=true]\n")
+		fmt.Fprintf(os.Stderr, "Usage: go run . -apikey <key> [flags]\n")
+		fmt.Fprintf(os.Stderr, "  -langfuse-host  Langfuse host URL\n")
+		fmt.Fprintf(os.Stderr, "  -langfuse-pk    Langfuse public key\n")
+		fmt.Fprintf(os.Stderr, "  -langfuse-sk    Langfuse secret key\n")
 		os.Exit(1)
 	}
 
 	// ---- 2. Create provider ----
 	p := provider.DeepSeek(*apiKey, "https://api.deepseek.com", *model)
 
-	// ---- 3. Create Planner (auto-registers WorkerSpawn internally) ----
-	planner := runtime.NewPlanner(p, *streamMode)
+	// ---- 3. Observability (optional) ----
+	var opts []runtime.PlannerOption
+	var lfObs *observability.LangfuseObserver
+
+	if *lfHost != "" && *lfPK != "" && *lfSK != "" {
+		lfObs = observability.NewLangfuseObserver(observability.LangfuseConfig{
+			Host:      *lfHost,
+			PublicKey: *lfPK,
+			SecretKey: *lfSK,
+		})
+		opts = append(opts, runtime.WithObserver(lfObs))
+		fmt.Printf("Langfuse: %s\n", *lfHost)
+	} else {
+		fmt.Println("Langfuse: disabled (pass -langfuse-host, -langfuse-pk, -langfuse-sk to enable)")
+	}
+
+	// ---- 4. Create Planner ----
+	planner := runtime.NewPlanner(p, *streamMode, opts...)
 	if *enableThinking {
 		planner.SetThinking(true, core.ReasoningEffortHigh)
 	}
@@ -76,13 +103,21 @@ func main() {
 		}
 	}
 	fmt.Println("\n═══════════════════════════════════════════")
+
+	// ---- 6. Flush Langfuse ----
+	if lfObs != nil {
+		fmt.Println("Flushing traces to Langfuse...")
+		if err := lfObs.Flush(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "langfuse flush: %v\n", err)
+		}
+	}
 }
 
 // consoleHandler prints streaming chunks in real time.
 type consoleHandler struct{}
 
-func (h *consoleHandler) OnThinkingChunk(chunk string)  { fmt.Print(chunk) }
-func (h *consoleHandler) OnReplyChunk(chunk string)     { fmt.Print(chunk) }
+func (h *consoleHandler) OnThinkingChunk(chunk string) { fmt.Print(chunk) }
+func (h *consoleHandler) OnReplyChunk(chunk string)    { fmt.Print(chunk) }
 func (h *consoleHandler) OnFunctionCall(d core.ToolCallDetail) {
 	fmt.Printf("\n┌─ [call] %s\n", d.ToolName)
 	for k, v := range d.Args {

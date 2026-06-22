@@ -16,6 +16,7 @@ type ReviewResult struct {
 	Drift      bool
 	Reason     string
 	Suggestion string
+	Usage      *core.Usage // token usage from the review LLM call
 }
 
 func NewReviewer(provider core.ILMProvider) *Reviewer {
@@ -58,7 +59,11 @@ You MUST call reviewer_report with your assessment.`, originalGoal, planSummary,
 
 	result, err := r.provider.Generate(ctx, params)
 	if err != nil {
-		return ReviewResult{Drift: false, Reason: "reviewer error: " + err.Error()}
+		var usage *core.Usage
+		if result != nil {
+			usage = result.Usage
+		}
+		return ReviewResult{Drift: false, Reason: "reviewer error: " + err.Error(), Usage: usage}
 	}
 
 	if tc, ok := result.Content.(core.ToolCallContent); ok {
@@ -67,10 +72,10 @@ You MUST call reviewer_report with your assessment.`, originalGoal, planSummary,
 				drift, _ := d.Args["drift"].(bool)
 				reason, _ := d.Args["reason"].(string)
 				suggestion, _ := d.Args["suggestion"].(string)
-				return ReviewResult{Drift: drift, Reason: reason, Suggestion: suggestion}
+				return ReviewResult{Drift: drift, Reason: reason, Suggestion: suggestion, Usage: result.Usage}
 			}
 		}
 	}
 
-	return ReviewResult{Drift: false, Reason: "no reviewer_report call received"}
+	return ReviewResult{Drift: false, Reason: "no reviewer_report call received", Usage: result.Usage}
 }

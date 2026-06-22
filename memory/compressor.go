@@ -20,9 +20,9 @@ func NewCompressor(provider core.ILMProvider) *Compressor {
 	return &Compressor{provider: provider}
 }
 
-// Summarize sends messages to the LLM and returns a summary string.
+// Summarize sends messages to the LLM and returns a summary string and token usage.
 // existingSummary is a prior summary to carry forward (may be empty).
-func (c *Compressor) Summarize(ctx context.Context, messages []core.Message, existingSummary string) (string, error) {
+func (c *Compressor) Summarize(ctx context.Context, messages []core.Message, existingSummary string) (string, *core.Usage, error) {
 	prompt := buildSummarizePrompt(messages, existingSummary)
 
 	userMsg := core.NewUserMessage("compressor", core.TextContent{Text: prompt})
@@ -33,13 +33,13 @@ func (c *Compressor) Summarize(ctx context.Context, messages []core.Message, exi
 
 	result, err := c.provider.Generate(ctx, params)
 	if err != nil {
-		return "", fmt.Errorf("compressor: generate: %w", err)
+		return "", nil, fmt.Errorf("compressor: generate: %w", err)
 	}
 
 	if tc, ok := result.Content.(core.TextContent); ok {
-		return tc.Text, nil
+		return tc.Text, result.Usage, nil
 	}
-	return "", fmt.Errorf("compressor: unexpected response type: %T", result.Content)
+	return "", result.Usage, fmt.Errorf("compressor: unexpected response type: %T", result.Content)
 }
 
 // buildSummarizePrompt creates a prompt asking the LLM to produce a unified,

@@ -46,6 +46,16 @@ func newSessionMemory(sessionID string) *SessionMemory {
 	}
 }
 
+// SessionID returns the unique identifier for this session.
+func (s *SessionMemory) SessionID() string { return s.sessionID }
+
+// Summary returns the current compression summary (empty if never compressed).
+func (s *SessionMemory) Summary() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.summary
+}
+
 func (s *SessionMemory) AppendMessages(messages []core.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -77,14 +87,14 @@ func (s *SessionMemory) GetHistoryMessages() []core.Message {
 
 // Compress delegates to a Compressor to summarize old messages and
 // replaces them with a compact summary. Recent messages (last KeepLastN)
-// are preserved.
-func (s *SessionMemory) Compress(ctx context.Context, c *Compressor, cfg CompressConfig) error {
+// are preserved. Returns the LLM token usage from the summarization call.
+func (s *SessionMemory) Compress(ctx context.Context, c *Compressor, cfg CompressConfig) (*core.Usage, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	total := len(s.historyMessages)
 	if total <= cfg.KeepLastN {
-		return nil
+		return nil, nil
 	}
 
 	splitAt := total - cfg.KeepLastN
@@ -92,12 +102,12 @@ func (s *SessionMemory) Compress(ctx context.Context, c *Compressor, cfg Compres
 	recent := s.historyMessages[splitAt:]
 
 	if len(old) < cfg.MinMessagesToCompress {
-		return nil
+		return nil, nil
 	}
 
-	newSummary, err := c.Summarize(ctx, old, s.summary)
+	newSummary, usage, err := c.Summarize(ctx, old, s.summary)
 	if err != nil {
-		return fmt.Errorf("compress: %w", err)
+		return usage, fmt.Errorf("compress: %w", err)
 	}
 
 	s.summary = newSummary // already consolidated by the LLM
@@ -105,7 +115,7 @@ func (s *SessionMemory) Compress(ctx context.Context, c *Compressor, cfg Compres
 	copy(s.historyMessages, recent)
 
 	// Auto-persist: summaries are expensive (LLM call), don't lose them
-	return s.Persist()
+	return usage, s.Persist()
 }
 
 // Persist saves the session to disk via the persist package.

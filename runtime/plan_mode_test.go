@@ -398,3 +398,86 @@ func TestPlanner_OnToolResult_AccumulatesFails(t *testing.T) {
 	assert.Equal(t, 0, planner.consecutiveFails)
 }
 
+
+func TestPlanner_LLMUsageCallback_NilSafe(t *testing.T) {
+	provider := &mockProvider{
+		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			msg := core.NewAssistantMessage("m", core.TextContent{Text: "done"})
+			return &msg, nil
+		},
+	}
+	planner := NewPlanner(provider, false) // no callback
+	msgs, err := planner.Execute(context.Background(), "test")
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+}
+
+func TestPlanner_LLMUsageCallback_FiresWithIdentity(t *testing.T) {
+	core.GetToolRegistry().Reset()
+
+	var reports []core.LLMUsageReport
+	callCount := 0
+	provider := &mockProvider{
+		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			callCount++
+			if callCount <= 1 {
+				msg := core.NewAssistantMessage("m", core.ToolCallContent{
+					Details: []core.ToolCallDetail{{ID: "t1", ToolName: "test_tool"}},
+				})
+				msg.Usage = &core.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15}
+				return &msg, nil
+			}
+			msg := core.NewAssistantMessage("m", core.TextContent{Text: "final"})
+			return &msg, nil
+		},
+	}
+
+	core.RegisterTool(core.ToolDefinition{Name: "test_tool"},
+		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+			return core.ToolCallResult{ToolCallID: detail.ID, Outputs: map[string]any{"ok": true}}
+		})
+
+	planner := NewPlanner(provider, false,
+		WithLLMUsageCallback(func(report core.LLMUsageReport) {
+			reports = append(reports, report)
+		}),
+	)
+	_, err := planner.Execute(context.Background(), "test")
+	require.NoError(t, err)
+
+	require.Len(t, reports, 1, "1 step with tool calls = 1 callback")
+	assert.Equal(t, "planner.step-1", reports[0].Identity)
+	// Usage is 0 because the mock doesn't go through the real Format layer
+	// which calls OnUsageUpdated. With a real provider, this would be non-zero.
+	assert.Equal(t, int64(0), reports[0].Usage.InputTokens)
+}
+
+func TestPlanner_LLMUsageCallback_NoCallback_NoPanic(t *testing.T) {
+	core.GetToolRegistry().Reset()
+
+	callCount := 0
+	provider := &mockProvider{
+		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			callCount++
+			if callCount <= 1 {
+				msg := core.NewAssistantMessage("m", core.ToolCallContent{
+					Details: []core.ToolCallDetail{{ID: "t1", ToolName: "test_tool"}},
+				})
+				return &msg, nil
+			}
+			msg := core.NewAssistantMessage("m", core.TextContent{Text: "done"})
+			return &msg, nil
+		},
+	}
+
+	core.RegisterTool(core.ToolDefinition{Name: "test_tool"},
+		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+			return core.ToolCallResult{ToolCallID: detail.ID, Outputs: map[string]any{"ok": true}}
+		})
+
+	// No callback registered — should not panic
+	planner := NewPlanner(provider, false)
+	msgs, err := planner.Execute(context.Background(), "test")
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(msgs), 1)
+}

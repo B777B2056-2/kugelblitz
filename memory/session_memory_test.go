@@ -55,7 +55,7 @@ func TestSessionMemory_Compress_NoopWhenFewMessages(t *testing.T) {
 	mem.AppendMessage(core.NewUserMessage("r", core.TextContent{Text: "only one"}))
 
 	// Compressor is nil — but Compress should return early (total <= KeepLastN)
-	err := mem.Compress(context.Background(), nil, CompressConfig{
+	_, err := mem.Compress(context.Background(), nil, CompressConfig{
 		KeepLastN:             10,
 		MinMessagesToCompress: 5,
 	})
@@ -69,7 +69,7 @@ func TestSessionMemory_Compress_NoopWhenOldTooFew(t *testing.T) {
 	}
 
 	// 12 total, KeepLastN=10 → 2 old, MinMessagesToCompress=5 → skip
-	err := mem.Compress(context.Background(), nil, CompressConfig{
+	_, err := mem.Compress(context.Background(), nil, CompressConfig{
 		KeepLastN:             10,
 		MinMessagesToCompress: 5,
 	})

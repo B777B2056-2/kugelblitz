@@ -9,6 +9,7 @@ import (
 
 	"kugelblitz/core"
 	"kugelblitz/memory"
+	"kugelblitz/observability"
 	"kugelblitz/persist"
 	"kugelblitz/skills"
 	"kugelblitz/tools/internals"
@@ -52,6 +53,9 @@ type Planner struct {
 	activeSkill      *skills.Skill
 	skillList        []*skills.Skill
 	obs              core.Observer
+	currentTrace     core.TraceSpan
+	instr            *observability.PlannerInstrument
+	onLLMUsage       func(core.LLMUsageReport)
 }
 
 // PlannerOption configures a Planner at creation time.
@@ -64,7 +68,17 @@ func WithCustomTools(names ...string) PlannerOption {
 
 // WithObserver sets the observability observer for tracing Planner execution.
 func WithObserver(obs core.Observer) PlannerOption {
-	return func(p *Planner) { p.obs = obs }
+	return func(p *Planner) {
+		p.obs = obs
+		p.instr = observability.NewPlannerInstrument(nil) // trace set in Execute
+	}
+}
+
+// WithLLMUsageCallback registers a callback that fires for every LLM call
+// made during planner execution (main loop, compressor, reviewer, workers).
+// The report Identity field distinguishes the source.
+func WithLLMUsageCallback(fn func(core.LLMUsageReport)) PlannerOption {
+	return func(p *Planner) { p.onLLMUsage = fn }
 }
 
 func NewPlanner(provider core.ILMProvider, streamMode bool, opts ...PlannerOption) *Planner {
@@ -123,12 +137,12 @@ Answer ONLY "YES" or "NO".`, oldVal, newVal)
 	})
 
 	planner := &Planner{
-		react:      react,
-		mem:        mem,
-		ltm:        ltm,
-		compressor: memory.NewCompressor(provider),
-		reviewer:   NewReviewer(provider),
-		reviewCfg:  DefaultReviewConfig(),
+		react:       react,
+		mem:         mem,
+		ltm:         ltm,
+		compressor:  memory.NewCompressor(provider),
+		reviewer:    NewReviewer(provider),
+		reviewCfg:   DefaultReviewConfig(),
 		skillTool:   skillTool,
 		activeSkill: activeSkill,
 		skillList:   skillList,
@@ -136,6 +150,35 @@ Answer ONLY "YES" or "NO".`, oldVal, newVal)
 	}
 
 	planner.react.SetOnToolResult(func(results []core.ToolCallResult, step int) bool {
+		// Capture LLM usage before StepSpan (it resets internal accumulators)
+		var stepUsage core.Usage
+		if planner.instr != nil {
+			stepUsage = planner.instr.LastUsage()
+			sp := planner.instr.StepSpan(step, results)
+			sp.End()
+		}
+		// Fire usage callback for this planner step (always, even without instr)
+		planner.fireLLMUsage(core.LLMUsageReport{
+			Identity: fmt.Sprintf("planner.step-%d", step),
+			Usage:    stepUsage,
+		})
+
+		// Fire usage callback for worker spawn results
+		for _, r := range results {
+			if task, ok := r.Outputs["task"].(map[string]any); ok {
+				if um, ok := task["usage"].(map[string]any); ok {
+					planner.fireLLMUsage(core.LLMUsageReport{
+						Identity: fmt.Sprintf("worker.%v", task["id"]),
+						Usage: core.Usage{
+							InputTokens:  toInt64(um["input"]),
+							OutputTokens: toInt64(um["output"]),
+							TotalTokens:  toInt64(um["total"]),
+						},
+					})
+				}
+			}
+		}
+
 		hasFailure := false
 		for _, r := range results {
 			if _, isErr := r.Outputs["error"]; isErr {
@@ -169,6 +212,14 @@ func (p *Planner) SetThinking(enabled bool, effort string) {
 	p.react.SetThinking(enabled, effort)
 }
 
+func (p *Planner) GetObserver() core.Observer { return p.obs }
+
+func (p *Planner) fireLLMUsage(report core.LLMUsageReport) {
+	if p.onLLMUsage != nil {
+		p.onLLMUsage(report)
+	}
+}
+
 func (p *Planner) SetReviewConfig(cfg ReviewConfig) {
 	p.reviewCfg = cfg
 }
@@ -179,8 +230,33 @@ func (p *Planner) RegisterEventHooks(hooks core.AgentEventHooks) {
 
 func (p *Planner) Execute(ctx context.Context, goal string) ([]core.Message, error) {
 	p.goal = goal
-	ctx, trace := p.obs.StartTrace(ctx, "planner.execute", goal)
-	defer trace.End()
+
+	traceName := p.mem.SessionID()
+
+	var result []core.Message
+	ctx, p.currentTrace = p.obs.StartTrace(ctx, traceName, goal)
+	defer func() {
+		if p.instr != nil {
+			p.instr.Flush()
+		}
+		// Capture output from the last assistant message
+		if len(result) > 0 {
+			if tc, ok := result[len(result)-1].Content.(core.TextContent); ok && tc.Text != "" {
+				output := tc.Text
+				if len(output) > 200 {
+					output = output[:200] + "..."
+				}
+				p.currentTrace.SetAttributes(map[string]any{"output": output})
+			}
+		}
+		p.currentTrace.End()
+	}()
+
+	// Wire PlanckInstrument to this trace
+	if p.instr != nil {
+		p.instr.SetTrace(p.currentTrace)
+		p.react.eventHooks.ModelEventHandler = p.instr.EventHandler()
+	}
 
 	history := p.mem.GetHistoryMessages()
 
@@ -218,10 +294,35 @@ func (p *Planner) Execute(ctx context.Context, goal string) ([]core.Message, err
 	sysMsg.Role = "system"
 	userMsg := core.NewUserMessage("planner", core.TextContent{Text: goal})
 
-	result, err := p.react.Execute(ctx, sysMsg, append(history, userMsg))
+	var err error
+	result, err = p.react.Execute(ctx, sysMsg, append(history, userMsg))
 	if errors.Is(err, core.ErrContextLengthExceeded) {
-		p.mem.Compress(ctx, p.compressor, memory.CompressConfig{KeepLastN: 4, MinMessagesToCompress: 1})
+		historyBefore := len(p.mem.GetHistoryMessages())
+		oldSummary := p.mem.Summary()
+
+		compSpan := p.currentTrace.StartSpan("context.compress", map[string]any{
+			"messages_before": historyBefore,
+			"prior_summary":   oldSummary,
+		})
+		compressUsage, _ := p.mem.Compress(ctx, p.compressor, memory.CompressConfig{KeepLastN: 4, MinMessagesToCompress: 1})
 		history = p.mem.GetHistoryMessages()
+		compSpan.SetAttributes(map[string]any{
+			"output":          p.mem.Summary(),
+			"messages_after":  len(history),
+			"messages_before": historyBefore,
+		})
+		if compressUsage != nil {
+			compSpan.SetAttributes(map[string]any{
+				"tokens_in":    compressUsage.InputTokens,
+				"tokens_out":   compressUsage.OutputTokens,
+				"tokens_total": compressUsage.TotalTokens,
+			})
+			p.fireLLMUsage(core.LLMUsageReport{
+				Identity: "compressor",
+				Usage:    *compressUsage,
+			})
+		}
+		compSpan.End()
 		p.maybeReview(ctx, "context exceeded - aggressive compress", goal)
 		result, err = p.react.Execute(ctx, sysMsg, append(history, userMsg))
 	}
@@ -251,6 +352,28 @@ func (p *Planner) maybeReview(ctx context.Context, trigger, goalOverride string)
 		summary := fmt.Sprintf("Plan %q (v%d, status=%s), %d tasks, trigger: %s",
 			plan.Name, plan.Version, plan.Status, len(plan.SubTasks), trigger)
 		result := p.reviewer.Review(ctx, goalOverride, summary, trigger)
+		// Record review LLM call
+		if result.Usage != nil {
+			p.fireLLMUsage(core.LLMUsageReport{
+				Identity: "reviewer",
+				Usage:    *result.Usage,
+			})
+		}
+		if p.currentTrace != nil {
+			reviewSpan := p.currentTrace.StartSpan("reviewer.check", map[string]any{
+				"input": summary,
+			})
+			if result.Usage != nil {
+				reviewSpan.SetAttributes(map[string]any{
+					"output":       result.Reason,
+					"drift":        result.Drift,
+					"tokens_in":    result.Usage.InputTokens,
+					"tokens_out":   result.Usage.OutputTokens,
+					"tokens_total": result.Usage.TotalTokens,
+				})
+			}
+			reviewSpan.End()
+		}
 		if result.Drift {
 			p.replan(plan)
 		}
@@ -376,4 +499,16 @@ When all tasks are done, call plan_status_update "done" and summarize.`,
 
 func (p *Planner) Interrupt(ctx context.Context) error {
 	return p.react.Interrupt(ctx)
+}
+
+func toInt64(v any) int64 {
+	switch n := v.(type) {
+	case float64:
+		return int64(n)
+	case int:
+		return int64(n)
+	case int64:
+		return n
+	}
+	return 0
 }

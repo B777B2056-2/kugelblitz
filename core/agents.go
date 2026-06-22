@@ -9,6 +9,13 @@ type AgentEventHooks struct {
 	OnToolCallEnd func(toolCallResult ToolCallResult)
 }
 
+// LLMUsageReport is sent to the Planner's usage callback for every LLM call
+// made during execution, regardless of source (main loop, compressor, reviewer, worker).
+type LLMUsageReport struct {
+	Identity string // "planner.step-1", "compressor", "reviewer", "worker.<taskID>"
+	Usage    Usage
+}
+
 // IAgent is the interface all agents must implement.
 type IAgent interface {
 	RegisterEventHooks(hooks AgentEventHooks)

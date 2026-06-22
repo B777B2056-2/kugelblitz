@@ -10,13 +10,14 @@ type Observer interface {
 
 // TraceSpan represents a single Planner execution.
 type TraceSpan interface {
-	StartSpan(name string, attrs map[string]any) Span
-	SetAttributes(attrs map[string]any)
-	End()
+	Span
 }
 
 // Span represents a single operation within a trace (LLM call, tool call, etc.).
+// Spans can be nested: StartSpan/StartGeneration create child observations.
 type Span interface {
+	StartSpan(name string, attrs map[string]any) Span
+	StartGeneration(attrs map[string]any) Span
 	SetAttributes(attrs map[string]any)
 	RecordError(err error)
 	End()
@@ -30,7 +31,8 @@ type noopSpan struct{}
 func (NoopObserver) StartTrace(ctx context.Context, name, goal string) (context.Context, TraceSpan) {
 	return ctx, &noopSpan{}
 }
-func (*noopSpan) StartSpan(_ string, _ map[string]any) Span { return &noopSpan{} }
-func (*noopSpan) SetAttributes(_ map[string]any)            {}
-func (*noopSpan) End()                                      {}
-func (*noopSpan) RecordError(_ error)                       {}
+func (*noopSpan) StartSpan(_ string, _ map[string]any) Span   { return &noopSpan{} }
+func (*noopSpan) StartGeneration(_ map[string]any) Span       { return &noopSpan{} }
+func (*noopSpan) SetAttributes(_ map[string]any)              {}
+func (*noopSpan) End()                                        {}
+func (*noopSpan) RecordError(_ error)                         {}
