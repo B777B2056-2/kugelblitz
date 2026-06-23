@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core"
 )
 
 // WorkerAgent is a lightweight agent that executes a single task with a

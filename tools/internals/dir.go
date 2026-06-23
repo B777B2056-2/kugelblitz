@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"kugelblitz/core"
-	"kugelblitz/tools"
+	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
 // DirCreate creates a directory (including parent directories).

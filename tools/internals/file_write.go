@@ -4,8 +4,8 @@ import (
 	"context"
 	"os"
 
-	"kugelblitz/core"
-	"kugelblitz/tools"
+	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
 // FileWrite writes content to a file, creating it if it doesn't exist.

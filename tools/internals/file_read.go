@@ -4,8 +4,8 @@ import (
 	"context"
 	"os"
 
-	"kugelblitz/core"
-	"kugelblitz/tools"
+	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
 // FileRead reads the contents of a file.

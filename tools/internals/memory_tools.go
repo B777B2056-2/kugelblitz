@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"kugelblitz/core"
-	"kugelblitz/memory"
-	"kugelblitz/tools"
+	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/memory"
+	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
 func RegisterMemoryTools(ltm *memory.LongTermMemory) {

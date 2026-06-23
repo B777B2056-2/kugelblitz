@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"kugelblitz/core"
-	"kugelblitz/skills"
+	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/skills"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

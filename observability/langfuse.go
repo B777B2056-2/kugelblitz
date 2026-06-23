@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core"
 )
 
 // LangfuseConfig holds connection parameters for a Langfuse instance.

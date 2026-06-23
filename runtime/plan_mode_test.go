@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"kugelblitz/core"
-	"kugelblitz/persist"
-	"kugelblitz/tools/internals"
+	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/persist"
+	"github.com/B777B2056-2/kugelblitz/tools/internals"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

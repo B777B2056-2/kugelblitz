@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 
-	"kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core"
 )
 
 // Provider combines a provider configuration with an API format to implement

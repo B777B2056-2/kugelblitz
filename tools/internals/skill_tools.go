@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"kugelblitz/core"
-	"kugelblitz/skills"
-	"kugelblitz/tools"
+	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/skills"
+	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
 // SkillUse activates a skill by name. The active skill's prompt is injected

@@ -1,7 +1,7 @@
 package provider
 
 import (
-	"kugelblitz/provider/chat_completions"
+	"github.com/B777B2056-2/kugelblitz/provider/chat_completions"
 )
 
 const openaiBaseURL = "https://api.openai.com/v1"

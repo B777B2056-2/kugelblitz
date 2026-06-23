@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core"
 )
 
 // Manager orchestrates persistence of domain objects (Plans, Sessions).

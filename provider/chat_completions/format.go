@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"

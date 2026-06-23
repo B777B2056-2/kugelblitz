@@ -3,8 +3,8 @@ package provider
 import (
 	"context"
 
-	"kugelblitz/core"
-	"kugelblitz/provider/chat_completions"
+	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/provider/chat_completions"
 
 	"github.com/openai/openai-go/v3/shared"
 )

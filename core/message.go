@@ -3,8 +3,8 @@ package core
 import (
 	"encoding/json"
 
-	"kugelblitz/constants"
-	"kugelblitz/utils"
+	"github.com/B777B2056-2/kugelblitz/constants"
+	"github.com/B777B2056-2/kugelblitz/utils"
 )
 
 // Usage tracks token usage for a provider response.

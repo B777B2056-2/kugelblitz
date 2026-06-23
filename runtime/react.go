@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core"
 )
 
 // OnToolResult is called after each tool execution in the ReAct loop.

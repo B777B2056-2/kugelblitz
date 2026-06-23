@@ -3,7 +3,7 @@ package internals
 import (
 	"path/filepath"
 
-	"kugelblitz/tools"
+	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
 // All returns all built-in tools. Call RegisterAll at startup to make them

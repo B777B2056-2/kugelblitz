@@ -2,7 +2,7 @@
 
 [中文](README_zh.md)
 
-A lightweight, modular **Agent Harness** for Go — scaffolding, lifecycle management,
+A lightweight, modular **Harness Agent** for Go — scaffolding, lifecycle management,
 and observability infrastructure that surrounds and orchestrates LLM-powered agents.
 
 ## Features

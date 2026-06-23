@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core"
 
 	"gopkg.in/yaml.v3"
 )

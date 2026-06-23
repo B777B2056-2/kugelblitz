@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"strings"
 
-	"kugelblitz/core"
-	"kugelblitz/memory"
-	"kugelblitz/observability"
-	"kugelblitz/persist"
-	"kugelblitz/skills"
-	"kugelblitz/tools/internals"
+	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/memory"
+	"github.com/B777B2056-2/kugelblitz/observability"
+	"github.com/B777B2056-2/kugelblitz/persist"
+	"github.com/B777B2056-2/kugelblitz/skills"
+	"github.com/B777B2056-2/kugelblitz/tools/internals"
 )
 
 const plannerSystemPrompt = `You are a Planner agent. Follow this workflow:

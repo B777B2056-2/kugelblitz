@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core"
 )
 
 // Compressor handles conversation summarization via an LLM provider.

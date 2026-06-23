@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core"
 )
 
 // ---- JSONL event format ----

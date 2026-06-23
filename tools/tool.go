@@ -3,7 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
-	"kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core"
 )
 
 // Tool is the abstract interface for all tools.

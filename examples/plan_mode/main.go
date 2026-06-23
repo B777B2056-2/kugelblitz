@@ -16,10 +16,10 @@ import (
 	"os"
 	"strings"
 
-	"kugelblitz/core"
-	"kugelblitz/observability"
-	"kugelblitz/provider"
-	"kugelblitz/runtime"
+	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/observability"
+	"github.com/B777B2056-2/kugelblitz/provider"
+	"github.com/B777B2056-2/kugelblitz/runtime"
 )
 
 func main() {

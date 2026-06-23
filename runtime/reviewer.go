@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core"
 )
 
 // Reviewer checks for goal drift using a dedicated tool call.

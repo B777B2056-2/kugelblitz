@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"kugelblitz/constants"
-	"kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/constants"
+	"github.com/B777B2056-2/kugelblitz/core"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/stretchr/testify/assert"

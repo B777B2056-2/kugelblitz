@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"kugelblitz/core"
-	"kugelblitz/persist"
-	"kugelblitz/utils"
+	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/persist"
+	"github.com/B777B2056-2/kugelblitz/utils"
 	"sync"
 )
 

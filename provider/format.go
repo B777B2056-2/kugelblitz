@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 
-	"kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core"
 )
 
 // APIFormat abstracts a specific API wire protocol (Chat Completions, Responses, etc.).

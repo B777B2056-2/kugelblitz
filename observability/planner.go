@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core"
 )
 
 // PlannerInstrument collects LLM call data via ModelEventHandler callbacks.

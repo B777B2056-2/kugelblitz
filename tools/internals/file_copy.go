@@ -6,8 +6,8 @@ import (
 	"io"
 	"os"
 
-	"kugelblitz/core"
-	"kugelblitz/tools"
+	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
 // FileCopy copies or moves a file from source to destination.

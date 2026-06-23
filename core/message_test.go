@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"kugelblitz/constants"
+	"github.com/B777B2056-2/kugelblitz/constants"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

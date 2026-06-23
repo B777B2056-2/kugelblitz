@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

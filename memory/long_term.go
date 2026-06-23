@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core"
 )
 
 // Fact is a single versioned entry in long-term memory.

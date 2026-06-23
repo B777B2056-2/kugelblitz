@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-轻量、模块化的 **Agent Harness**（Go 语言）—— 提供 LLM Agent 运行所需的脚手架、
+轻量、模块化的 **Harness Agent**—— 提供 Agent 运行所需的脚手架、
 生命周期管理和可观测性基础设施。
 
 ## 核心特性

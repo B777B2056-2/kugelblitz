@@ -18,11 +18,11 @@ import (
 	"strings"
 	"time"
 
-	"kugelblitz/core"
-	"kugelblitz/provider"
-	"kugelblitz/runtime"
+	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/provider"
+	"github.com/B777B2056-2/kugelblitz/runtime"
 
-	_ "kugelblitz/tools/internals" // auto-register built-in tools
+	_ "github.com/B777B2056-2/kugelblitz/tools/internals" // auto-register built-in tools
 )
 
 func main() {

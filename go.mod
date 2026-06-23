@@ -1,4 +1,4 @@
-module kugelblitz
+module github.com/B777B2056-2/kugelblitz
 
 go 1.26.1
 

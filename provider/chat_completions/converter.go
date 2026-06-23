@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"kugelblitz/constants"
-	"kugelblitz/core"
-	"kugelblitz/utils"
+	"github.com/B777B2056-2/kugelblitz/constants"
+	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/utils"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/param"
