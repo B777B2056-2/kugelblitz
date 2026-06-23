@@ -14,6 +14,7 @@ and observability infrastructure that surrounds and orchestrates LLM-powered age
 - **Long-Term Memory** — semantic deduplication via LLM judge
 - **Goal-Drift Review** — periodic alignment check, automatic replan on drift
 - **Skills** — pluggable domain-knowledge modules
+- **Built-in Web Tools** — `web_search` (DuckDuckGo, zero-config) + `web_fetch` (HTML → Markdown, optional JS rendering)
 - **Langfuse Observability** — full trace / span / generation hierarchy out of the box
 - **Unified Usage Callback** — single callback for all LLM token consumption,
   tagged by source identity (planner, compressor, reviewer, worker)
@@ -66,9 +67,9 @@ import (
     "context"
     "fmt"
 
-    "kugelblitz/core"
-    "kugelblitz/provider"
-    "kugelblitz/runtime"
+    "github.com/B777B2056-2/kugelblitz/core"
+    "github.com/B777B2056-2/kugelblitz/provider"
+    "github.com/B777B2056-2/kugelblitz/runtime"
 )
 
 func main() {
@@ -127,6 +128,27 @@ tasks are independent.
 Skills are pluggable YAML/SKILL.md modules that inject domain knowledge into the
 Planner's system prompt. Activate a skill via `skill_use` and the harness
 automatically loads its instructions and tool definitions.
+
+### Web Tools
+
+Built-in tools that give agents internet access — register with a single call:
+
+```go
+internals.RegisterWebTools(nil) // DuckDuckGo (free, no API key)
+```
+
+**`web_search`** — search the web via DuckDuckGo with zero configuration.
+Returns structured results (title, URL, snippet). Supports custom backends
+(e.g. Brave Search) via the `SearchBackend` interface.
+
+**`web_fetch`** — fetch a URL and convert it to clean Markdown using
+`html-to-markdown`. Scripts, styles, and navigation are automatically stripped.
+Set `render_js: true` to render SPAs with a headless browser before extraction.
+
+```
+web_search (query, limit?)  → {query, results[{title, url, snippet}]}
+web_fetch  (url, render_js?) → {url, title, markdown}
+```
 
 ## Harness — Self‑Healing & Drift Prevention
 
@@ -195,6 +217,27 @@ planner.SetReviewConfig(runtime.ReviewConfig{
     FailuresBeforeReview: 3,  // review after 3 consecutive failures
 })
 ```
+
+### Tool Result Compression
+
+When a tool returns a large string value (e.g. `file_read` of a 10000-line file,
+or `web_fetch` of a long page), the harness **automatically compresses** that field
+via the LLM before it enters the conversation context — preventing token waste and
+context overflow.
+
+- **Per-field** — only individual string values that exceed the threshold are
+  compressed; other fields (paths, numbers, booleans, short strings) stay intact.
+- **Error-safe** — results containing an `error` key are never compressed.
+- **Configurable** — threshold is set via `WithMaxToolResultChars` (default 4000 UTF-8 chars, 0 = disable).
+
+```go
+planner := runtime.NewPlanner(p, true,
+    runtime.WithMaxToolResultChars(2000), // compress strings > 2000 chars
+)
+```
+
+Compressed fields are replaced in-place within `Outputs`, so the Planner sees
+the summarized version while the tool span in Langfuse still records the original.
 
 ### Harness Flow Summary
 

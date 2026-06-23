@@ -14,6 +14,7 @@
 - **长期记忆** — 语义去重，LLM 裁判解决冲突
 - **目标漂移检测** — 定期审查，偏离目标时自动回滚
 - **Skills 插件** — 可插拔的领域知识模块
+- **内置 Web 工具** — `web_search`（DuckDuckGo 零配置）+ `web_fetch`（HTML → Markdown，可选动态渲染）
 - **Langfuse 可观测性** — 完整 trace / span / generation 层级开箱即用
 - **统一 Usage 回调** — 所有 LLM 调用的 token 消耗通过单一回调上报，按来源标识
 
@@ -65,9 +66,9 @@ import (
     "context"
     "fmt"
 
-    "kugelblitz/core"
-    "kugelblitz/provider"
-    "kugelblitz/runtime"
+    "github.com/B777B2056-2/kugelblitz/core"
+    "github.com/B777B2056-2/kugelblitz/provider"
+    "github.com/B777B2056-2/kugelblitz/runtime"
 )
 
 func main() {
@@ -121,6 +122,25 @@ Planner 通过 `worker_spawn` 创建 Worker，独立任务**并发执行**。
 
 Skills 是可插拔的 YAML/SKILL.md 模块，激活后自动注入 Planner 的系统提示词。
 通过 `skill_use` 工具激活，底座自动加载其指令和工具定义。
+
+### 网络工具
+
+内置互联网访问工具，一行注册即可使用：
+
+```go
+internals.RegisterWebTools(nil) // DuckDuckGo（免费，无需 API Key）
+```
+
+**`web_search`** — 通过 DuckDuckGo 搜索网页，零配置。返回结构化结果
+（标题、URL、摘要）。可通过 `SearchBackend` 接口接入自定义后端（如 Brave Search）。
+
+**`web_fetch`** — 抓取网页并转换为干净的 Markdown，自动去除 script/style/导航栏。
+设置 `render_js: true` 可使用无头浏览器渲染 SPA 后再提取。
+
+```
+web_search (query, limit?)   → {query, results[{title, url, snippet}]}
+web_fetch  (url, render_js?) → {url, title, markdown}
+```
 
 ## Harness — 自愈 & 纠偏
 
@@ -184,6 +204,24 @@ planner.SetReviewConfig(runtime.ReviewConfig{
     FailuresBeforeReview: 3,  // 连续失败 3 次也触发审查
 })
 ```
+
+### 工具结果压缩
+
+当工具返回超长字符串值（如 `file_read` 读了 1 万行文件、`web_fetch` 抓了长网页），
+底座**自动将该字段用 LLM 压缩**再注入对话上下文 — 避免浪费 token 和溢出上下文窗口。
+
+- **按字段压缩** — 仅对超过阈值的单个字符串 value 压缩；路径、数字、布尔、短字符串原样保留。
+- **错误安全** — 包含 `error` 字段的结果整体跳过。
+- **可配置** — 阈值通过 `WithMaxToolResultChars` 设置（默认 4000 个 UTF-8 字符，0 禁用）。
+
+```go
+planner := runtime.NewPlanner(p, true,
+    runtime.WithMaxToolResultChars(2000), // 字符串超过 2000 字符则压缩
+)
+```
+
+压缩后的值直接替换 Outputs 中的原字段，Planner 看到的是摘要，
+而 Langfuse 中的工具 span 仍保留原始记录。
 
 ### Harness 流程总览
 
