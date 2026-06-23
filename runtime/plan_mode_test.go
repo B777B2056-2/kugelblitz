@@ -481,3 +481,130 @@ func TestPlanner_LLMUsageCallback_NoCallback_NoPanic(t *testing.T) {
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(msgs), 1)
 }
+
+func TestCompressToolResults_ShortStringUnchanged(t *testing.T) {
+	provider := &mockProvider{
+		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			return nil, nil
+		},
+	}
+	planner := NewPlanner(provider, false, WithMaxToolResultChars(4000))
+
+	results := []core.ToolCallResult{
+		{ToolCallID: "1", ToolName: "test", Outputs: map[string]any{
+			"text": "short string",
+			"num":  42,
+		}},
+	}
+	planner.compressToolResults(context.Background(), results)
+
+	assert.Equal(t, "short string", results[0].Outputs["text"],
+		"short string should not be compressed")
+	assert.Equal(t, 42, results[0].Outputs["num"],
+		"non-string value should be untouched")
+}
+
+func TestCompressToolResults_LongStringCompressed(t *testing.T) {
+	provider := &mockProvider{
+		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			msg := core.NewAssistantMessage("m", core.TextContent{Text: "compressed summary"})
+			return &msg, nil
+		},
+	}
+	planner := NewPlanner(provider, false, WithMaxToolResultChars(50))
+
+	// Build a string > 50 chars
+	longText := strings.Repeat("abcdefghij", 10) // 100 chars
+
+	results := []core.ToolCallResult{
+		{ToolCallID: "1", ToolName: "file_read", Outputs: map[string]any{
+			"content": longText,
+			"path":    "/short.txt",
+		}},
+	}
+	planner.compressToolResults(context.Background(), results)
+
+	assert.Equal(t, "compressed summary", results[0].Outputs["content"],
+		"long string should be compressed")
+	assert.Equal(t, "/short.txt", results[0].Outputs["path"],
+		"short string should stay unchanged")
+}
+
+func TestCompressToolResults_SkipsErrors(t *testing.T) {
+	provider := &mockProvider{
+		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			return nil, nil
+		},
+	}
+	planner := NewPlanner(provider, false, WithMaxToolResultChars(10))
+
+	longText := strings.Repeat("x", 100)
+	results := []core.ToolCallResult{
+		{ToolCallID: "1", ToolName: "test", Outputs: map[string]any{
+			"error":   "something went wrong",
+			"details": longText,
+		}},
+	}
+	planner.compressToolResults(context.Background(), results)
+
+	// Error results should not be touched at all
+	assert.Equal(t, "something went wrong", results[0].Outputs["error"],
+		"error field should not be compressed")
+	assert.Equal(t, longText, results[0].Outputs["details"],
+		"details in error result should not be compressed")
+}
+
+func TestCompressToolResults_DisabledWhenZero(t *testing.T) {
+	provider := &mockProvider{
+		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			// Should never be called
+			t.Error("provider should not be called when compression is disabled")
+			return nil, nil
+		},
+	}
+	planner := NewPlanner(provider, false, WithMaxToolResultChars(0))
+
+	longText := strings.Repeat("x", 10000)
+	results := []core.ToolCallResult{
+		{ToolCallID: "1", ToolName: "test", Outputs: map[string]any{
+			"content": longText,
+		}},
+	}
+	planner.compressToolResults(context.Background(), results)
+
+	assert.Equal(t, longText, results[0].Outputs["content"],
+		"nothing should be compressed when maxToolResultChars is 0")
+}
+
+func TestCompressToolResults_MultipleFields(t *testing.T) {
+	provider := &mockProvider{
+		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			msg := core.NewAssistantMessage("m", core.TextContent{Text: "summary"})
+			return &msg, nil
+		},
+	}
+	planner := NewPlanner(provider, false, WithMaxToolResultChars(20))
+
+	long1 := strings.Repeat("a", 100)
+	long2 := strings.Repeat("b", 200)
+	short := "hi"
+
+	results := []core.ToolCallResult{
+		{ToolCallID: "1", ToolName: "test", Outputs: map[string]any{
+			"field_a": long1,
+			"field_b": long2,
+			"field_c": short,
+			"flag":    true,
+			"count":   float64(99),
+		}},
+	}
+	planner.compressToolResults(context.Background(), results)
+
+	// Both long string fields should be compressed to the same summary
+	assert.Equal(t, "summary", results[0].Outputs["field_a"])
+	assert.Equal(t, "summary", results[0].Outputs["field_b"])
+	// Short and non-string fields untouched
+	assert.Equal(t, short, results[0].Outputs["field_c"])
+	assert.Equal(t, true, results[0].Outputs["flag"])
+	assert.Equal(t, float64(99), results[0].Outputs["count"])
+}

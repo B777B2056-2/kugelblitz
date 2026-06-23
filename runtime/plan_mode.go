@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/memory"
@@ -30,13 +31,17 @@ Rules:
 - worker_spawn handles all task lifecycle automatically.`
 
 type ReviewConfig struct {
-	FailuresBeforeReview int
-	ReActStepInterval    int
+	FailuresBeforeReview  int
+	ReActStepInterval     int
+	MaxToolResultChars    int // 0 = no limit; >0 = compress tool results exceeding this many UTF-8 chars
 }
 
 func DefaultReviewConfig() ReviewConfig {
 	return ReviewConfig{FailuresBeforeReview: 3, ReActStepInterval: 8}
 }
+
+// DefaultMaxToolResultChars is the default threshold for tool result compression.
+const DefaultMaxToolResultChars = 4000
 
 type Planner struct {
 	react            *ReactAgent
@@ -56,6 +61,7 @@ type Planner struct {
 	currentTrace     core.TraceSpan
 	instr            *observability.PlannerInstrument
 	onLLMUsage       func(core.LLMUsageReport)
+	maxToolResultChars int
 }
 
 // PlannerOption configures a Planner at creation time.
@@ -79,6 +85,13 @@ func WithObserver(obs core.Observer) PlannerOption {
 // The report Identity field distinguishes the source.
 func WithLLMUsageCallback(fn func(core.LLMUsageReport)) PlannerOption {
 	return func(p *Planner) { p.onLLMUsage = fn }
+}
+
+// WithMaxToolResultChars sets the UTF-8 character threshold for tool result compression.
+// When a tool result exceeds this length, the harness compresses it via the LLM before
+// injecting it into the conversation context. Set to 0 to disable (default: 4000).
+func WithMaxToolResultChars(n int) PlannerOption {
+	return func(p *Planner) { p.maxToolResultChars = n }
 }
 
 func NewPlanner(provider core.ILMProvider, streamMode bool, opts ...PlannerOption) *Planner {
@@ -137,19 +150,23 @@ Answer ONLY "YES" or "NO".`, oldVal, newVal)
 	})
 
 	planner := &Planner{
-		react:       react,
-		mem:         mem,
-		ltm:         ltm,
-		compressor:  memory.NewCompressor(provider),
-		reviewer:    NewReviewer(provider),
-		reviewCfg:   DefaultReviewConfig(),
-		skillTool:   skillTool,
-		activeSkill: activeSkill,
-		skillList:   skillList,
-		obs:         core.NoopObserver{},
+		react:              react,
+		mem:                mem,
+		ltm:                ltm,
+		compressor:         memory.NewCompressor(provider),
+		reviewer:           NewReviewer(provider),
+		reviewCfg:          DefaultReviewConfig(),
+		skillTool:          skillTool,
+		activeSkill:        activeSkill,
+		skillList:          skillList,
+		obs:                core.NoopObserver{},
+		maxToolResultChars: DefaultMaxToolResultChars,
 	}
 
 	planner.react.SetOnToolResult(func(results []core.ToolCallResult, step int) bool {
+		// Compress oversized tool results before they enter context
+		planner.compressToolResults(context.Background(), results)
+
 		// Capture LLM usage before StepSpan (it resets internal accumulators)
 		var stepUsage core.Usage
 		if planner.instr != nil {
@@ -218,6 +235,61 @@ func (p *Planner) fireLLMUsage(report core.LLMUsageReport) {
 	if p.onLLMUsage != nil {
 		p.onLLMUsage(report)
 	}
+}
+
+// compressToolResults compresses individual string values in tool result Outputs
+// that exceed maxToolResultChars. Non-string fields and shorter values are left as-is.
+func (p *Planner) compressToolResults(ctx context.Context, results []core.ToolCallResult) {
+	if p.maxToolResultChars <= 0 {
+		return
+	}
+	for i := range results {
+		r := &results[i]
+		if _, isErr := r.Outputs["error"]; isErr {
+			continue // don't compress error messages
+		}
+		for k, v := range r.Outputs {
+			s, ok := v.(string)
+			if !ok {
+				continue // only compress string values
+			}
+			if utf8.RuneCountInString(s) <= p.maxToolResultChars {
+				continue
+			}
+			summary, err := p.summarizeToolResult(ctx, r.ToolName, k, s)
+			if err != nil {
+				continue // leave original in place on error
+			}
+			r.Outputs[k] = summary
+		}
+	}
+}
+
+// summarizeToolResult asks the LLM to produce a concise summary of a large string field.
+func (p *Planner) summarizeToolResult(ctx context.Context, toolName, fieldKey, raw string) (string, error) {
+	prompt := fmt.Sprintf(
+		`Summarize this tool result field. Keep key facts, IDs, file paths, error messages, and numbers.
+Be concise but don't drop critical data. Output ONLY the summary, no preamble.
+
+Tool: %s
+Field: %s
+Original length: %d chars
+
+Content:
+%s`, toolName, fieldKey, utf8.RuneCountInString(raw), raw)
+
+	msg := core.NewUserMessage("tool-compressor", core.TextContent{Text: prompt})
+	resp, err := p.reviewer.provider.Generate(ctx, core.GenerateParams{
+		Messages: []core.Message{msg},
+		Stream:   false,
+	})
+	if err != nil {
+		return "", err
+	}
+	if tc, ok := resp.Content.(core.TextContent); ok {
+		return strings.TrimSpace(tc.Text), nil
+	}
+	return "", fmt.Errorf("unexpected response type: %T", resp.Content)
 }
 
 func (p *Planner) SetReviewConfig(cfg ReviewConfig) {
@@ -353,12 +425,6 @@ func (p *Planner) maybeReview(ctx context.Context, trigger, goalOverride string)
 			plan.Name, plan.Version, plan.Status, len(plan.SubTasks), trigger)
 		result := p.reviewer.Review(ctx, goalOverride, summary, trigger)
 		// Record review LLM call
-		if result.Usage != nil {
-			p.fireLLMUsage(core.LLMUsageReport{
-				Identity: "reviewer",
-				Usage:    *result.Usage,
-			})
-		}
 		if p.currentTrace != nil {
 			reviewSpan := p.currentTrace.StartSpan("reviewer.check", map[string]any{
 				"input": summary,
@@ -370,6 +436,10 @@ func (p *Planner) maybeReview(ctx context.Context, trigger, goalOverride string)
 					"tokens_in":    result.Usage.InputTokens,
 					"tokens_out":   result.Usage.OutputTokens,
 					"tokens_total": result.Usage.TotalTokens,
+				})
+				p.fireLLMUsage(core.LLMUsageReport{
+					Identity: "reviewer",
+					Usage:    *result.Usage,
 				})
 			}
 			reviewSpan.End()
