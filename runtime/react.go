@@ -2,14 +2,26 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/tools/internals"
 )
 
 // OnToolResult is called after each tool execution in the ReAct loop.
 // step = current loop iteration count. Return false to abort the loop.
 type OnToolResult func(results []core.ToolCallResult, step int) bool
+
+// humanLoopState groups all human-in-the-loop state into a single struct.
+// It is nil when HITL is not enabled.
+type humanLoopState struct {
+	localTools map[string]core.ToolCallFunc   // instance‑local tools (e.g. ask_human)
+	localDefs  map[string]core.ToolDefinition // definitions for local tools
+	responseCh chan string                    // buffers one human response
+	isWaiting  atomic.Bool                    // true while WaitForHuman is blocking
+}
 
 type ReactAgent struct {
 	provider        core.ILMProvider
@@ -22,6 +34,7 @@ type ReactAgent struct {
 	toolNames       []string     // nil=all tools; non-nil=whitelist
 	stepCount       int          // ReAct loop iterations
 	onToolResult    OnToolResult // per-tool-execution callback
+	humanLoop       *humanLoopState
 }
 
 func NewReactAgent(provider core.ILMProvider, streamMode bool) *ReactAgent {
@@ -124,7 +137,7 @@ func extractToolCalls(content core.Content) []core.ToolCallDetail {
 
 func (a *ReactAgent) executeTools(ctx context.Context, details []core.ToolCallDetail) []core.ToolCallResult {
 	if len(details) == 1 {
-		result := a.toolRegistry.Call(ctx, details[0])
+		result := a.callTool(ctx, details[0])
 		if a.eventHooks.OnToolCallEnd != nil {
 			a.eventHooks.OnToolCallEnd(result)
 		}
@@ -139,7 +152,7 @@ func (a *ReactAgent) executeTools(ctx context.Context, details []core.ToolCallDe
 		wg.Add(1)
 		go func(idx int, d core.ToolCallDetail) {
 			defer wg.Done()
-			result := a.toolRegistry.Call(ctx, d)
+			result := a.callTool(ctx, d)
 			results[idx] = result
 			if a.eventHooks.OnToolCallEnd != nil {
 				cbMu.Lock()
@@ -155,6 +168,12 @@ func (a *ReactAgent) executeTools(ctx context.Context, details []core.ToolCallDe
 
 func (a *ReactAgent) visibleTools() []core.ToolDefinition {
 	all := a.toolRegistry.ListDefinitions()
+	// Append local tool definitions
+	if a.humanLoop != nil {
+		for _, def := range a.humanLoop.localDefs {
+			all = append(all, def)
+		}
+	}
 	if a.toolNames == nil {
 		return all
 	}
@@ -177,4 +196,80 @@ func (a *ReactAgent) Interrupt(ctx context.Context) error {
 	default:
 	}
 	return nil
+}
+
+// EnableHumanInTheLoop activates human-in-the-loop support by registering the
+// ask_human tool locally on this agent. Must be called before Execute.
+func (a *ReactAgent) EnableHumanInTheLoop() *ReactAgent {
+	if a.humanLoop != nil {
+		return a // already enabled
+	}
+	a.humanLoop = &humanLoopState{
+		localTools: make(map[string]core.ToolCallFunc),
+		localDefs:  make(map[string]core.ToolDefinition),
+		responseCh: make(chan string, 1),
+	}
+	a.registerLocalAskHuman()
+	return a
+}
+
+func (a *ReactAgent) registerLocalAskHuman() {
+	askTool := &internals.AskHumanTool{Gate: a}
+	def := askTool.Definition()
+	a.humanLoop.localDefs[def.Name] = def
+	a.humanLoop.localTools[def.Name] = askTool.Execute
+}
+
+// WaitForHuman implements core.HumanGate. It fires OnWaitForHumanAction and
+// blocks until ResumeWithHumanResponse is called or ctx is cancelled.
+func (a *ReactAgent) WaitForHuman(ctx context.Context, reason, prompt string) (string, error) {
+	if a.humanLoop == nil {
+		return "", fmt.Errorf("human-in-the-loop not enabled")
+	}
+	if a.eventHooks.OnWaitForHumanAction != nil {
+		a.eventHooks.OnWaitForHumanAction(reason, prompt)
+	}
+	a.humanLoop.isWaiting.Store(true)
+	defer a.humanLoop.isWaiting.Store(false)
+
+	select {
+	case response := <-a.humanLoop.responseCh:
+		return response, nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+// ResumeWithHumanResponse unblocks a pending WaitForHuman call with the given
+// response. It returns an error if HITL is not enabled or the agent is not
+// currently waiting.
+func (a *ReactAgent) ResumeWithHumanResponse(ctx context.Context, response string) error {
+	if a.humanLoop == nil {
+		return fmt.Errorf("human-in-the-loop not enabled")
+	}
+	if !a.humanLoop.isWaiting.Load() {
+		return fmt.Errorf("agent is not waiting for human input")
+	}
+	select {
+	case a.humanLoop.responseCh <- response:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// HumanLoopWaiting reports whether the agent is currently blocked in
+// WaitForHuman, waiting for a human response via ResumeWithHumanResponse.
+func (a *ReactAgent) HumanLoopWaiting() bool {
+	return a.humanLoop != nil && a.humanLoop.isWaiting.Load()
+}
+
+// callTool resolves a tool call: local tools first, then the global registry.
+func (a *ReactAgent) callTool(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+	if a.humanLoop != nil {
+		if fn, ok := a.humanLoop.localTools[detail.ToolName]; ok {
+			return fn(ctx, detail)
+		}
+	}
+	return a.toolRegistry.Call(ctx, detail)
 }

@@ -15,6 +15,8 @@ and observability infrastructure that surrounds and orchestrates LLM-powered age
 - **Goal-Drift Review** — periodic alignment check, automatic replan on drift
 - **Skills** — pluggable domain-knowledge modules
 - **Built-in Web Tools** — `web_search` (DuckDuckGo, zero-config) + `web_fetch` (HTML → Markdown, optional JS rendering)
+- **Human-in-the-Loop** — agent can pause to consult a human, resume via
+  `OnWaitForHumanAction` callback + `ResumeWithHumanResponse`
 - **Langfuse Observability** — full trace / span / generation hierarchy out of the box
 - **Unified Usage Callback** — single callback for all LLM token consumption,
   tagged by source identity (planner, compressor, reviewer, worker)
@@ -149,6 +151,95 @@ Set `render_js: true` to render SPAs with a headless browser before extraction.
 web_search (query, limit?)  → {query, results[{title, url, snippet}]}
 web_fetch  (url, render_js?) → {url, title, markdown}
 ```
+
+## Human-in-the-Loop
+
+The harness supports **agent-initiated pause for human consultation** — the agent
+calls the built-in `ask_human` tool, which blocks the ReAct loop until a human
+responds via `ResumeWithHumanResponse`.
+
+### How It Works
+
+```
+ReAct Loop
+  │
+  ├── think → call tool A
+  ├── think → call tool B
+  ├── think → call ask_human(question="Delete this file?", reason="need approval")
+  │           │
+  │           ├─ fires OnWaitForHumanAction callback  ← notify external system
+  │           ├─ blocks waiting for human...           ← pause point
+  │           │     ↑
+  │           │     │ ResumeWithHumanResponse(ctx, "yes, delete")
+  │           │
+  │           └─ returns {"response":"yes, delete"} to LLM
+  │
+  ├── think → call tool C (acts on human response)
+  └── final result
+```
+
+### Core API
+
+| API | Description |
+|------|-------------|
+| `core.HumanGate` | `WaitForHuman(ctx, reason, prompt) (string, error)` — interface tools call to pause |
+| `OnWaitForHumanAction(reason, prompt)` | `AgentEventHooks` callback fired when agent enters waiting state |
+| `agent.EnableHumanInTheLoop()` | Enables HITL, registers `ask_human` as a local tool |
+| `agent.HumanLoopWaiting() bool` | Reports whether agent is currently waiting |
+| `agent.ResumeWithHumanResponse(ctx, reply)` | Injects human response to unblock |
+
+### Design Decisions
+
+- **Zero changes to `ToolCallResult`** — pause mechanism is entirely encapsulated within the tool's `Execute`
+- **Zero changes to `Interrupt`** — `Interrupt()` only manages `abortSignal`; pause is cancelled via context
+- **Local tool registration** — `ask_human` is registered per-agent, not globally, holding a reference to the agent's `HumanGate`
+- **Planner / Worker default** — enabled by default in `NewPlanner` and `NewWorkerAgent`
+
+### Example
+
+```go
+agent := runtime.NewReactAgent(p, true)
+agent.EnableHumanInTheLoop()
+
+waitSig := make(chan struct{}, 1)
+agent.RegisterEventHooks(core.AgentEventHooks{
+    OnWaitForHumanAction: func(reason, prompt string) {
+        fmt.Printf("🤖 Agent asks: %s\n", prompt)
+        waitSig <- struct{}{}
+    },
+})
+
+ctx, cancel := context.WithCancel(context.Background())
+go func() { agent.Execute(ctx, sysMsg, userMsgs); cancel() }()
+
+for {
+    select {
+    case <-waitSig:
+        var reply string
+        fmt.Scanln(&reply)
+        agent.ResumeWithHumanResponse(ctx, reply)
+    case <-ctx.Done():
+        return
+    }
+}
+```
+
+Full example at [examples/human_in_the_loop/](examples/human_in_the_loop/).
+
+## Agent Context Files
+
+On startup, the harness auto-loads files from `~/.kugelblitz/` and injects them
+into the system prompt:
+
+| File | Purpose |
+|------|---------|
+| `AGENTS.md` | Agent capabilities declaration |
+| `IDENTITY.md` | Agent identity definition |
+| `SOUL.md` | Agent personality / tone |
+| `USER.md` | User preferences / profile |
+
+Missing or empty files are silently skipped. This is **zero-code agent customization** —
+drop files into the workspace directory to change agent behavior.
 
 ## Harness — Self‑Healing & Drift Prevention
 
@@ -344,7 +435,8 @@ kugelblitz/
 ├── persist/           # Plan checkpoint JSON, session JSONL
 ├── utils/             # UUID generation, session IDs
 └── examples/
-    ├── plan_mode/     # Full Planner demo
-    ├── react/         # Standalone ReAct agent
-    └── drift_demo/    # Drift detection demo
+    ├── plan_mode/            # Full Planner demo
+    ├── react/                # Standalone ReAct agent
+    ├── drift_demo/           # Drift detection demo
+    └── human_in_the_loop/    # Human-in-the-loop demo
 ```

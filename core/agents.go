@@ -6,7 +6,8 @@ import "context"
 // ModelEventHandler is embedded for model response callbacks.
 type AgentEventHooks struct {
 	ModelEventHandler
-	OnToolCallEnd func(toolCallResult ToolCallResult)
+	OnToolCallEnd        func(toolCallResult ToolCallResult)
+	OnWaitForHumanAction func(reason string, prompt string)
 }
 
 // LLMUsageReport is sent to the Planner's usage callback for every LLM call
@@ -21,4 +22,5 @@ type IAgent interface {
 	RegisterEventHooks(hooks AgentEventHooks)
 	Execute(ctx context.Context, systemMessage Message, userMessages []Message) (assistantMessages []Message, err error)
 	Interrupt(ctx context.Context) error
+	ResumeWithHumanResponse(ctx context.Context, response string) error
 }

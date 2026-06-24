@@ -92,6 +92,8 @@ func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (str
 	// Create a temporary ReactAgent for this task
 	agent := NewReactAgent(w.provider, w.streamMode)
 	agent.WithTools(w.toolNames...)
+	agent.WithTools("ask_human")
+	agent.EnableHumanInTheLoop()
 	agent.RegisterEventHooks(core.AgentEventHooks{
 		ModelEventHandler: handler,
 		OnToolCallEnd: func(r core.ToolCallResult) {

@@ -15,6 +15,7 @@
 - **目标漂移检测** — 定期审查，偏离目标时自动回滚
 - **Skills 插件** — 可插拔的领域知识模块
 - **内置 Web 工具** — `web_search`（DuckDuckGo 零配置）+ `web_fetch`（HTML → Markdown，可选动态渲染）
+- **人在回路** — agent 可主动暂停征询人类意见，通过 `OnWaitForHumanAction` 回调 + `ResumeWithHumanResponse` 恢复
 - **Langfuse 可观测性** — 完整 trace / span / generation 层级开箱即用
 - **统一 Usage 回调** — 所有 LLM 调用的 token 消耗通过单一回调上报，按来源标识
 
@@ -141,6 +142,92 @@ internals.RegisterWebTools(nil) // DuckDuckGo（免费，无需 API Key）
 web_search (query, limit?)   → {query, results[{title, url, snippet}]}
 web_fetch  (url, render_js?) → {url, title, markdown}
 ```
+
+## 人在回路 (Human-in-the-Loop)
+
+底座支持 **agent 主动暂停执行，征询人类意见，待回复后继续**。通过内置的 `ask_human` 工具实现，对 LLM 来说它只是一个普通的工具调用——但执行时会阻塞整个 ReAct 循环直到人类回复。
+
+### 机制原理
+
+```
+ReAct 循环
+  │
+  ├── 思考 → 调用工具 A
+  ├── 思考 → 调用工具 B
+  ├── 思考 → 调用 ask_human(question="要删除这个文件吗?", reason="需确认")
+  │           │
+  │           ├─ 触发 OnWaitForHumanAction 回调  ← 通知外部（微信/UI/控制台）
+  │           ├─ 阻塞等待人类回复...              ← 暂停点
+  │           │     ↑
+  │           │     │ ResumeWithHumanResponse(ctx, "同意删除")
+  │           │     │
+  │           └─ 收到回复，返回 {"response":"同意删除"} 给 LLM
+  │
+  ├── 思考 → 调用 tool_C（根据人类回复继续）
+  └── 返回最终结果
+```
+
+### 核心接口
+
+| 接口 | 说明 |
+|------|------|
+| `core.HumanGate` | `WaitForHuman(ctx, reason, prompt) (string, error)` — tool 通过此接口触发暂停 |
+| `OnWaitForHumanAction(reason, prompt)` | `AgentEventHooks` 回调：进入等待状态时触发 |
+| `agent.EnableHumanInTheLoop()` | 启用 HITL，注册 `ask_human` 本地工具 |
+| `agent.HumanLoopWaiting() bool` | 查询是否正在等待 |
+| `agent.ResumeWithHumanResponse(ctx, reply)` | 注入人类回复，解除阻塞 |
+
+### 关键设计
+
+- **对 LLM 透明** — `ask_human` 和普通工具完全一致：有 tool definition、有 tool result、`OnToolCallEnd` 回调正常触发
+- **`ToolCallResult` 零改动** — 暂停机制完全封装在工具执行内部，不侵入任何现有类型
+- **`Interrupt` 零改动** — `Interrupt()` 只管理 `abortSignal`；暂停通过 context 取消解除
+- **本地工具注册** — `ask_human` 不在全局注册表，而是每个 agent 实例独立注册，持有对该 agent 的 `HumanGate` 引用
+- **Planner / Worker 默认启用** — `NewPlanner` 和 `NewWorkerAgent` 自动注册 `ask_human`，开箱即用
+
+### 示例
+
+```go
+agent := runtime.NewReactAgent(p, true)
+agent.EnableHumanInTheLoop()
+
+waitSig := make(chan struct{}, 1)
+agent.RegisterEventHooks(core.AgentEventHooks{
+    OnWaitForHumanAction: func(reason, prompt string) {
+        fmt.Printf("🤖 Agent asks: %s\n", prompt)
+        waitSig <- struct{}{}
+    },
+})
+
+ctx, cancel := context.WithCancel(context.Background())
+go func() { agent.Execute(ctx, sysMsg, userMsgs); cancel() }()
+
+for {
+    select {
+    case <-waitSig:
+        var reply string
+        fmt.Scanln(&reply)
+        agent.ResumeWithHumanResponse(ctx, reply)
+    case <-ctx.Done():
+        return
+    }
+}
+```
+
+完整代码见 [examples/human_in_the_loop/](examples/human_in_the_loop/)。
+
+## Agent 上下文文件
+
+底座启动时会从 `~/.kugelblitz/` 目录自动加载以下文件，并注入 System Prompt：
+
+| 文件 | 用途 |
+|------|------|
+| `AGENTS.md` | Agent 能力声明 |
+| `IDENTITY.md` | Agent 身份定义 |
+| `SOUL.md` | Agent 性格/语气 |
+| `USER.md` | 用户偏好/档案 |
+
+缺失或为空的文件会被静默跳过。这是一种 **零代码的 Agent 定制方式**——将文件放入 workspace 目录即可改变 agent 行为。
 
 ## Harness — 自愈 & 纠偏
 
@@ -327,7 +414,8 @@ kugelblitz/
 ├── persist/           # Plan checkpoint JSON, 会话 JSONL
 ├── utils/             # UUID 生成, session ID
 └── examples/
-    ├── plan_mode/     # Planner 完整示例
-    ├── react/         # 独立 ReAct agent
-    └── drift_demo/    # 漂移检测示例
+    ├── plan_mode/            # Planner 完整示例
+    ├── react/                # 独立 ReAct agent
+    ├── drift_demo/           # 漂移检测示例
+    └── human_in_the_loop/    # 人在回路示例
 ```

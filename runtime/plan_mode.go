@@ -110,7 +110,9 @@ func NewPlanner(provider core.ILMProvider, streamMode bool, opts ...PlannerOptio
 		"memory_store", "memory_search", "memory_get_section",
 		"skill_use",
 		"worker_spawn",
+		"ask_human",
 	)
+	react.EnableHumanInTheLoop()
 
 	sessionID := memory.GetSessionMemoryManager().CreateSessionMemory()
 	mem, _ := memory.GetSessionMemoryManager().GetSessionMemory(sessionID)
@@ -569,6 +571,17 @@ When all tasks are done, call plan_status_update "done" and summarize.`,
 
 func (p *Planner) Interrupt(ctx context.Context) error {
 	return p.react.Interrupt(ctx)
+}
+
+// ResumeWithHumanResponse delegates to the inner ReactAgent to provide a
+// human response that unblocks a pending ask_human tool call.
+func (p *Planner) ResumeWithHumanResponse(ctx context.Context, response string) error {
+	return p.react.ResumeWithHumanResponse(ctx, response)
+}
+
+// HumanLoopWaiting reports whether the agent is currently waiting for human input.
+func (p *Planner) HumanLoopWaiting() bool {
+	return p.react.HumanLoopWaiting()
 }
 
 func toInt64(v any) int64 {
