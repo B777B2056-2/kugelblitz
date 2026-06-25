@@ -157,14 +157,9 @@ web_fetch  (url, render_js?) → {url, title, markdown}
 
 ## ACP — Agent Client Protocol
 
-The ACP adapter exposes Kugelblitz as an ACP-compatible agent. Any editor that
-supports the [Agent Client Protocol](https://agentclientprotocol.com) can use
-Kugelblitz as its AI backend — no editor-specific plugin needed.
-
-ACP is an open standard (Apache 2.0) by Zed Industries. It uses **JSON-RPC 2.0**
-over **stdin/stdout** for transport. Over 30 agents (Claude Code, Gemini CLI,
-GitHub Copilot, Goose, etc.) and multiple editors (Zed, JetBrains, VS Code,
-Neovim) support it.
+Kugelblitz 可作为 ACP-compatible Agent 运行，接入任何支持
+[Agent Client Protocol](https://agentclientprotocol.com) 的编辑器（Zed、JetBrains、
+VS Code、Neovim 等）。
 
 ### Protocol Flow
 
@@ -173,12 +168,12 @@ Editor (Client)              Kugelblitz (Server)
      │                            │
      ├─ initialize ──────────────>│  version negotiation + capabilities
      │<─ initialize result ──────┤
-     ├─ session/new ─────────────>│  create session (cwd, mcpServers)
+     ├─ session/new ─────────────>│  create session (cwd)
      │<─ session/new result ─────┤  (returns sessionId)
      ├─ session/prompt ──────────>│  user message
      │<─ session/update ──────────┤  streaming text chunks
      │<─ session/update ──────────┤  tool calls + results
-     │<─ session/prompt result ───┤  end_turn / cancelled / max_tokens
+     │<─ session/prompt result ───┤  end_turn / cancelled
      ├─ session/cancel ──────────>│  interrupt
      ├─ session/load ────────────>│  resume historical session
      ├─ session/list ────────────>│  list all sessions
@@ -200,48 +195,18 @@ Editor (Client)              Kugelblitz (Server)
 ### Quick Start
 
 ```go
-package main
+p := provider.DeepSeek("sk-xxx", "https://api.deepseek.com", "deepseek-v4-flash")
+agent := runtime.NewReactAgent(p, true)
 
-import (
-    "context"
-    "log"
-    "os"
-    "os/signal"
-
-    "github.com/B777B2056-2/kugelblitz/acp"
-    "github.com/B777B2056-2/kugelblitz/provider"
-    "github.com/B777B2056-2/kugelblitz/runtime"
-
-    _ "github.com/B777B2056-2/kugelblitz/tools/internals"
-)
-
-func main() {
-    p := provider.DeepSeek("sk-xxx", "https://api.deepseek.com", "deepseek-v4-flash")
-    agent := runtime.NewReactAgent(p, true) // streaming enabled
-
-    srv := acp.NewServer(agent, p)
-    // Optional: acp.WithWorkspace(ws), acp.WithLogger(log.New(...)), etc.
-
-    ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-    defer cancel()
-
-    if err := srv.Run(ctx); err != nil {
-        log.Fatal(err)
-    }
-}
+srv := acp.NewServer(agent, p)
+srv.Run(context.Background())
 ```
 
 ```bash
-# Start the ACP server
 go run examples/acp_server/main.go -apikey sk-xxx
-
-# With verbose JSON-RPC logging to stderr
-go run examples/acp_server/main.go -apikey sk-xxx -v
 ```
 
-### Editor Configuration
-
-In your editor's external agent config, point to the Kugelblitz binary:
+编辑器配置示例：
 
 ```json
 {
@@ -253,7 +218,7 @@ In your editor's external agent config, point to the Kugelblitz binary:
 }
 ```
 
-Full example at [examples/acp_server/](examples/acp_server/).
+完整示例见 [examples/acp_server/](examples/acp_server/)。
 
 ## Human-in-the-Loop
 

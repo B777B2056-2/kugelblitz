@@ -18,6 +18,9 @@
 - **人在回路** — agent 可主动暂停征询人类意见，通过 `OnWaitForHumanAction` 回调 + `ResumeWithHumanResponse` 恢复
 - **Langfuse 可观测性** — 完整 trace / span / generation 层级开箱即用
 - **统一 Usage 回调** — 所有 LLM 调用的 token 消耗通过单一回调上报，按来源标识
+- **ACP（Agent Client Protocol）** — JSON-RPC 2.0 over stdio 适配器，按需启用。
+  任何支持 ACP 的编辑器（Zed、JetBrains、VS Code、Neovim）均可作为
+  Kugelblitz Agent 的前端界面
 
 ## 架构概览
 
@@ -142,6 +145,71 @@ internals.RegisterWebTools(nil) // DuckDuckGo（免费，无需 API Key）
 web_search (query, limit?)   → {query, results[{title, url, snippet}]}
 web_fetch  (url, render_js?) → {url, title, markdown}
 ```
+
+## ACP — Agent Client Protocol
+
+Kugelblitz 可作为 ACP-compatible Agent 运行，接入任何支持
+[Agent Client Protocol](https://agentclientprotocol.com) 的编辑器（Zed、JetBrains、
+VS Code、Neovim 等）。
+
+### 协议流程
+
+```
+编辑器 (Client)               Kugelblitz (Server)
+     │                              │
+     ├─ initialize ────────────────>│  版本协商 + 能力声明
+     │<─ initialize result ────────┤
+     ├─ session/new ───────────────>│  创建会话 (cwd)
+     │<─ session/new result ───────┤  (返回 sessionId)
+     ├─ session/prompt ────────────>│  用户消息
+     │<─ session/update ────────────┤  流式文本块
+     │<─ session/update ────────────┤  工具调用 + 结果
+     │<─ session/prompt result ─────┤  end_turn / cancelled
+     ├─ session/cancel ────────────>│  中断
+     ├─ session/load ──────────────>│  恢复历史会话
+     ├─ session/list ──────────────>│  列出所有会话
+```
+
+### 支持的方法
+
+| 方法 | 方向 | 说明 |
+|------|------|------|
+| `initialize` | C→A | 协议版本 + 能力协商 |
+| `session/new` | C→A | 创建会话，指定工作目录 |
+| `session/prompt` | C→A | 发送用户 Prompt |
+| `session/cancel` | C→A | 取消当前执行 |
+| `session/load` | C→A | 加载并重放历史会话 |
+| `session/list` | C→A | 列出所有活跃会话 |
+| `session/delete` | C→A | 删除会话 |
+| `session/update` | A→C | 流式通知（文本块、工具调用） |
+
+### 快速开始
+
+```go
+p := provider.DeepSeek("sk-xxx", "https://api.deepseek.com", "deepseek-v4-flash")
+agent := runtime.NewReactAgent(p, true)
+
+srv := acp.NewServer(agent, p)
+srv.Run(context.Background())
+```
+
+```bash
+go run examples/acp_server/main.go -apikey sk-xxx
+```
+
+编辑器配置示例：
+
+```json
+{
+  "agent": {
+    "command": "go",
+    "args": ["run", "examples/acp_server", "-apikey", "sk-xxx"],
+    "work_dir": "/path/to/kugelblitz"
+  }
+}
+```
+
+完整示例见 [examples/acp_server/](examples/acp_server/)。
 
 ## 人在回路 (Human-in-the-Loop)
 
@@ -406,6 +474,7 @@ kugelblitz/
 ├── runtime/           # Planner, ReactAgent, WorkerAgent, Reviewer
 ├── memory/            # SessionMemory, Compressor, LongTermMemory
 ├── observability/     # LangfuseObserver, PlannerInstrument
+├── acp/               # ACP 适配器（JSON-RPC 2.0 stdio 传输、会话管理）
 ├── tools/
 │   └── internals/     # plan_*, task_*, memory_*, worker_spawn, skill_use
 ├── skills/            # Skill 加载与注册
@@ -416,6 +485,7 @@ kugelblitz/
 └── examples/
     ├── plan_mode/            # Planner 完整示例
     ├── react/                # 独立 ReAct agent
+    ├── acp_server/           # ACP 服务端（编辑器兼容 Agent）
     ├── drift_demo/           # 漂移检测示例
     └── human_in_the_loop/    # 人在回路示例
 ```
