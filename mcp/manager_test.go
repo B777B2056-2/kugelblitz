@@ -59,20 +59,14 @@ func newTestManager(t *testing.T) *Manager {
 				"test": {Command: "test"},
 			},
 		},
-		sessions: make(map[string]struct {
-			session *mcp.ClientSession
-			client  *mcp.Client
-		}),
+		sessions: make(map[string]entry),
 	}
 
 	// Connect client side using the paired transport
 	client := mcp.NewClient(&mcp.Implementation{Name: "kugelblitz", Version: "0.1.0"}, nil)
 	session, err := client.Connect(context.Background(), t2, nil)
 	require.NoError(t, err)
-	m.sessions["test"] = struct {
-		session *mcp.ClientSession
-		client  *mcp.Client
-	}{session: session, client: client}
+	m.sessions["test"] = entry{session: session, client: client}
 
 	return m
 }
@@ -144,11 +138,8 @@ func TestManager_CallMCPTool_Error(t *testing.T) {
 
 	core.GetToolRegistry().Reset()
 	m := &Manager{
-		config: &Config{MCPServers: map[string]ServerConfig{"errsrv": {Command: "err"}}},
-		sessions: map[string]struct {
-			session *mcp.ClientSession
-			client  *mcp.Client
-		}{"errsrv": {session: session, client: client}},
+		config:   &Config{MCPServers: map[string]ServerConfig{"errsrv": {Command: "err"}}},
+		sessions: map[string]entry{"errsrv": {session: session, client: client}},
 	}
 
 	err = m.discoverAndRegister(context.Background(), "errsrv", session)

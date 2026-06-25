@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/core"
@@ -186,7 +185,7 @@ func TestServer_NewServer_Defaults(t *testing.T) {
 	assert.NotNil(t, srv.transport)
 	assert.NotNil(t, srv.sessions)
 	assert.NotNil(t, srv.handler)
-	assert.NotNil(t, srv.logger)
+	assert.NotNil(t, srv.transport)
 }
 
 func TestServer_NewServer_WithWorkspace(t *testing.T) {
@@ -225,14 +224,13 @@ func TestServer_NewServer_WithEnableThinking(t *testing.T) {
 	assert.True(t, srv.enableThinking)
 }
 
-func TestServer_NewServer_WithLogger(t *testing.T) {
+func TestServer_NewServer_LogsViaCoreLogger(t *testing.T) {
 	agent := newMockAgent()
 	prov := &mockProvider{}
-	buf := new(bytes.Buffer)
-	logger := log.New(buf, "[test]", 0)
-	srv := NewServer(agent, prov, WithLogger(logger))
-	srv.logger.Println("test message")
-	assert.Contains(t, buf.String(), "test message")
+	srv := NewServer(agent, prov)
+	assert.NotNil(t, srv)
+	// Server uses core.Logger — no crash on Shutdown
+	assert.NoError(t, srv.Shutdown(context.Background()))
 }
 
 func TestServer_NewServer_WithIO(t *testing.T) {

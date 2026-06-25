@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -25,6 +24,7 @@ type LangfuseConfig struct {
 // LangfuseObserver implements core.Observer by sending traces to Langfuse.
 // Events are batched and flushed via Flush() or periodically.
 type LangfuseObserver struct {
+	name string
 	config LangfuseConfig
 	client *http.Client
 	batch  []ingestionEvent
@@ -41,10 +41,14 @@ type ingestionEvent struct {
 
 func NewLangfuseObserver(cfg LangfuseConfig) *LangfuseObserver {
 	return &LangfuseObserver{
+		name:   "langfuse",
 		config: cfg,
 		client: &http.Client{Timeout: 10 * time.Second},
 	}
 }
+
+// Name returns the observer identifier.
+func (o *LangfuseObserver) Name() string { return o.name }
 
 // nextID returns a unique ID with the given prefix.
 // Uses nanosecond timestamp + atomic counter to prevent collisions
@@ -137,16 +141,16 @@ func (o *LangfuseObserver) send(ctx context.Context, batch []ingestionEvent) err
 
 	resp, err := o.client.Do(req)
 	if err != nil {
-		log.Printf("langfuse: flush error: %v", err)
+		core.Warn("flush error", "observer", o.Name(), "err", err)
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
-		log.Printf("langfuse: flush %d: %s", resp.StatusCode, string(body))
+		core.Warn("flush failed", "observer", o.Name(), "status", resp.StatusCode, "body", string(body))
 		return fmt.Errorf("langfuse: status %d", resp.StatusCode)
 	}
-	log.Printf("langfuse: flushed %d events OK", len(batch))
+	core.Debug("flushed", "observer", o.Name(), "events", len(batch))
 	return nil
 }
 

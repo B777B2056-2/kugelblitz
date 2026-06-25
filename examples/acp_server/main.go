@@ -25,7 +25,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 
@@ -66,32 +65,22 @@ func main() {
 	}
 
 	// ---- Configure logging ----
-	var acpLogger *log.Logger
-	if *verbose {
-		acpLogger = log.New(os.Stderr, "[acp] ", log.LstdFlags)
+	if !*verbose {
+		core.SetLogger(core.DiscardLogger())
 	}
 
 	// ---- Create ACP server ----
-	opts := []acp.Option{}
-	if acpLogger != nil {
-		opts = append(opts, acp.WithLogger(acpLogger))
-	}
-
-	srv := acp.NewServer(agent, p, opts...)
+	srv := acp.NewServer(agent, p)
 
 	// ---- Signal handling ----
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
 	// ---- Run ----
-	if *verbose {
-		acpLogger.Printf("starting ACP server (provider=%s model=%s stream=%v)", *providerChoice, *model, *streamMode)
-	}
+	core.Info("starting ACP server", "provider", *providerChoice, "model", *model, "stream", *streamMode)
 
 	if err := srv.Run(ctx); err != nil {
-		if *verbose {
-			acpLogger.Printf("server exited: %v", err)
-		}
+		core.Error("server exited", "err", err)
 		os.Exit(1)
 	}
 }

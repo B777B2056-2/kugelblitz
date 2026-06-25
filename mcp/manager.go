@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"sync"
@@ -16,17 +15,19 @@ import (
 // ToolPrefix is prepended to MCP tool names to avoid conflicts with built-in tools.
 const ToolPrefix = "mcp:"
 
+// entry holds a connected MCP session and its client.
+type entry struct {
+	session *mcp.ClientSession
+	client  *mcp.Client
+}
+
 // Manager connects to MCP servers, discovers their tools, and registers them
 // in the global ToolRegistry. Each server's tools are prefixed to avoid
 // collisions: "mcp:<server>_<tool>".
 type Manager struct {
-	config  *Config
-	sessions map[string]struct {
-		session *mcp.ClientSession
-		client  *mcp.Client
-	}
-	mu      sync.Mutex
-	logger  *log.Logger
+	config   *Config
+	sessions map[string]entry
+	mu       sync.Mutex
 }
 
 // NewManager creates a Manager from the given Config.
@@ -36,16 +37,9 @@ func NewManager(cfg *Config) (*Manager, error) {
 	}
 	return &Manager{
 		config:   cfg,
-		sessions: make(map[string]struct {
-			session *mcp.ClientSession
-			client  *mcp.Client
-		}),
-		logger: log.New(os.Stderr, "[mcp] ", log.LstdFlags),
+		sessions: make(map[string]entry),
 	}, nil
 }
-
-// SetLogger overrides the default stderr logger.
-func (m *Manager) SetLogger(l *log.Logger) { m.logger = l }
 
 // ConnectAll connects to all configured MCP servers, discovers their tools,
 // and registers them in the global ToolRegistry.
@@ -60,9 +54,7 @@ func (m *Manager) ConnectAll(ctx context.Context) error {
 
 // connectServer connects to a single MCP server via subprocess and registers its tools.
 func (m *Manager) connectServer(ctx context.Context, name string, cfg ServerConfig) error {
-	if m.logger != nil {
-		m.logger.Printf("connecting to %s (%s %v)...", name, cfg.Command, cfg.Args)
-	}
+	core.Info("MCP: connecting", "server", name, "command", cfg.Command)
 
 	cmd := exec.Command(cfg.Command, cfg.Args...)
 	cmd.Env = os.Environ()
@@ -86,10 +78,7 @@ func (m *Manager) connectServer(ctx context.Context, name string, cfg ServerConf
 	}
 
 	m.mu.Lock()
-	m.sessions[name] = struct {
-		session *mcp.ClientSession
-		client  *mcp.Client
-	}{session: session, client: client}
+	m.sessions[name] = entry{session: session, client: client}
 	m.mu.Unlock()
 	return nil
 }
@@ -102,9 +91,7 @@ func (m *Manager) discoverAndRegister(ctx context.Context, name string, session 
 		return fmt.Errorf("list tools: %w", err)
 	}
 
-	if m.logger != nil {
-		m.logger.Printf("%s: discovered %d tools", name, len(tools.Tools))
-	}
+	core.Info("MCP: tools discovered", "server", name, "count", len(tools.Tools))
 
 	reg := core.GetToolRegistry()
 	for _, tool := range tools.Tools {
@@ -118,9 +105,7 @@ func (m *Manager) discoverAndRegister(ctx context.Context, name string, session 
 			return callMCPTool(ctx, mcpSession, srvName, mcpTool.Name, detail)
 		}
 		reg.Register(def, fn)
-		if m.logger != nil {
-			m.logger.Printf("  registered %s", regName)
-		}
+		core.Debug("MCP: tool registered", "name", regName)
 	}
 	return nil
 }
@@ -130,20 +115,13 @@ func (m *Manager) Shutdown(_ context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for name, s := range m.sessions {
-		if m.logger != nil {
-			m.logger.Printf("disconnecting %s...", name)
-		}
-		if err := s.session.Close(); err != nil {
-			if m.logger != nil {
-				m.logger.Printf("  close error: %v", err)
-			}
+	for name, e := range m.sessions {
+		core.Debug("MCP: disconnecting", "server", name)
+		if err := e.session.Close(); err != nil {
+			core.Warn("MCP: close error", "server", name, "err", err)
 		}
 	}
-	m.sessions = make(map[string]struct {
-		session *mcp.ClientSession
-		client  *mcp.Client
-	})
+	m.sessions = make(map[string]entry)
 	return nil
 }
 
@@ -159,7 +137,6 @@ func convertToolDef(regName string, tool *mcp.Tool, serverName string) core.Tool
 		desc = fmt.Sprintf("MCP tool %s from server %s", tool.Name, serverName)
 	}
 
-	// Convert MCP inputSchema to our format
 	schema := map[string]any{
 		"type":       "object",
 		"properties": map[string]any{},
@@ -190,6 +167,7 @@ func callMCPTool(ctx context.Context, session *mcp.ClientSession, serverName, to
 		Arguments: detail.Args,
 	})
 	if err != nil {
+		core.Warn("MCP: tool call failed", "server", serverName, "tool", toolName, "err", err)
 		return core.ToolCallResult{
 			ToolCallID: detail.ID,
 			ToolName:   detail.ToolName,
@@ -204,6 +182,7 @@ func callMCPTool(ctx context.Context, session *mcp.ClientSession, serverName, to
 				errText += tc.Text
 			}
 		}
+		core.Warn("MCP: tool returned error", "server", serverName, "tool", toolName, "msg", errText)
 		return core.ToolCallResult{
 			ToolCallID: detail.ID,
 			ToolName:   detail.ToolName,
@@ -211,7 +190,6 @@ func callMCPTool(ctx context.Context, session *mcp.ClientSession, serverName, to
 		}
 	}
 
-	// Convert MCP content to Kugelblitz outputs
 	outputs := map[string]any{}
 	for i, c := range result.Content {
 		switch ct := c.(type) {
@@ -223,7 +201,6 @@ func callMCPTool(ctx context.Context, session *mcp.ClientSession, serverName, to
 				"data":      string(ct.Data),
 			}
 		default:
-			// For unknown content types, serialize as JSON
 			if b, err := json.Marshal(c); err == nil {
 				outputs[fmt.Sprintf("item_%d", i)] = string(b)
 			}

@@ -5,6 +5,8 @@ import "context"
 // Observer is the top-level observability hook. Each Planner.Execute call
 // creates a new TraceSpan.
 type Observer interface {
+	// Name returns a short identifier for this observer (e.g. "langfuse", "datadog").
+	Name() string
 	StartTrace(ctx context.Context, name, goal string) (context.Context, TraceSpan)
 }
 
@@ -28,6 +30,7 @@ type NoopObserver struct{}
 
 type noopSpan struct{}
 
+func (NoopObserver) Name() string                                     { return "noop" }
 func (NoopObserver) StartTrace(ctx context.Context, name, goal string) (context.Context, TraceSpan) {
 	return ctx, &noopSpan{}
 }

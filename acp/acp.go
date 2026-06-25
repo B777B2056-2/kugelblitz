@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"sync"
 
@@ -33,7 +32,6 @@ type Server struct {
 	sessions  *SessionManager
 	handler   *Handler
 	transport *Transport
-	logger    *log.Logger
 
 	capabilities   AgentCapabilities
 	toolFilter     []string
@@ -75,13 +73,6 @@ func WithEnableThinking(enabled bool) Option {
 	}
 }
 
-// WithLogger sets a logger for server diagnostics (default: discard).
-func WithLogger(logger *log.Logger) Option {
-	return func(s *Server) {
-		s.logger = logger
-	}
-}
-
 // WithIO sets custom input/output streams (default: os.Stdin/os.Stdout).
 func WithIO(stdin io.Reader, stdout io.Writer) Option {
 	return func(s *Server) {
@@ -101,7 +92,7 @@ func NewServer(agent core.IAgent, provider core.ILMProvider, opts ...Option) *Se
 				Stream: true,
 			},
 		},
-		logger: log.New(io.Discard, "", 0),
+	
 	}
 
 	// Apply defaults
@@ -135,12 +126,12 @@ func NewServer(agent core.IAgent, provider core.ILMProvider, opts ...Option) *Se
 // dispatches them to the handler, and writes responses. Run blocks until the
 // context is cancelled or the input stream is closed.
 func (s *Server) Run(ctx context.Context) error {
-	s.logger.Println("acp: server started, waiting for initialize...")
+	core.Info("ACP: server started, waiting for initialize...")
 
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Println("acp: context cancelled, shutting down")
+			core.Debug("ACP: context cancelled, shutting down")
 			return s.Shutdown(ctx)
 		default:
 		}
@@ -148,18 +139,18 @@ func (s *Server) Run(ctx context.Context) error {
 		msg, err := s.transport.ReadMessage()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				s.logger.Println("acp: stdin closed, shutting down")
+				core.Debug("ACP: stdin closed, shutting down")
 				return nil
 			}
-			s.logger.Printf("acp: read error: %v", err)
+			core.Warn("ACP: read error", "err", err)
 			// For parse errors, try to send an error response if we have an id
 			return fmt.Errorf("acp: read error: %w", err)
 		}
 
-		s.logger.Printf("acp: received method=%s", msg.Method)
+		core.Debug("ACP: received", "method", msg.Method)
 
 		if err := s.handler.Dispatch(ctx, msg); err != nil {
-			s.logger.Printf("acp: dispatch error: %v", err)
+			core.Warn("ACP: dispatch error", "err", err)
 		}
 	}
 }
@@ -174,7 +165,7 @@ func (s *Server) Shutdown(_ context.Context) error {
 		return nil
 	}
 	s.closed = true
-	s.logger.Println("acp: server shut down")
+	core.Debug("ACP: server shut down")
 	return nil
 }
 
