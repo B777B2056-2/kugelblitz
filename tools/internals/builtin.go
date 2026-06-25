@@ -12,9 +12,11 @@ func All() []tools.Tool {
 	return []tools.Tool{
 		&FileRead{},
 		&FileWrite{},
+		&FileDelete{},
 		&FileCopy{},
 		&DirCreate{},
 		&DirCopy{},
+		&ShellExec{},
 		&PlanCreate{},
 		&PlanQuery{},
 		&PlanStatusUpdate{},

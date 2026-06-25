@@ -165,15 +165,17 @@ func TestRegisterAll_RegistersAllTools(t *testing.T) {
 	assert.True(t, names["file_copy"])
 	assert.True(t, names["dir_create"])
 	assert.True(t, names["dir_copy"])
-	assert.Len(t, names, 13)
+	assert.Len(t, names, 15)
 }
 
 // Compile-time checks
 var _ tools.Tool = (*FileRead)(nil)
 var _ tools.Tool = (*FileWrite)(nil)
+var _ tools.Tool = (*FileDelete)(nil)
 var _ tools.Tool = (*FileCopy)(nil)
 var _ tools.Tool = (*DirCreate)(nil)
 var _ tools.Tool = (*DirCopy)(nil)
+var _ tools.Tool = (*ShellExec)(nil)
 var _ tools.Tool = (*PlanCreate)(nil)
 var _ tools.Tool = (*PlanQuery)(nil)
 var _ tools.Tool = (*PlanStatusUpdate)(nil)
