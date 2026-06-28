@@ -44,14 +44,6 @@ type Server struct {
 // Option is a functional option for configuring the Server.
 type Option func(*Server)
 
-// WithWorkspace sets a custom workspace for session persistence.
-// If not set, the global Workspace singleton is used.
-func WithWorkspace(ws *core.Workspace) Option {
-	return func(s *Server) {
-		s.sessions = NewSessionManager(ws)
-	}
-}
-
 // WithCapabilities sets custom agent capabilities declared during initialize.
 func WithCapabilities(caps AgentCapabilities) Option {
 	return func(s *Server) {
@@ -96,7 +88,7 @@ func NewServer(agent core.IAgent, provider core.ILMProvider, opts ...Option) *Se
 	}
 
 	// Apply defaults
-	s.sessions = NewSessionManager(core.GetWorkspace())
+	s.sessions = NewSessionManager()
 	s.transport = NewTransport(&rwPair{reader: os.Stdin, writer: os.Stdout})
 
 	// Apply options

@@ -142,10 +142,7 @@ func (h *Handler) handleSessionNew(_ context.Context, params SessionNewParams) (
 	// Each session gets its own agent instance for isolation
 	agent := h.agent // Use the server's agent as a template
 
-	session, err := h.sessions.Create(params.Cwd, agent)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create session: %w", err)
-	}
+	session := h.sessions.Create(params.Cwd, agent)
 
 	return SessionNewResult{SessionID: session.ID}, nil
 }

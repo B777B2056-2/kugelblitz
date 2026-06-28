@@ -14,8 +14,7 @@ import (
 // newTestHandler creates a Handler wired to a test transport and workspace.
 func newTestHandler(t *testing.T) (*Handler, *testReadWriter, *SessionManager) {
 	t.Helper()
-	ws := newTestWorkspace(t)
-	sm := NewSessionManager(ws)
+	sm := NewSessionManager()
 	rw := &testReadWriter{readBuf: new(bytes.Buffer), writeBuf: new(bytes.Buffer)}
 	tr := NewTransport(rw)
 
@@ -91,8 +90,7 @@ func TestHandler_Dispatch_SessionPrompt(t *testing.T) {
 	}
 
 	// Create session with mock agent
-	session, err := sm.Create("/proj", mockAgent)
-	require.NoError(t, err)
+	session := sm.Create("/proj", mockAgent)
 
 	params := SessionPromptParams{
 		SessionID: session.ID,
@@ -107,7 +105,7 @@ func TestHandler_Dispatch_SessionPrompt(t *testing.T) {
 		Params:  paramsBytes,
 	}
 
-	err = h.Dispatch(context.Background(), msg)
+	err := h.Dispatch(context.Background(), msg)
 	require.NoError(t, err)
 
 	output := rw.writeBuf.String()
@@ -118,8 +116,7 @@ func TestHandler_Dispatch_SessionPrompt(t *testing.T) {
 func TestHandler_Dispatch_SessionCancel(t *testing.T) {
 	h, _, sm := newTestHandler(t)
 
-	session, err := sm.Create("/proj", newMockAgent())
-	require.NoError(t, err)
+	session := sm.Create("/proj", newMockAgent())
 
 	params := SessionCancelParams{SessionID: session.ID}
 	paramsBytes, _ := json.Marshal(params)
@@ -131,7 +128,7 @@ func TestHandler_Dispatch_SessionCancel(t *testing.T) {
 		Params:  paramsBytes,
 	}
 
-	err = h.Dispatch(context.Background(), msg)
+	err := h.Dispatch(context.Background(), msg)
 	require.NoError(t, err)
 }
 
@@ -158,8 +155,7 @@ func TestHandler_Dispatch_SessionList(t *testing.T) {
 func TestHandler_Dispatch_SessionDelete(t *testing.T) {
 	h, _, sm := newTestHandler(t)
 
-	session, err := sm.Create("/proj", newMockAgent())
-	require.NoError(t, err)
+	session := sm.Create("/proj", newMockAgent())
 
 	params := SessionDeleteParams{SessionID: session.ID}
 	paramsBytes, _ := json.Marshal(params)
@@ -171,7 +167,7 @@ func TestHandler_Dispatch_SessionDelete(t *testing.T) {
 		Params:  paramsBytes,
 	}
 
-	err = h.Dispatch(context.Background(), msg)
+	err := h.Dispatch(context.Background(), msg)
 	require.NoError(t, err)
 
 	// Verify deleted
@@ -241,8 +237,7 @@ func TestHandler_Prompt_StreamingNotifications(t *testing.T) {
 		}, nil
 	}
 
-	session, err := sm.Create("/proj", mockAgent)
-	require.NoError(t, err)
+	session := sm.Create("/proj", mockAgent)
 
 	params := SessionPromptParams{
 		SessionID: session.ID,
@@ -257,7 +252,7 @@ func TestHandler_Prompt_StreamingNotifications(t *testing.T) {
 		Params:  paramsBytes,
 	}
 
-	err = h.Dispatch(context.Background(), msg)
+	err := h.Dispatch(context.Background(), msg)
 	require.NoError(t, err)
 
 	output := rw.writeBuf.String()
@@ -334,8 +329,7 @@ func TestHandler_Dispatch_SessionLoad(t *testing.T) {
 	h, rw, sm := newTestHandler(t)
 
 	// Create a session with messages so Load can replay them
-	s, err := sm.Create("/proj", newMockAgent())
-	require.NoError(t, err)
+	s := sm.Create("/proj", newMockAgent())
 	sm.AppendMessage(s.ID, core.NewUserMessage("root", core.TextContent{Text: "hello"}))
 
 	params := SessionLoadParams{SessionID: s.ID}
@@ -348,7 +342,7 @@ func TestHandler_Dispatch_SessionLoad(t *testing.T) {
 		Params:  paramsBytes,
 	}
 
-	err = h.Dispatch(context.Background(), msg)
+	err := h.Dispatch(context.Background(), msg)
 	require.NoError(t, err)
 
 	output := rw.writeBuf.String()
@@ -508,3 +502,30 @@ func TestACPEventHandler_OnUsageUpdated(t *testing.T) {
 	// OnUsageUpdated doesn't send a notification currently
 	assert.Empty(t, output)
 }
+
+// ---- Shared test helpers ----
+
+type mockAgent struct {
+	executeFn  func(ctx context.Context, systemMsg core.Message, userMsgs []core.Message) ([]core.Message, error)
+	interruptFn func(ctx context.Context) error
+}
+
+func (m *mockAgent) RegisterEventHooks(hooks core.AgentEventHooks) {}
+func (m *mockAgent) Execute(ctx context.Context, systemMsg core.Message, userMsgs []core.Message) ([]core.Message, error) {
+	if m.executeFn != nil {
+		return m.executeFn(ctx, systemMsg, userMsgs)
+	}
+	return nil, nil
+}
+func (m *mockAgent) Interrupt(ctx context.Context) error {
+	if m.interruptFn != nil {
+		return m.interruptFn(ctx)
+	}
+	return nil
+}
+func (m *mockAgent) ResumeWithHumanResponse(ctx context.Context, response string) error { return nil }
+func (m *mockAgent) HumanLoopWaiting() bool                                            { return false }
+
+var _ core.IAgent = (*mockAgent)(nil)
+
+func newMockAgent() *mockAgent { return &mockAgent{} }

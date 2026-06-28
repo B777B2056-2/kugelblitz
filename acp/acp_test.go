@@ -188,15 +188,6 @@ func TestServer_NewServer_Defaults(t *testing.T) {
 	assert.NotNil(t, srv.transport)
 }
 
-func TestServer_NewServer_WithWorkspace(t *testing.T) {
-	ws := newTestWorkspace(t)
-	agent := newMockAgent()
-	prov := &mockProvider{}
-	srv := NewServer(agent, prov, WithWorkspace(ws))
-	assert.NotNil(t, srv)
-	assert.NotNil(t, srv.sessions)
-}
-
 func TestServer_NewServer_WithCapabilities(t *testing.T) {
 	agent := newMockAgent()
 	prov := &mockProvider{}
@@ -298,8 +289,6 @@ func TestServer_Run_EOF(t *testing.T) {
 // ---- Server Integration ----
 
 func TestServer_FullFlow(t *testing.T) {
-	ws := newTestWorkspace(t)
-
 	// Build mock agent
 	mockAgent := newMockAgent()
 	mockAgent.executeFn = func(ctx context.Context, sys core.Message, userMsgs []core.Message) ([]core.Message, error) {
@@ -319,7 +308,7 @@ func TestServer_FullFlow(t *testing.T) {
 
 	handler := &Handler{
 		transport: tr,
-		sessions:  NewSessionManager(ws),
+		sessions:  NewSessionManager(),
 		agent:     mockAgent,
 		provider:  &mockProvider{},
 		serverInfo: ServerInfo{Name: "kugelblitz", Version: "0.1.0"},
