@@ -194,6 +194,13 @@ When confidence gap is narrow, the conflict is queued for human review via
 MEMORY.md at startup (`RebuildIfStale`) and async after every write (`Rebuild`).
 See `memory/longterm/index.go`.
 
+**Entity-Relationship Graph**: the extraction pipeline also produces entities
+and relationships (`EntityCandidate` / `RelCandidate`), stored in a local
+in-memory graph (`memory/longterm/graph.go`) and persisted as JSONL. A
+human-readable Mermaid visualization is auto-generated at `MEMORY_GRAPH.md`.
+Supports entity search, neighbor expansion, shortest-path (BFS), and subgraph
+queries. Set `needGraph: true` on `memory_search` to include graph results.
+
 **Tools**:
 
 | Tool | Description |
@@ -566,13 +573,80 @@ planner := runtime.NewPlanner(p, true,
 Identities emitted: `planner.step-1`, `planner.step-2`, `compressor`, `reviewer`,
 `worker.<task-id>`.
 
+## Built-in Tools
+
+### Plan & Task
+
+| Tool | Description |
+|------|-------------|
+| `plan_create` | Create a new empty plan |
+| `plan_query` | Query a plan by ID or list all |
+| `plan_status_update` | Update plan status (init → doing → done / failed) |
+| `plan_rollback` | Rollback a plan to a previous checkpoint |
+| `task_insert` | Insert a subtask into a plan |
+| `task_delete` | Delete a task from a plan |
+| `task_query` | Query a task by ID or list tasks in a plan |
+| `task_status_update` | Update task status (pending → doing → done / failed) |
+| `worker_spawn` | Spawn a WorkerAgent to execute a task |
+
+### Memory
+
+| Tool | Description |
+|------|-------------|
+| `memory_store` | Manually store a memory item |
+| `memory_search` | Semantic/keyword search (ChromaDB, fallback MEMORY.md). Supports `needGraph` |
+| `memory_get_section` | List all items in a section |
+| `memory_remove` | Delete an item |
+| `memory_list_sections` | List all sections with counts |
+| `memory_stats` | Stats: total items, sections, index status |
+| `memory_resolve_conflict` | Confirm a pending conflict (keep_new / keep_old) |
+| `memory_extract` | Agent-triggered: extract + persist from current session |
+
+### File & Shell
+
+| Tool | Description |
+|------|-------------|
+| `file_read` | Read a file from disk |
+| `file_write` | Write/create a file on disk |
+| `file_delete` | Delete a file |
+| `file_copy` | Copy or move a file |
+| `dir_create` | Create a directory |
+| `dir_copy` | Copy or move a directory |
+| `shell_exec` | Execute a shell command |
+
+### Web
+
+| Tool | Description |
+|------|-------------|
+| `web_search` | Search the web (DuckDuckGo by default) |
+| `web_fetch` | Fetch a URL and convert HTML to Markdown |
+
+### Interaction
+
+| Tool | Description |
+|------|-------------|
+| `skill_use` | Activate a skill by name |
+| `ask_human` | Pause and ask the human user for input |
+
 ## Directory Structure
 
 ```
 kugelblitz/
 ├── core/              # Interfaces: Observer, Span, Message, Tool, Workspace
 ├── runtime/           # Planner, ReactAgent, WorkerAgent, Reviewer
-├── memory/            # SessionMemory, Compressor, LongTermMemory
+├── memory/
+│   ├── session.go     # SessionMemory — conversation history + auto-compress
+│   ├── compressor.go  # LLM-based context summarization
+│   ├── longterm/      # Long-Term Memory (MEMORY.md + ChromaDB + Graph)
+│   │   ├── fact.go    #   MemoryItem CRUD + confidence decay
+│   │   ├── index.go   #   ChromaDB index manager
+│   │   ├── graph.go   #   Entity-relationship graph (persisted, BFS, Mermaid)
+│   │   ├── extractor.go # LLM extraction prompt builder
+│   │   ├── pipeline.go  # 4-stage write pipeline
+│   │   ├── conflict.go  # Conflict resolution + human-in-the-loop queue
+│   │   └── dedup.go     # Semantic deduplication
+│   └── working/       # Working Memory (plans + tasks + checkpoints)
+│       └── working.go
 ├── observability/     # LangfuseObserver, PlannerInstrument
 ├── acp/               # ACP adapter (JSON-RPC 2.0 stdio transport, session mgmt)
 ├── tools/
@@ -580,7 +654,7 @@ kugelblitz/
 ├── skills/            # Skill loader + registry
 ├── provider/
 │   └── chat_completions/  # OpenAI-compatible Format (Block + Stream)
-├── persist/           # Plan checkpoint JSON, session JSONL
+├── persist/           # Format-level stores: MarkdownPersist, JSONLPersist, VectorPersist
 ├── utils/             # UUID generation, session IDs
 └── examples/
     ├── plan_mode/            # Full Planner demo
@@ -588,4 +662,27 @@ kugelblitz/
     ├── acp_server/           # ACP server (editor-compatible agent)
     ├── drift_demo/           # Drift detection demo
     └── human_in_the_loop/    # Human-in-the-loop demo
+```
+
+### Workspace Layout (`~/.kugelblitz/`)
+
+```
+~/.kugelblitz/
+├── MEMORY.md                          # Long-term memory (authoritative, human-editable)
+├── AGENTS.md                          # Agent capabilities (read-only)
+├── IDENTITY.md                        # Agent identity (read-only)
+├── SOUL.md                            # Agent personality (read-only)
+├── USER.md                            # User profile (read-only)
+├── mcp.yaml                           # MCP server configuration (read-only)
+├── skills/
+│   └── {name}/SKILL.md                # Skill definitions (read-only)
+│
+└── memory/                            # Agent-managed data
+    ├── sessions/{id}.jsonl            # Session memory (JSONL)
+    ├── plans/{planID}/
+    │   ├── plan.jsonl                 # Working memory — Plan
+    │   └── checkpoints/{v}.jsonl      # Plan version snapshots
+    └── longterm/
+        ├── memory_graph.jsonl         # Entity-relationship graph (JSONL)
+        └── MEMORY_GRAPH.md            # Entity-relationship graph (Mermaid, read-only)
 ```
