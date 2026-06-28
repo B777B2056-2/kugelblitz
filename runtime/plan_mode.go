@@ -50,6 +50,7 @@ type Planner struct {
 	ltm              *longterm.LongTermMemory
 	indexMgr         *longterm.IndexManager
 	writePipeline    *longterm.WritePipeline
+	dreamScheduler   *longterm.DreamScheduler
 	compressor       *memory.Compressor
 	reviewer         *Reviewer
 	reviewCfg        ReviewConfig
@@ -127,10 +128,20 @@ func NewPlanner(provider core.ILMProvider, streamMode bool, opts ...PlannerOptio
 	internals.RegisterMemoryTools(ltm, indexMgr, writePipeline)
 
 	// Set up entity-relationship graph store
+	var dreamScheduler *longterm.DreamScheduler
 	if ltm != nil {
 		graphStore := longterm.NewGraphStore(mgr.JSONL(), "memory/longterm/memory_graph.jsonl")
 		graphStore.Load(context.Background())
 		ltm.SetGraph(graphStore)
+
+		// Set up dreamer + scheduler for background memory consolidation
+		dreamer := &longterm.Dreamer{}
+		dreamer.SetProvider(provider)
+		dreamer.SetLTM(ltm)
+		dreamer.SetGraph(graphStore)
+		dreamer.SetIndexManager(indexMgr)
+		dreamScheduler = longterm.NewDreamScheduler(dreamer)
+		dreamScheduler.Start()
 	}
 
 	// Load skills and register skill_use tool
@@ -170,6 +181,7 @@ Answer ONLY "YES" or "NO".`, oldVal, newVal)
 		ltm:                ltm,
 		indexMgr:           indexMgr,
 		writePipeline:      writePipeline,
+		dreamScheduler:     dreamScheduler,
 		compressor:         memory.NewCompressor(provider),
 		reviewer:           NewReviewer(provider),
 		reviewCfg:          DefaultReviewConfig(),
@@ -336,6 +348,11 @@ func (p *Planner) RegisterEventHooks(hooks core.AgentEventHooks) {
 func (p *Planner) Execute(ctx context.Context, goal string) ([]core.Message, error) {
 	p.goal = goal
 
+	// Notify dream scheduler of activity (resets idle timer)
+	if p.dreamScheduler != nil {
+		p.dreamScheduler.NotifyActivity()
+	}
+
 	traceName := p.mem.SessionID()
 
 	var result []core.Message
@@ -366,10 +383,10 @@ func (p *Planner) Execute(ctx context.Context, goal string) ([]core.Message, err
 	history := p.mem.GetHistoryMessages()
 
 	// Build system prompt: agent context + skills + active skill + planner instructions
-	context := core.LoadAgentContext()
+	agentContext := core.LoadAgentContext()
 	var promptBuilder strings.Builder
-	if context != "" {
-		promptBuilder.WriteString(context)
+	if agentContext != "" {
+		promptBuilder.WriteString(agentContext)
 		promptBuilder.WriteString("\n\n")
 	}
 	// Skill list

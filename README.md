@@ -194,6 +194,19 @@ When confidence gap is narrow, the conflict is queued for human review via
 MEMORY.md at startup (`RebuildIfStale`) and async after every write (`Rebuild`).
 See `memory/longterm/index.go`.
 
+**Dreaming** (background consolidation): a `DreamScheduler` runs on a background
+goroutine, polling every 30 minutes. It only triggers a dream cycle when the
+agent has been **idle** (no `Execute` calls for 5 minutes) and the **cooldown**
+has elapsed (6 hours since last dream). The cycle reads existing memories,
+scores them by value, consolidates high-value items, and extracts cross-cutting
+insights. Results are written to `DREAMS.md`. Three phases:
+
+1. **Light Sleep** — collect all `MemoryItem`s, enrich with graph degree
+2. **Deep Sleep** — LLM scores each item (1–10); high scores get confidence bump
+3. **REM** — LLM extracts patterns and themes from top items → `insights` section
+
+See `memory/longterm/dream.go`.
+
 **Entity-Relationship Graph**: the extraction pipeline also produces entities
 and relationships (`EntityCandidate` / `RelCandidate`), stored in a local
 in-memory graph (`memory/longterm/graph.go`) and persisted as JSONL. A
@@ -643,6 +656,7 @@ kugelblitz/
 │   │   ├── graph.go   #   Entity-relationship graph (persisted, BFS, Mermaid)
 │   │   ├── extractor.go # LLM extraction prompt builder
 │   │   ├── pipeline.go  # 4-stage write pipeline
+│   │   ├── dream.go     #   Background memory consolidation (sleep cycle)
 │   │   ├── conflict.go  # Conflict resolution + human-in-the-loop queue
 │   │   └── dedup.go     # Semantic deduplication
 │   └── working/       # Working Memory (plans + tasks + checkpoints)
@@ -669,6 +683,7 @@ kugelblitz/
 ```
 ~/.kugelblitz/
 ├── MEMORY.md                          # Long-term memory (authoritative, human-editable)
+├── DREAMS.md                           # Dream diary (auto-generated reflections)
 ├── AGENTS.md                          # Agent capabilities (read-only)
 ├── IDENTITY.md                        # Agent identity (read-only)
 ├── SOUL.md                            # Agent personality (read-only)
