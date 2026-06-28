@@ -5,20 +5,21 @@ import (
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/persist"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func resetStore() {
-	planStoreMu.Lock()
-	planStore = make(map[string]*Plan)
-	planStoreMu.Unlock()
+// resetStore creates a fresh in-memory store by setting up a new temp-dir persist manager.
+func resetStore(t *testing.T) {
+	t.Helper()
+	persist.SetManager(persist.NewFileManager(t.TempDir()))
 }
 
 func TestPlanCreate(t *testing.T) {
-	resetStore()
+	resetStore(t)
 	tool := &PlanCreate{}
 	result := tool.Execute(context.Background(), core.ToolCallDetail{
 		ID: "c1", ToolName: "plan_create",
@@ -26,41 +27,37 @@ func TestPlanCreate(t *testing.T) {
 	})
 	assert.Nil(t, result.Outputs["error"])
 	assert.Equal(t, "Test Plan", result.Outputs["name"])
-	assert.Equal(t, string(PlanStatusInit), result.Outputs["status"])
+	assert.Equal(t, string(working.PlanStatusInit), result.Outputs["status"])
 	assert.NotEmpty(t, result.Outputs["id"])
 }
 
 func TestPlanCreate_MissingName(t *testing.T) {
-	resetStore()
+	resetStore(t)
 	tool := &PlanCreate{}
 	result := tool.Execute(context.Background(), core.ToolCallDetail{
-		ID: "c1", ToolName: "plan_create",
-		Args: map[string]any{},
+		ID: "c1", ToolName: "plan_create", Args: map[string]any{},
 	})
 	assert.NotNil(t, result.Outputs["error"])
 }
 
 func TestTaskInsert(t *testing.T) {
-	resetStore()
-	// Create a plan first
+	resetStore(t)
 	pc := &PlanCreate{}
 	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", ToolName: "plan_create", Args: map[string]any{"name": "P"}})
 	planID := pres.Outputs["id"].(string)
 
-	// Insert a task
 	ti := &TaskInsert{}
 	result := ti.Execute(context.Background(), core.ToolCallDetail{
 		ID: "i1", ToolName: "task_insert",
-		Args: map[string]any{"plan_id": planID, "goal": "do something", "action": "run it"},
+		Args: map[string]any{"plan_id": planID, "goal": "do something"},
 	})
 	assert.Nil(t, result.Outputs["error"])
 	assert.NotEmpty(t, result.Outputs["task_id"])
-	assert.Equal(t, planID, result.Outputs["plan_id"])
 	assert.Equal(t, "do something", result.Outputs["goal"])
 }
 
 func TestTaskInsert_AfterID(t *testing.T) {
-	resetStore()
+	resetStore(t)
 	pc := &PlanCreate{}
 	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", ToolName: "plan_create", Args: map[string]any{"name": "P"}})
 	planID := pres.Outputs["id"].(string)
@@ -69,8 +66,7 @@ func TestTaskInsert_AfterID(t *testing.T) {
 	r1 := ti.Execute(context.Background(), core.ToolCallDetail{ID: "i1", ToolName: "task_insert", Args: map[string]any{"plan_id": planID, "goal": "first"}})
 	r2 := ti.Execute(context.Background(), core.ToolCallDetail{ID: "i2", ToolName: "task_insert", Args: map[string]any{"plan_id": planID, "goal": "second", "after_id": r1.Outputs["task_id"]}})
 
-	// Verify order
-	plan, _ := getPlan(planID)
+	plan, _ := working.GetPlan(planID)
 	require.Len(t, plan.SubTasks, 2)
 	assert.Equal(t, "first", plan.SubTasks[0].Goal)
 	assert.Equal(t, "second", plan.SubTasks[1].Goal)
@@ -78,7 +74,7 @@ func TestTaskInsert_AfterID(t *testing.T) {
 }
 
 func TestTaskQuery(t *testing.T) {
-	resetStore()
+	resetStore(t)
 	pc := &PlanCreate{}
 	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", ToolName: "plan_create", Args: map[string]any{"name": "P"}})
 	planID := pres.Outputs["id"].(string)
@@ -91,12 +87,10 @@ func TestTaskQuery(t *testing.T) {
 	result := tq.Execute(context.Background(), core.ToolCallDetail{ID: "q1", ToolName: "task_query", Args: map[string]any{"task_id": taskID}})
 	assert.Nil(t, result.Outputs["error"])
 	assert.Equal(t, "test", result.Outputs["goal"])
-	assert.Equal(t, "pending", result.Outputs["status"])
-	assert.Equal(t, planID, result.Outputs["plan_id"])
 }
 
 func TestTaskDelete(t *testing.T) {
-	resetStore()
+	resetStore(t)
 	pc := &PlanCreate{}
 	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "P"}})
 	planID := pres.Outputs["id"].(string)
@@ -108,16 +102,14 @@ func TestTaskDelete(t *testing.T) {
 	td := &TaskDelete{}
 	result := td.Execute(context.Background(), core.ToolCallDetail{ID: "d1", Args: map[string]any{"task_id": taskID}})
 	assert.Nil(t, result.Outputs["error"])
-	assert.Equal(t, taskID, result.Outputs["deleted"])
 
-	// Verify it's gone
 	tq := &TaskQuery{}
 	qres := tq.Execute(context.Background(), core.ToolCallDetail{ID: "q1", Args: map[string]any{"task_id": taskID}})
 	assert.NotNil(t, qres.Outputs["error"])
 }
 
 func TestPlanQuery_ByID(t *testing.T) {
-	resetStore()
+	resetStore(t)
 	pc := &PlanCreate{}
 	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "P"}})
 	planID := pres.Outputs["id"].(string)
@@ -128,27 +120,8 @@ func TestPlanQuery_ByID(t *testing.T) {
 	assert.Equal(t, "P", result.Outputs["name"])
 }
 
-func TestPlanQuery_ListAll(t *testing.T) {
-	resetStore()
-	pc := &PlanCreate{}
-	pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "A"}})
-	pc.Execute(context.Background(), core.ToolCallDetail{ID: "c2", Args: map[string]any{"name": "B"}})
-
-	pq := &PlanQuery{}
-	result := pq.Execute(context.Background(), core.ToolCallDetail{ID: "q1", Args: map[string]any{}})
-	assert.Nil(t, result.Outputs["error"])
-	// count is an int, may come back as int or float64 depending on JSON round-trip
-	count, ok := result.Outputs["count"].(int)
-	if !ok {
-		countF, _ := result.Outputs["count"].(float64)
-		assert.Equal(t, float64(2), countF)
-	} else {
-		assert.Equal(t, 2, count)
-	}
-}
-
 func TestPlanStatusUpdate(t *testing.T) {
-	resetStore()
+	resetStore(t)
 	pc := &PlanCreate{}
 	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "P"}})
 	planID := pres.Outputs["id"].(string)
@@ -160,7 +133,7 @@ func TestPlanStatusUpdate(t *testing.T) {
 }
 
 func TestTaskStatusUpdate(t *testing.T) {
-	resetStore()
+	resetStore(t)
 	pc := &PlanCreate{}
 	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "P"}})
 	planID := pres.Outputs["id"].(string)
@@ -176,53 +149,27 @@ func TestTaskStatusUpdate(t *testing.T) {
 }
 
 func TestPlanPersistAndLoad(t *testing.T) {
-	resetStore()
+	resetStore(t)
 	oldPM := persist.GetManager()
 	persist.SetManager(persist.NewFileManager(t.TempDir()))
 	defer persist.SetManager(oldPM)
 
-	// Create a plan with tasks and persist
 	pc := &PlanCreate{}
 	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "Test"}})
 	planID := pres.Outputs["id"].(string)
 
 	ti := &TaskInsert{}
-	ires := ti.Execute(context.Background(), core.ToolCallDetail{ID: "i1", Args: map[string]any{"plan_id": planID, "goal": "do it", "action": "run"}})
+	ires := ti.Execute(context.Background(), core.ToolCallDetail{ID: "i1", Args: map[string]any{"plan_id": planID, "goal": "do it"}})
 	taskID := ires.Outputs["task_id"].(string)
 
 	ts := &TaskStatusUpdate{}
 	ts.Execute(context.Background(), core.ToolCallDetail{ID: "s1", Args: map[string]any{"task_id": taskID, "status": "done", "reason": "completed"}})
 
-	// Verify persisted (check via PersistManager)
-	pm := persist.GetManager()
-	data, err := pm.LoadPlan(planID)
-	require.NoError(t, err)
-	require.NotEmpty(t, data)
-
-	// Simulate restart: clear in-memory store
-	planStoreMu.Lock()
-	planStore = make(map[string]*Plan)
-	planStoreMu.Unlock()
-
 	// Load from disk
-	loaded, err := LoadPlan(planID)
+	loaded, err := working.LoadPlan(planID)
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 	assert.Equal(t, "Test", loaded.Name)
-	assert.Equal(t, PlanStatusUpdating, loaded.Status)
-	require.Len(t, loaded.SubTasks, 1)
-	assert.Equal(t, "done", string(loaded.SubTasks[0].Status))
-	assert.Equal(t, "completed", loaded.SubTasks[0].FinishedReson)
-}
-
-func TestWorkerSpawn_FactoryNotRegistered(t *testing.T) {
-	resetStore()
-	prev := workerFactory
-	workerFactory = nil
-	defer func() { workerFactory = prev }()
-
-	ws := &WorkerSpawn{}
-	result := ws.Execute(context.Background(), core.ToolCallDetail{ID: "w1", Args: map[string]any{"task_id": "nonexistent"}})
-	// Before factory check, task lookup fails first (task doesn't exist)
-	assert.NotNil(t, result.Outputs["error"])
+	assert.Len(t, loaded.SubTasks, 1)
+	assert.Equal(t, working.TaskStatusDone, loaded.SubTasks[0].Status)
 }

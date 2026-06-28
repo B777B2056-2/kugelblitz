@@ -1,66 +1,40 @@
 package persist
 
 import (
-	"path/filepath"
 	"sync"
 
 	"github.com/B777B2056-2/kugelblitz/core"
 )
 
-// Manager orchestrates persistence of domain objects (Plans, Sessions).
+// Manager provides access to all persistence instances.
 type Manager struct {
-	persister Persister
+	markdown *MarkdownPersist
+	jsonl    *JSONLPersist
+	vector   *VectorPersist
+	dir      string
 }
 
-// NewManager creates a Manager with the given Persister backend.
-func NewManager(p Persister) *Manager {
-	return &Manager{persister: p}
+// NewManager creates a Manager with the given persist implementations.
+func NewManager(dir string, md *MarkdownPersist, jl *JSONLPersist, vs *VectorPersist) *Manager {
+	return &Manager{
+		dir:      dir,
+		markdown: md,
+		jsonl:    jl,
+		vector:   vs,
+	}
 }
 
-// NewFileManager is a convenience constructor using FilePersister.
-func NewFileManager(root string) *Manager {
-	return NewManager(NewFilePersister(root))
-}
+// Markdown returns the MarkdownPersist for MEMORY.md operations.
+func (m *Manager) Markdown() *MarkdownPersist { return m.markdown }
 
-// Persister returns the underlying Persister (for Exists checks, etc.).
-func (m *Manager) Persister() Persister {
-	return m.persister
-}
+// JSONL returns the JSONLPersist for session/plan/checkpoint files.
+func (m *Manager) JSONL() *JSONLPersist { return m.jsonl }
 
-// SavePlan persists a Plan JSON under "plans/{id}".
-func (m *Manager) SavePlan(id string, data []byte) error {
-	return m.persister.Save(filepath.Join("plans", id), data)
-}
+// Vector returns the VectorPersist for ChromaDB operations (nil if not configured).
+func (m *Manager) Vector() *VectorPersist { return m.vector }
 
-// LoadPlan reads a Plan JSON from "plans/{id}".
-func (m *Manager) LoadPlan(id string) ([]byte, error) {
-	return m.persister.Load(filepath.Join("plans", id))
-}
-
-// SaveSession persists session JSONL under "sessions/{id}".
-func (m *Manager) SaveSession(id string, data []byte) error {
-	return m.persister.Save(filepath.Join("sessions", id), data)
-}
-
-// LoadSession reads session JSONL from "sessions/{id}".
-func (m *Manager) LoadSession(id string) ([]byte, error) {
-	return m.persister.Load(filepath.Join("sessions", id))
-}
-
-// Delete removes a key from the underlying persister.
-func (m *Manager) Delete(key string) error {
-	return m.persister.Delete(key)
-}
-
-// ListPlans returns all persisted plan IDs.
-func (m *Manager) ListPlans() ([]string, error) {
-	return m.persister.List("plans")
-}
-
-// ListSessions returns all persisted session IDs.
-func (m *Manager) ListSessions() ([]string, error) {
-	return m.persister.List("sessions")
-}
+// Dir returns the workspace root directory.
+func (m *Manager) Dir() string { return m.dir }
 
 // ---- Global singleton ----
 
@@ -69,15 +43,33 @@ var (
 	globalOnce    sync.Once
 )
 
-// GetManager returns the global Manager singleton rooted at the workspace.
+// GetManager returns the global Manager singleton.
 func GetManager() *Manager {
 	globalOnce.Do(func() {
-		globalManager = NewFileManager(core.GetWorkspace().Dir())
+		dir := core.GetWorkspace().Dir()
+		fp := NewFilePersist(dir)
+		globalManager = NewManager(
+			dir,
+			NewMarkdownPersist(fp),
+			NewJSONLPersist(fp),
+			NewVectorPersist(fp, NewChromaStoreOrNil()),
+		)
 	})
 	return globalManager
 }
 
-// SetManager replaces the global Manager (for testing or custom backends).
+// SetManager replaces the global Manager (for testing).
 func SetManager(m *Manager) {
 	globalManager = m
+}
+
+// NewFileManager creates a Manager backed by local files for testing.
+func NewFileManager(dir string) *Manager {
+	fp := NewFilePersist(dir)
+	return NewManager(
+		dir,
+		NewMarkdownPersist(fp),
+		NewJSONLPersist(fp),
+		NewVectorPersist(fp, nil), // no ChromaDB in tests
+	)
 }

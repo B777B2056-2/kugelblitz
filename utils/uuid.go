@@ -23,3 +23,9 @@ func GenerateTaskID() string {
 func GenerateSessionID() string {
 	return generateUUID("session")
 }
+
+// GenerateShortID returns the first 8 chars of a UUID for compact identifiers
+// used in ChromaDB document IDs and other places where full UUIDs are overkill.
+func GenerateShortID() string {
+	return uuid.New().String()[:8]
+}

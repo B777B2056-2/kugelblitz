@@ -34,20 +34,7 @@ func RegisterAll() {
 	tools.RegisterAll(All()...)
 }
 
-// RegisterWorkerSpawn registers the worker_spawn tool and sets the factory
-// that creates WorkerAgents. WorkerSpawn is NOT auto-registered by init()
-// because it requires a provider reference.
-//
-// Usage:
-//
-//	internals.RegisterWorkerSpawn(func(goal, action string) (string, error) {
-//	    worker := runtime.NewWorkerAgent(provider, true, []string{"file_read", "file_write"})
-//	    return worker.ExecuteTask(ctx, goal, action)
-//	})
-func RegisterWorkerSpawn(fn WorkerFactory) {
-	RegisterWorkerFactory(fn)
-	tools.Register(&WorkerSpawn{})
-}
+// WorkerSpawn tool is registered via internals.RegisterWorkerSpawn in plan.go.
 
 func init() {
 	RegisterAll()

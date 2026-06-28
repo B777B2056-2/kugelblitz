@@ -223,7 +223,7 @@ func TestPersist_ThenDeleteFile(t *testing.T) {
 	require.NoError(t, mem.Persist())
 
 	// Remove the persisted data
-	persist.GetManager().Delete("sessions/tmp-session")
+	persist.DeleteSession("tmp-session")
 
 	loaded, err := LoadSessionMemory("tmp-session")
 	assert.NoError(t, err)

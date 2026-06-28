@@ -10,8 +10,7 @@ and observability infrastructure that surrounds and orchestrates LLM-powered age
 - **ReAct Engine** — think → act → observe loop with streaming and tool-call support
 - **Planner + Worker** — dual-agent pattern: one plans, many execute
 - **Plan-Execute-Adapt-Finish** — structured workflow with checkpoints and rollback
-- **Session Memory** — automatic context compression when the window overflows
-- **Long-Term Memory** — semantic deduplication via LLM judge
+- **Three-Layer Memory** — Session (conversation) + Working (plans/tasks) + Long-Term (MEMORY.md + ChromaDB index)
 - **Goal-Drift Review** — periodic alignment check, automatic replan on drift
 - **Skills** — pluggable domain-knowledge modules
 - **Built-in Web Tools** — `web_search` (DuckDuckGo, zero-config) + `web_fetch` (HTML → Markdown, optional JS rendering)
@@ -118,15 +117,95 @@ Workers execute discrete subtasks with a restricted tool set (file read/write, d
 operations). The Planner spawns them via `worker_spawn`, and they run concurrently when
 tasks are independent.
 
-### Memory Harness
+### Memory System
 
-- **Session Memory** — full conversation history. When the context window overflows
-  (`ErrContextLengthExceeded`), the harness **automatically compresses** old messages
-  into an LLM-generated summary, keeping the most recent N messages intact.
+Kugelblitz provides a three-layer memory architecture: **Session Memory** (short-term,
+conversation history), **Working Memory** (plans and tasks in progress), and
+**Long-Term Memory** (persistent knowledge across sessions).
 
-- **Long-Term Memory** — key facts and lessons extracted from completed conversations
-  and stored with **semantic deduplication**. An LLM judge resolves conflicts when
-  new information contradicts existing memory.
+```
+┌─────────────────────────────────────────────┐
+│              Session Memory                 │  ← in-memory, per-conversation
+│  Messages + Summary (auto-compressed)       │
+├─────────────────────────────────────────────┤
+│              Working Memory                 │  ← plans + tasks + checkpoints
+│  Plan / Task / Checkpoint (JSONL)           │
+├─────────────────────────────────────────────┤
+│              Long-Term Memory               │  ← persistent, cross-session
+│  MEMORY.md (authoritative) + ChromaDB (index)│
+└─────────────────────────────────────────────┘
+```
+
+#### Session Memory
+
+Full conversation history kept in memory. Persisted as JSONL to disk after every
+`Planner.Execute()` and after compression. When the context window overflows
+(`ErrContextLengthExceeded`), the harness **automatically compresses** old messages
+into an LLM-generated cumulative summary, keeping the most recent N messages intact.
+On restart, `SessionMemoryManager` automatically reloads from disk.
+
+#### Working Memory
+
+Tracks what the agent is currently doing — the **Plan** and its **Tasks**.
+Every mutation creates a versioned **Checkpoint**, enabling rollback on drift or
+failure. Plans are persisted as JSONL via the `persist` package.
+
+| Component | Description |
+|-----------|-------------|
+| `Plan` | Goal decomposition with status lifecycle (init → doing → done/failed) |
+| `Task` | Individual subtask with status (pending → doing → done/failed) |
+| `Checkpoint` | Versioned snapshot saved on every mutation |
+
+See `memory/working/` for the implementation.
+
+#### Long-Term Memory
+
+All persistent knowledge lives in **MEMORY.md** — the single authoritative source.
+**ChromaDB** acts as a semantic search index, rebuilt from MEMORY.md at startup
+and after every write. Queries go through ChromaDB; if unavailable, they fall back
+to keyword search on MEMORY.md.
+
+**Write Pipeline** (4 stages):
+
+```
+Session Context + Existing Memories
+          │
+          ▼
+    1. Extract  ── LLM extracts all memory types as MemoryItem
+          │         candidates (facts, episodic, lessons, patterns)
+          ▼
+    2. Resolve  ── Compare against existing MEMORY.md entries
+          │         • Clear winner → accept
+          │         • Close confidence (< 0.15 gap) → defer to human
+          ▼
+    3. Dedup    ── Semantic dedup vs. existing + batch peers
+          │
+          ▼
+    4. Store    ── BulkStore → MEMORY.md
+                   └→ async trigger ChromaDB index rebuild
+```
+
+**Conflict Resolution**: each new `MemoryItem` is compared against the existing
+entry with the same section+key. Confidence decays over time (`0.95^days`).
+When confidence gap is narrow, the conflict is queued for human review via
+`memory_resolve_conflict` + `ask_human`.
+
+**ChromaDB Index**: documents use key `mem:{section}:{key}`, rebuilt from
+MEMORY.md at startup (`RebuildIfStale`) and async after every write (`Rebuild`).
+See `memory/longterm/index.go`.
+
+**Tools**:
+
+| Tool | Description |
+|------|-------------|
+| `memory_store` | Manually store a memory item |
+| `memory_search` | Semantic/keyword search via ChromaDB (fallback: MEMORY.md) |
+| `memory_get_section` | List all items in a section |
+| `memory_remove` | Delete an item |
+| `memory_list_sections` | List all sections with counts |
+| `memory_stats` | Stats: total items, sections, index status |
+| `memory_resolve_conflict` | Confirm a pending conflict (keep_new / keep_old) |
+| `memory_extract` | Agent-triggered: extract + persist from current session |
 
 ### Skills
 

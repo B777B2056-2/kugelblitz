@@ -1,0 +1,304 @@
+package longterm
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/persist"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func tempMemoryPath(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	p := filepath.Join(dir, "MEMORY.md")
+	// Override workspace
+	orig := core.GetWorkspace().Dir()
+	core.GetWorkspace().SetDir(dir)
+	t.Cleanup(func() { core.GetWorkspace().SetDir(orig) })
+	return p
+}
+
+func TestLongTermMemory_StoreNewFact(t *testing.T) {
+	_ = tempMemoryPath(t)
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+
+	winner, conflict, err := ltm.Store("prefs", "lang", "Go")
+	require.NoError(t, err)
+	assert.Equal(t, "Go", winner.Value)
+	assert.Equal(t, 1.0, winner.Confidence)
+	assert.Nil(t, conflict)
+}
+
+func TestLongTermMemory_StoreSameValue(t *testing.T) {
+	_ = tempMemoryPath(t)
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+
+	ltm.Store("prefs", "lang", "Go")
+	winner, conflict, _ := ltm.Store("prefs", "lang", "Go")
+
+	assert.Nil(t, conflict)
+	assert.Equal(t, "Go", winner.Value)
+	assert.Equal(t, 1.0, winner.Confidence) // capped at 1.0
+	assert.Equal(t, 2, winner.Version)
+}
+
+func TestLongTermMemory_StoreConflictNewWins(t *testing.T) {
+	_ = tempMemoryPath(t)
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+
+	// Store an old fact with low confidence (set UpdatedAt far in the past)
+	ltm.items = append(ltm.items, MemoryItem{
+		Section: "prefs", Key: "lang", Value: "Python",
+		Version: 1, Confidence: 0.2, UpdatedAt: time.Now().Add(-30 * 24 * time.Hour),
+	})
+
+	// New fact has confidence 1.0 — should win over decayed 0.2
+	// conflict is non-nil (holds the displaced old fact)
+	winner, conflict, _ := ltm.Store("prefs", "lang", "Go")
+	assert.NotNil(t, conflict) // old fact displaced
+	assert.Equal(t, "Python", conflict.Value)
+	assert.Equal(t, "Go", winner.Value)
+}
+
+func TestLongTermMemory_StoreConflictOldWins(t *testing.T) {
+	_ = tempMemoryPath(t)
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+
+	// Old fact with high confidence
+	ltm.items = append(ltm.items, MemoryItem{
+		Section: "prefs", Key: "lang", Value: "Python",
+		Version: 1, Confidence: 1.0, UpdatedAt: time.Now(),
+	})
+
+	// New fact — old has higher decayed confidence
+	winner, conflict, _ := ltm.Store("prefs", "lang", "Go")
+	assert.NotNil(t, conflict)
+	assert.Equal(t, "Python", winner.Value) // old wins
+}
+
+func TestLongTermMemory_ConfidenceDecay(t *testing.T) {
+	ltm := &LongTermMemory{}
+	f := MemoryItem{Confidence: 1.0, UpdatedAt: time.Now().Add(-10 * 24 * time.Hour)}
+	d := ltm.decayConfidence(f)
+	assert.Less(t, d.Confidence, 1.0)
+	assert.GreaterOrEqual(t, d.Confidence, 0.1)
+}
+
+func TestLongTermMemory_GetReturnsDecayed(t *testing.T) {
+	_ = tempMemoryPath(t)
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+
+	ltm.items = append(ltm.items, MemoryItem{
+		Section: "prefs", Key: "lang", Value: "Go",
+		Version: 1, Confidence: 1.0, UpdatedAt: time.Now().Add(-10 * 24 * time.Hour),
+	})
+
+	f, ok := ltm.Get("prefs", "lang")
+	assert.True(t, ok)
+	assert.Less(t, f.Confidence, 1.0) // decayed
+}
+
+func TestLongTermMemory_LoadExisting(t *testing.T) {
+	p := tempMemoryPath(t)
+	today := time.Now().Format("2006-01-02")
+	os.WriteFile(p, []byte(`# Project Memory
+
+## prefs
+- lang: Go  `+"`v2 c0.95 "+today+"`"+`
+`), 0644)
+
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	f, ok := ltm.Get("prefs", "lang")
+	assert.True(t, ok)
+	assert.Equal(t, "Go", f.Value)
+	assert.Equal(t, 2, f.Version)
+	assert.InDelta(t, 0.95, f.Confidence, 0.05)
+}
+
+func TestLongTermMemory_Search(t *testing.T) {
+	_ = tempMemoryPath(t)
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm.Store("prefs", "lang", "Go")
+	ltm.Store("items", "deploy", "production")
+
+	results := ltm.Search("Go")
+	assert.Len(t, results, 1)
+	assert.Equal(t, "lang", results[0].Key)
+}
+
+func TestLongTermMemory_CaseInsensitive(t *testing.T) {
+	_ = tempMemoryPath(t)
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	// Section normalization is case-insensitive; keys are case-sensitive
+	ltm.Store("PREFS", "lang", "Go")
+
+	f, ok := ltm.Get("prefs", "lang")
+	assert.True(t, ok)
+	assert.Equal(t, "Go", f.Value)
+}
+
+func TestLongTermMemory_Remove(t *testing.T) {
+	_ = tempMemoryPath(t)
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm.Store("prefs", "lang", "Go")
+
+	err := ltm.Remove("prefs", "lang")
+	require.NoError(t, err)
+	_, ok := ltm.Get("prefs", "lang")
+	assert.False(t, ok)
+}
+
+func TestLongTermMemory_GetSection(t *testing.T) {
+	_ = tempMemoryPath(t)
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm.Store("prefs", "lang", "Go")
+	ltm.Store("prefs", "editor", "VSCode")
+
+	section := ltm.GetSection("prefs")
+	assert.Len(t, section, 2)
+}
+
+func TestLongTermMemory_SemanticMatchExact(t *testing.T) {
+	ltm := &LongTermMemory{}
+	assert.True(t, ltm.isSemanticMatch("Go", "Go"))
+}
+
+func TestLongTermMemory_SemanticMatchCaseInsensitive(t *testing.T) {
+	ltm := &LongTermMemory{}
+	assert.True(t, ltm.isSemanticMatch("Go", "go"))
+}
+
+func TestLongTermMemory_SemanticMatchSubstring(t *testing.T) {
+	ltm := &LongTermMemory{}
+	assert.True(t, ltm.isSemanticMatch("Go programming", "Go"))
+}
+
+func TestLongTermMemory_SemanticMatchLLMJudge(t *testing.T) {
+	oldJudge := semanticJudge
+	defer func() { semanticJudge = oldJudge }()
+
+	semanticJudge = func(old, new string) bool { return old == "python" && new == "py" }
+
+	ltm := &LongTermMemory{}
+	assert.True(t, ltm.isSemanticMatch("python", "py"))
+}
+
+func TestLongTermMemory_SemanticMatchLLMNoMatch(t *testing.T) {
+	oldJudge := semanticJudge
+	defer func() { semanticJudge = oldJudge }()
+
+	semanticJudge = func(old, new string) bool { return false }
+
+	ltm := &LongTermMemory{}
+	assert.False(t, ltm.isSemanticMatch("Go", "Python"))
+}
+
+func TestLongTermMemory_SemanticMatchNoJudge(t *testing.T) {
+	ltm := &LongTermMemory{}
+	assert.False(t, ltm.isSemanticMatch("Go", "Python"))
+}
+
+func TestLongTermMemory_StoreSemanticMatch(t *testing.T) {
+	_ = tempMemoryPath(t)
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+
+	oldJudge := semanticJudge
+	semanticJudge = func(old, new string) bool { return true } // always match
+	defer func() { semanticJudge = oldJudge }()
+
+	ltm.Store("prefs", "lang", "Go")
+	// Same semantic meaning — should bump confidence (capped at 1.0)
+	winner, conflict, _ := ltm.Store("prefs", "lang", "Golang")
+	assert.Nil(t, conflict)
+	assert.Equal(t, "Golang", winner.Value)  // newer phrasing wins
+	assert.Equal(t, 1.0, winner.Confidence)  // capped at 1.0
+	assert.Equal(t, 2, winner.Version)
+}
+
+func TestLongTermMemory_StoreSemanticMismatch(t *testing.T) {
+	_ = tempMemoryPath(t)
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+
+	oldJudge := semanticJudge
+	semanticJudge = func(old, new string) bool { return false }
+	defer func() { semanticJudge = oldJudge }()
+
+	ltm.items = append(ltm.items, MemoryItem{
+		Section: "prefs", Key: "lang", Value: "Python",
+		Version: 1, Confidence: 1.0, UpdatedAt: time.Now(),
+	})
+
+	// Different values, old has high confidence — should be a conflict
+	_, conflict, _ := ltm.Store("prefs", "lang", "Go")
+	assert.NotNil(t, conflict)
+}
+
+func TestLongTermMemory_StoreReturnsMetadata(t *testing.T) {
+	_ = tempMemoryPath(t)
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+
+	winner, _, _ := ltm.Store("prefs", "lang", "Go")
+	assert.Equal(t, "prefs", winner.Section)
+	assert.Equal(t, "lang", winner.Key)
+	assert.Equal(t, 1, winner.Version)
+	assert.Equal(t, 1.0, winner.Confidence)
+}
+
+func TestLongTermMemory_BulkStore(t *testing.T) {
+	_ = tempMemoryPath(t)
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+
+	items := []MemoryItem{
+		{Section: "prefs", Key: "lang", Value: "Go", Confidence: 1.0},
+		{Section: "prefs", Key: "editor", Value: "VSCode", Confidence: 1.0},
+		{Section: "items", Key: "deploy", Value: "prod", Confidence: 0.9},
+	}
+	err := ltm.BulkStore(items)
+	require.NoError(t, err)
+
+	f, ok := ltm.Get("prefs", "lang")
+	assert.True(t, ok)
+	assert.Equal(t, "Go", f.Value)
+
+	f2, ok := ltm.Get("items", "deploy")
+	assert.True(t, ok)
+	assert.Equal(t, "prod", f2.Value)
+}
+
+func TestLongTermMemory_Facts(t *testing.T) {
+	_ = tempMemoryPath(t)
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm.Store("prefs", "lang", "Go")
+	ltm.Store("items", "deploy", "prod")
+
+	all := ltm.All()
+	assert.Len(t, all, 2)
+}
+
+func TestLongTermMemory_ListSections(t *testing.T) {
+	_ = tempMemoryPath(t)
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm.Store("prefs", "lang", "Go")
+	ltm.Store("prefs", "editor", "VSCode")
+	ltm.Store("items", "deploy", "prod")
+
+	sections := ltm.ListSections()
+	assert.Equal(t, 2, sections["prefs"])
+	assert.Equal(t, 1, sections["items"])
+}
+
+func TestLongTermMemory_Stats(t *testing.T) {
+	_ = tempMemoryPath(t)
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm.Store("prefs", "lang", "Go")
+
+	total, sections, avg := ltm.Stats()
+	assert.Equal(t, 1, total)
+	assert.Equal(t, 1, sections)
+	assert.Greater(t, avg, 0.0)
+}

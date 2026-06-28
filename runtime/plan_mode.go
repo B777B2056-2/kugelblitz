@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +9,8 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/memory"
+	"github.com/B777B2056-2/kugelblitz/memory/longterm"
+	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/B777B2056-2/kugelblitz/skills"
@@ -46,7 +47,9 @@ const DefaultMaxToolResultChars = 4000
 type Planner struct {
 	react            *ReactAgent
 	mem              *memory.SessionMemory
-	ltm              *memory.LongTermMemory
+	ltm              *longterm.LongTermMemory
+	indexMgr         *longterm.IndexManager
+	writePipeline    *longterm.WritePipeline
 	compressor       *memory.Compressor
 	reviewer         *Reviewer
 	reviewCfg        ReviewConfig
@@ -108,17 +111,27 @@ func NewPlanner(provider core.ILMProvider, streamMode bool, opts ...PlannerOptio
 		"plan_create", "plan_query", "plan_status_update", "plan_rollback",
 		"task_insert", "task_delete", "task_query",
 		"memory_store", "memory_search", "memory_get_section",
-		"skill_use",
-		"worker_spawn",
-		"ask_human",
+		"memory_remove", "memory_list_sections", "memory_stats",
+		"memory_extract", "memory_resolve_conflict",
+		"skill_use", "worker_spawn", "ask_human",
 	)
 	react.EnableHumanInTheLoop()
 
 	sessionID := memory.GetSessionMemoryManager().CreateSessionMemory()
 	mem, _ := memory.GetSessionMemoryManager().GetSessionMemory(sessionID)
 
-	ltm, _ := memory.NewLongTermMemory()
-	internals.RegisterMemoryTools(ltm)
+	mgr := persist.GetManager()
+	ltm, _ := longterm.NewLongTermMemory(mgr.Markdown())
+	indexMgr := longterm.NewIndexManager(mgr.Vector(), ltm)
+	writePipeline := longterm.NewWritePipeline(provider, ltm, indexMgr, 0.15)
+	internals.RegisterMemoryTools(ltm, indexMgr, writePipeline)
+
+	// Set up entity-relationship graph store
+	if ltm != nil {
+		graphStore := longterm.NewGraphStore(mgr.JSONL(), "memory_graph.jsonl")
+		graphStore.Load(context.Background())
+		ltm.SetGraph(graphStore)
+	}
 
 	// Load skills and register skill_use tool
 	activeSkill := &skills.Skill{}
@@ -132,7 +145,7 @@ func NewPlanner(provider core.ILMProvider, streamMode bool, opts ...PlannerOptio
 	skillTool := internals.RegisterSkillTool(skillList, activeSkill)
 
 	// Configure LLM-based semantic judge for memory conflict resolution
-	memory.SetSemanticJudge(func(oldVal, newVal string) bool {
+	longterm.SetSemanticJudge(func(oldVal, newVal string) bool {
 		prompt := fmt.Sprintf(
 			`Are these two statements semantically equivalent (same fact, different wording)?
 A: %s
@@ -155,6 +168,8 @@ Answer ONLY "YES" or "NO".`, oldVal, newVal)
 		react:              react,
 		mem:                mem,
 		ltm:                ltm,
+		indexMgr:           indexMgr,
+		writePipeline:      writePipeline,
 		compressor:         memory.NewCompressor(provider),
 		reviewer:           NewReviewer(provider),
 		reviewCfg:          DefaultReviewConfig(),
@@ -163,6 +178,14 @@ Answer ONLY "YES" or "NO".`, oldVal, newVal)
 		skillList:          skillList,
 		obs:                core.NoopObserver{},
 		maxToolResultChars: DefaultMaxToolResultChars,
+	}
+
+	// Wire BuildExtractContext for the memory_extract tool
+	internals.BuildExtractContext = func() *longterm.ExtractionContext {
+		return planner.buildExtractionContext(
+			core.NewUserMessage("planner", core.TextContent{Text: planner.goal}),
+			planner.mem.GetHistoryMessages(),
+		)
 	}
 
 	planner.react.SetOnToolResult(func(results []core.ToolCallResult, step int) bool {
@@ -223,7 +246,15 @@ Answer ONLY "YES" or "NO".`, oldVal, newVal)
 	for _, opt := range opts {
 		opt(planner)
 	}
-	planner.ResumeIncomplete(context.Background())
+	// Rebuild ChromaDB index from MEMORY.md at startup
+	if indexMgr != nil && indexMgr.IsAvailable() {
+		indexMgr.RebuildIfStale(context.Background())
+	}
+
+	// Skip resume when provider is nil (test/headless scenario)
+	if provider != nil {
+		planner.ResumeIncomplete(context.Background())
+	}
 	return planner
 }
 
@@ -270,7 +301,7 @@ func (p *Planner) compressToolResults(ctx context.Context, results []core.ToolCa
 // summarizeToolResult asks the LLM to produce a concise summary of a large string field.
 func (p *Planner) summarizeToolResult(ctx context.Context, toolName, fieldKey, raw string) (string, error) {
 	prompt := fmt.Sprintf(
-		`Summarize this tool result field. Keep key facts, IDs, file paths, error messages, and numbers.
+		`Summarize this tool result field. Keep key items, IDs, file paths, error messages, and numbers.
 Be concise but don't drop critical data. Output ONLY the summary, no preamble.
 
 Tool: %s
@@ -363,6 +394,9 @@ func (p *Planner) Execute(ctx context.Context, goal string) ([]core.Message, err
 		promptBuilder.WriteString(p.activeSkill.Prompt)
 		promptBuilder.WriteString("\n\n")
 	}
+	// Inject pending memory conflicts if any
+	p.injectPendingConflicts(&promptBuilder)
+
 	promptBuilder.WriteString(plannerSystemPrompt)
 	sysMsg := core.NewUserMessage("planner", core.TextContent{Text: promptBuilder.String()})
 	sysMsg.Role = "system"
@@ -373,6 +407,9 @@ func (p *Planner) Execute(ctx context.Context, goal string) ([]core.Message, err
 	if errors.Is(err, core.ErrContextLengthExceeded) {
 		historyBefore := len(p.mem.GetHistoryMessages())
 		oldSummary := p.mem.Summary()
+
+		// Extract long-term memories before compression (last chance for detail)
+		p.extractBeforeCompress(ctx, userMsg, history)
 
 		compSpan := p.currentTrace.StartSpan("context.compress", map[string]any{
 			"messages_before": historyBefore,
@@ -408,8 +445,6 @@ func (p *Planner) Execute(ctx context.Context, goal string) ([]core.Message, err
 	p.mem.AppendMessages(result)
 	_ = p.mem.Persist()
 
-	go p.extractAndStoreFacts(userMsg, result)
-
 	return result, nil
 }
 
@@ -417,9 +452,9 @@ func (p *Planner) maybeReview(ctx context.Context, trigger, goalOverride string)
 	if goalOverride == "" {
 		goalOverride = p.goal
 	}
-	planIDs, _ := persist.GetManager().ListPlans()
+	planIDs, _ := persist.ListPlans()
 	for _, id := range planIDs {
-		plan, err := internals.LoadPlan(id)
+		plan, err := working.LoadPlan(id)
 		if err != nil || !plan.IsIncomplete() {
 			continue
 		}
@@ -452,12 +487,12 @@ func (p *Planner) maybeReview(ctx context.Context, trigger, goalOverride string)
 	}
 }
 
-func (p *Planner) replan(plan *internals.Plan) {
+func (p *Planner) replan(plan *working.Plan) {
 	if plan.Version <= 1 {
 		return
 	}
 	targetVersion := plan.Version - 1
-	var cp internals.Checkpoint
+	var cp working.Checkpoint
 	if err := persist.LoadCheckpointJSON(plan.ID, targetVersion, &cp); err != nil {
 		return
 	}
@@ -475,78 +510,76 @@ func (p *Planner) replan(plan *internals.Plan) {
 	p.mem.AppendMessage(alert)
 }
 
-func (p *Planner) extractAndStoreFacts(userMsg core.Message, result []core.Message) {
+// injectPendingConflicts adds unresolved memory conflicts to the system prompt.
+func (p *Planner) injectPendingConflicts(sb *strings.Builder) {
 	if p.ltm == nil {
 		return
 	}
-	ctx := context.Background()
-
-	var sb strings.Builder
-	if tc, ok := userMsg.Content.(core.TextContent); ok {
-		sb.WriteString(tc.Text)
-	}
-	sb.WriteString("\n\n---\n\n")
-	for _, msg := range result {
-		if tc, ok := msg.Content.(core.TextContent); ok && len(tc.Text) > 20 {
-			sb.WriteString(tc.Text)
-			sb.WriteString(" ")
-		}
-	}
-	conversation := sb.String()
-	if len(conversation) < 50 {
+	pending := p.ltm.PendingConflicts()
+	if len(pending) == 0 {
 		return
 	}
 
-	prompt := fmt.Sprintf(
-		`Extract key facts and lessons from this conversation. Output ONLY valid JSON array:
-[{"section":"...","key":"...","value":"..."}]
+	sb.WriteString("## Pending Memory Conflicts\n")
+	sb.WriteString("The following long-term memory entries have conflicting values. ")
+	sb.WriteString("Use memory_resolve_conflict to resolve them after asking the human via ask_human.\n\n")
+	for _, pc := range pending {
+		sb.WriteString(fmt.Sprintf(
+			"- [%s] %s: OLD=%q (c%.2f) vs NEW=%q (c%.2f) — reason: %s\n",
+			pc.Section, pc.Key, pc.OldValue, pc.OldConfidence,
+			pc.NewValue, pc.NewConfidence, pc.Reason,
+		))
+	}
+	sb.WriteString("\n")
+}
 
-Sections: user_preferences, project_facts, lessons_learned
-Be concise. Only include facts that are clearly stated.
-
-Conversation:
-%s`, conversation[:min(3000, len(conversation))])
-
-	userMsg2 := core.NewUserMessage("ltm-extractor", core.TextContent{Text: prompt})
-	resp, err := p.reviewer.provider.Generate(ctx, core.GenerateParams{
-		Messages: []core.Message{userMsg2},
-		Stream:   false,
-	})
-	if err != nil {
+// extractBeforeCompress runs the write pipeline on old messages before they are
+// compressed away. This is the last chance to capture detailed episodic memories.
+func (p *Planner) extractBeforeCompress(ctx context.Context, userMsg core.Message, history []core.Message) {
+	if p.writePipeline == nil || p.ltm == nil {
 		return
 	}
-
-	text := ""
-	if tc, ok := resp.Content.(core.TextContent); ok {
-		text = tc.Text
-	}
-	start := strings.Index(text, "[")
-	end := strings.LastIndex(text, "]")
-	if start < 0 || end <= start {
-		return
-	}
-	jsonStr := text[start : end+1]
-
-	type fact struct {
-		Section string `json:"section"`
-		Key     string `json:"key"`
-		Value   string `json:"value"`
-	}
-	var facts []fact
-	if err := json.Unmarshal([]byte(jsonStr), &facts); err != nil {
-		return
-	}
-	for _, f := range facts {
-		if f.Section != "" && f.Key != "" && f.Value != "" {
-			p.ltm.Store(f.Section, f.Key, f.Value) // async — conflicts handled by confidence
-		}
+	ec := p.buildExtractionContext(userMsg, history)
+	if result, err := p.writePipeline.Run(ctx, ec); err == nil && p.currentTrace != nil {
+		span := p.currentTrace.StartSpan("memory.extract_before_compress", map[string]any{
+			"facts_stored": result.ItemsStored,
+			"needs_human":  result.NeedsHuman,
+		})
+		span.End()
 	}
 }
 
-func (p *Planner) ResumeIncomplete(ctx context.Context) {
-	planIDs, _ := persist.GetManager().ListPlans()
+// buildExtractionContext constructs an ExtractionContext from the current planner state.
+func (p *Planner) buildExtractionContext(userMsg core.Message, history []core.Message) *longterm.ExtractionContext {
+	if p.ltm == nil {
+		return &longterm.ExtractionContext{Conversation: history}
+	}
+	ec := &longterm.ExtractionContext{
+		Conversation:   history,
+		SessionSummary: p.mem.Summary(),
+		ExistingItems:  p.ltm.All(),
+	}
+
+	if tc, ok := userMsg.Content.(core.TextContent); ok {
+		ec.UserMessage = tc.Text
+	}
+
+	// Load active plan goals from checkpoints
+	planIDs, _ := persist.ListPlans()
 	for _, id := range planIDs {
-		plan, err := internals.LoadPlan(id)
+		plan, err := working.LoadPlan(id)
+		if err == nil && plan.IsIncomplete() {
+			ec.CheckpointGoals = append(ec.CheckpointGoals, plan.Name)
+		}
+	}
+
+	return ec
+}
+
+func (p *Planner) ResumeIncomplete(ctx context.Context) {
+	planIDs, _ := persist.ListPlans()
+	for _, id := range planIDs {
+		plan, err := working.LoadPlan(id)
 		if err != nil || !plan.IsIncomplete() {
 			continue
 		}
@@ -555,7 +588,7 @@ func (p *Planner) ResumeIncomplete(ctx context.Context) {
 }
 
 func (p *Planner) resume(ctx context.Context, planID string) {
-	plan, err := internals.LoadPlan(planID)
+	plan, err := working.LoadPlan(planID)
 	if err != nil {
 		return
 	}

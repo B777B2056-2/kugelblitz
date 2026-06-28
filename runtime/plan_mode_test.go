@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/B777B2056-2/kugelblitz/tools/internals"
 
@@ -15,6 +16,7 @@ import (
 )
 
 func TestPlanner_ContextError_TriggersRetry(t *testing.T) {
+	persist.SetManager(persist.NewFileManager(t.TempDir()))
 	callCount := 0
 	provider := &mockProvider{
 		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
@@ -34,11 +36,12 @@ func TestPlanner_ContextError_TriggersRetry(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
-	assert.Equal(t, 2, callCount, "should have retried after compress")
+	assert.GreaterOrEqual(t, callCount, 2, "should have retried after compress (extraction may add extra calls)")
 	assert.Equal(t, "done", msgs[0].Content.(core.TextContent).Text)
 }
 
 func TestPlanner_NonContextError_NoRetry(t *testing.T) {
+	persist.SetManager(persist.NewFileManager(t.TempDir()))
 	provider := &mockProvider{
 		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
 			return nil, errors.New("some other error")
@@ -214,7 +217,7 @@ func TestPlanner_Replan_RollbackAndAlert(t *testing.T) {
 	ti := &internals.TaskInsert{}
 	ti.Execute(context.Background(), core.ToolCallDetail{ID: "i1", Args: map[string]any{"plan_id": planID, "goal": "task 1"}})
 
-	plan, err := internals.LoadPlan(planID)
+	plan, err := working.LoadPlan(planID)
 	require.NoError(t, err)
 	assert.Equal(t, 2, plan.Version)
 
@@ -229,7 +232,7 @@ func TestPlanner_Replan_RollbackAndAlert(t *testing.T) {
 	planner.replan(plan)
 
 	// Plan should be rolled back to v1 content
-	reloaded, err := internals.LoadPlan(planID)
+	reloaded, err := working.LoadPlan(planID)
 	require.NoError(t, err)
 	assert.Empty(t, reloaded.SubTasks, "should have 0 subtasks after rollback to v1")
 
@@ -265,12 +268,12 @@ func TestPlanner_MaybeReview_NoDrift_NoReplan(t *testing.T) {
 	planner.goal = "test goal"
 
 	// Should not change plan version
-	planBefore, _ := internals.LoadPlan(planID)
+	planBefore, _ := working.LoadPlan(planID)
 	vBefore := planBefore.Version
 
 	planner.maybeReview(context.Background(), "step", "")
 
-	planAfter, _ := internals.LoadPlan(planID)
+	planAfter, _ := working.LoadPlan(planID)
 	assert.Equal(t, vBefore, planAfter.Version, "version should not change on NO_DRIFT")
 }
 
@@ -305,6 +308,7 @@ func TestPlanner_MaybeReview_Drift_TriggersReplan(t *testing.T) {
 }
 
 func TestPlanner_NewPlanner_SetsOnToolResult(t *testing.T) {
+	persist.SetManager(persist.NewFileManager(t.TempDir()))
 	planner := NewPlanner(nil, false)
 	assert.NotNil(t, planner.react.onToolResult, "NewPlanner should set OnToolResult")
 }

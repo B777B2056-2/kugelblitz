@@ -1,29 +1,38 @@
 package persist
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 )
 
-// ---- Plan persistence ----
-
-// SavePlanJSON serializes a Plan and persists it via the global Manager.
 func SavePlanJSON(planID string, plan any) error {
+	mgr := GetManager()
 	data, err := json.MarshalIndent(plan, "", "  ")
 	if err != nil {
-		return fmt.Errorf("persist plan: marshal: %w", err)
+		return fmt.Errorf("persist plan: %w", err)
 	}
-	return GetManager().SavePlan(planID, data)
+	return mgr.JSONL().WriteAll(context.Background(), filepath.Join("plans", planID+".jsonl"), []JSONLEvent{
+		{Type: "plan", Payload: data},
+	})
 }
 
-// LoadPlanJSON loads a Plan from persistence and unmarshals it into dst.
 func LoadPlanJSON(planID string, dst any) error {
-	data, err := GetManager().LoadPlan(planID)
-	if err != nil {
+	mgr := GetManager()
+	events, err := mgr.JSONL().ReadAll(filepath.Join("plans", planID+".jsonl"))
+	if err != nil || len(events) == 0 {
 		return fmt.Errorf("load plan: %w", err)
 	}
-	if err := json.Unmarshal(data, dst); err != nil {
-		return fmt.Errorf("load plan: unmarshal: %w", err)
-	}
-	return nil
+	return json.Unmarshal(events[0].Payload, dst)
+}
+
+func ListPlans() ([]string, error) {
+	mgr := GetManager()
+	return mgr.JSONL().List(context.Background(), "plans")
+}
+
+func DeletePlan(planID string) error {
+	mgr := GetManager()
+	return mgr.JSONL().Delete(context.Background(), filepath.Join("plans", planID+".jsonl"))
 }

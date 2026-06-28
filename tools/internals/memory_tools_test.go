@@ -5,7 +5,8 @@ import (
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/core"
-	"github.com/B777B2056-2/kugelblitz/memory"
+	"github.com/B777B2056-2/kugelblitz/memory/longterm"
+	"github.com/B777B2056-2/kugelblitz/persist"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,7 +14,7 @@ import (
 
 func TestMemoryStore_StoresFact(t *testing.T) {
 	core.GetWorkspace().SetDir(t.TempDir())
-	ltm, _ := memory.NewLongTermMemory()
+	ltm, _ := longterm.NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
 
 	tool := &MemoryStore{ltm: ltm}
 	result := tool.Execute(context.Background(), core.ToolCallDetail{
@@ -28,7 +29,7 @@ func TestMemoryStore_StoresFact(t *testing.T) {
 
 func TestMemoryStore_Conflict(t *testing.T) {
 	core.GetWorkspace().SetDir(t.TempDir())
-	ltm, _ := memory.NewLongTermMemory()
+	ltm, _ := longterm.NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
 	ltm.Store("prefs", "lang", "Python")
 
 	tool := &MemoryStore{ltm: ltm}
@@ -46,7 +47,7 @@ func TestMemoryStore_Conflict(t *testing.T) {
 
 func TestMemorySearch_FindsResults(t *testing.T) {
 	core.GetWorkspace().SetDir(t.TempDir())
-	ltm, _ := memory.NewLongTermMemory()
+	ltm, _ := longterm.NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
 	ltm.Store("prefs", "lang", "Go")
 	ltm.Store("prefs", "editor", "VSCode")
 
@@ -61,11 +62,15 @@ func TestMemorySearch_FindsResults(t *testing.T) {
 	assert.Equal(t, "Go", results[0]["value"])
 	assert.NotNil(t, results[0]["confidence"])
 	assert.NotNil(t, results[0]["version"])
+
+	count, ok := result.Outputs["count"].(int)
+	require.True(t, ok)
+	assert.Equal(t, 1, count)
 }
 
 func TestMemoryGetSection_ReturnsAll(t *testing.T) {
 	core.GetWorkspace().SetDir(t.TempDir())
-	ltm, _ := memory.NewLongTermMemory()
+	ltm, _ := longterm.NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
 	ltm.Store("prefs", "a", "1")
 	ltm.Store("prefs", "b", "2")
 

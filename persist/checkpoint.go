@@ -1,49 +1,49 @@
 package persist
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"sort"
 	"strconv"
 )
 
-// ---- Plan Checkpoint persistence ----
-
-// SaveCheckpointJSON saves a versioned plan snapshot.
-// Key format: "checkpoints/{planID}/{version}"
 func SaveCheckpointJSON(planID string, version int, checkpoint any) error {
+	mgr := GetManager()
 	data, err := json.MarshalIndent(checkpoint, "", "  ")
 	if err != nil {
 		return fmt.Errorf("checkpoint marshal: %w", err)
 	}
-	key := "checkpoints/" + planID + "/" + padVersion(version)
-	return GetManager().persister.Save(key, data)
+	return mgr.JSONL().WriteAll(context.Background(),
+		filepath.Join("checkpoints", planID, padVersion(version)+".jsonl"),
+		[]JSONLEvent{{Type: "checkpoint", Payload: data}},
+	)
 }
 
-// LoadCheckpointJSON loads a specific version of a plan checkpoint.
 func LoadCheckpointJSON(planID string, version int, dst any) error {
-	key := "checkpoints/" + planID + "/" + padVersion(version)
-	data, err := GetManager().persister.Load(key)
-	if err != nil {
+	mgr := GetManager()
+	events, err := mgr.JSONL().ReadAll(filepath.Join("checkpoints", planID, padVersion(version)+".jsonl"))
+	if err != nil || len(events) == 0 {
 		return fmt.Errorf("checkpoint load: %w", err)
 	}
-	return json.Unmarshal(data, dst)
+	return json.Unmarshal(events[0].Payload, dst)
 }
 
-// ListCheckpoints returns all checkpoint versions for a plan, sorted ascending.
 func ListCheckpoints(planID string) ([]int, error) {
-	prefix := "checkpoints/" + planID
-	keys, err := GetManager().persister.List(prefix)
+	mgr := GetManager()
+	names, err := mgr.JSONL().List(context.Background(), filepath.Join("checkpoints", planID))
 	if err != nil {
 		return nil, err
 	}
 	var versions []int
-	for _, k := range keys {
-		// k is "checkpoints/{planID}/{version}", extract version
-		v, err := strconv.Atoi(k[len(prefix)+1:])
+	for _, name := range names {
+		v, err := strconv.Atoi(name)
 		if err == nil {
 			versions = append(versions, v)
 		}
 	}
+	sort.Ints(versions)
 	return versions, nil
 }
 

@@ -1,80 +1,58 @@
 package persist
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
-	"fmt"
+	"path/filepath"
 
 	"github.com/B777B2056-2/kugelblitz/core"
 )
 
-// ---- JSONL event format ----
-//
-// Sessions are stored as JSONL — one JSON object per line:
-//
-//	{"type":"init","session_id":"xxx"}
-//	{"type":"summary","summary":"prior context..."}
-//	{"type":"msg","message":{...full core.Message JSON...}}
-
-type sessionEvent struct {
-	Type      string          `json:"type"`
-	SessionID string          `json:"session_id,omitempty"`
-	Message   json.RawMessage `json:"message,omitempty"`
-	Summary   string          `json:"summary,omitempty"`
-}
-
-// SaveSessionJSONL serializes a session's messages and summary as JSONL,
-// then persists via the global Manager.
 func SaveSessionJSONL(sessionID string, summary string, messages []core.Message) error {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-
-	if err := enc.Encode(sessionEvent{Type: "init", SessionID: sessionID}); err != nil {
-		return fmt.Errorf("session persist: %w", err)
-	}
+	mgr := GetManager()
+	var events []JSONLEvent
+	initPayload, _ := json.Marshal(map[string]string{"session_id": sessionID})
+	events = append(events, JSONLEvent{Type: "init", Payload: initPayload})
 	if summary != "" {
-		if err := enc.Encode(sessionEvent{Type: "summary", Summary: summary}); err != nil {
-			return fmt.Errorf("session persist: %w", err)
-		}
+		sumPayload, _ := json.Marshal(map[string]string{"summary": summary})
+		events = append(events, JSONLEvent{Type: "summary", Payload: sumPayload})
 	}
 	for _, msg := range messages {
-		rawMsg, err := json.Marshal(msg)
-		if err != nil {
-			return fmt.Errorf("session persist: marshal message: %w", err)
-		}
-		if err := enc.Encode(sessionEvent{Type: "msg", Message: rawMsg}); err != nil {
-			return fmt.Errorf("session persist: encode message: %w", err)
-		}
+		msgPayload, _ := json.Marshal(msg)
+		events = append(events, JSONLEvent{Type: "msg", Payload: msgPayload})
 	}
-
-	return GetManager().SaveSession(sessionID, buf.Bytes())
+	return mgr.JSONL().WriteAll(context.Background(), filepath.Join("sessions", sessionID+".jsonl"), events)
 }
 
-// LoadSessionJSONL loads a session's JSONL data and reconstructs the
-// summary and message list. Returns nil if not found.
 func LoadSessionJSONL(sessionID string) (summary string, messages []core.Message, _ error) {
-	data, err := GetManager().LoadSession(sessionID)
+	mgr := GetManager()
+	events, err := mgr.JSONL().ReadAll(filepath.Join("sessions", sessionID+".jsonl"))
 	if err != nil {
-		return "", nil, nil // not found
+		return "", nil, nil
 	}
-
-	dec := json.NewDecoder(bytes.NewReader(data))
-	for dec.More() {
-		var evt sessionEvent
-		if err := dec.Decode(&evt); err != nil {
-			return "", nil, fmt.Errorf("session load: %w", err)
-		}
+	for _, evt := range events {
 		switch evt.Type {
 		case "summary":
-			summary = evt.Summary
+			var s struct{ Summary string `json:"summary"` }
+			if err := json.Unmarshal(evt.Payload, &s); err == nil {
+				summary = s.Summary
+			}
 		case "msg":
 			var msg core.Message
-			if err := json.Unmarshal(evt.Message, &msg); err != nil {
-				return "", nil, fmt.Errorf("session load: unmarshal message: %w", err)
+			if err := json.Unmarshal(evt.Payload, &msg); err == nil {
+				messages = append(messages, msg)
 			}
-			messages = append(messages, msg)
 		}
 	}
-
 	return summary, messages, nil
+}
+
+func ListSessions() ([]string, error) {
+	mgr := GetManager()
+	return mgr.JSONL().List(context.Background(), "sessions")
+}
+
+func DeleteSession(sessionID string) error {
+	mgr := GetManager()
+	return mgr.JSONL().Delete(context.Background(), filepath.Join("sessions", sessionID+".jsonl"))
 }
