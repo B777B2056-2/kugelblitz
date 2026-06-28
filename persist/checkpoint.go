@@ -16,14 +16,14 @@ func SaveCheckpointJSON(planID string, version int, checkpoint any) error {
 		return fmt.Errorf("checkpoint marshal: %w", err)
 	}
 	return mgr.JSONL().WriteAll(context.Background(),
-		filepath.Join("checkpoints", planID, padVersion(version)+".jsonl"),
+		filepath.Join("memory", "plans", planID, "checkpoints", padVersion(version)+".jsonl"),
 		[]JSONLEvent{{Type: "checkpoint", Payload: data}},
 	)
 }
 
 func LoadCheckpointJSON(planID string, version int, dst any) error {
 	mgr := GetManager()
-	events, err := mgr.JSONL().ReadAll(filepath.Join("checkpoints", planID, padVersion(version)+".jsonl"))
+	events, err := mgr.JSONL().ReadAll(filepath.Join("memory", "plans", planID, "checkpoints", padVersion(version)+".jsonl"))
 	if err != nil || len(events) == 0 {
 		return fmt.Errorf("checkpoint load: %w", err)
 	}
@@ -32,7 +32,7 @@ func LoadCheckpointJSON(planID string, version int, dst any) error {
 
 func ListCheckpoints(planID string) ([]int, error) {
 	mgr := GetManager()
-	names, err := mgr.JSONL().List(context.Background(), filepath.Join("checkpoints", planID))
+	names, err := mgr.JSONL().List(context.Background(), filepath.Join("memory", "plans", planID, "checkpoints"))
 	if err != nil {
 		return nil, err
 	}

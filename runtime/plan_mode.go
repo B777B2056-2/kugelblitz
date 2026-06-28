@@ -128,7 +128,7 @@ func NewPlanner(provider core.ILMProvider, streamMode bool, opts ...PlannerOptio
 
 	// Set up entity-relationship graph store
 	if ltm != nil {
-		graphStore := longterm.NewGraphStore(mgr.JSONL(), "memory_graph.jsonl")
+		graphStore := longterm.NewGraphStore(mgr.JSONL(), "memory/longterm/memory_graph.jsonl")
 		graphStore.Load(context.Background())
 		ltm.SetGraph(graphStore)
 	}

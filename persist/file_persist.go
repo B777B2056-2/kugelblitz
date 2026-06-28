@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -70,8 +71,15 @@ func (fp *FilePersist) List(_ context.Context, prefix string) ([]string, error) 
 	}
 	var keys []string
 	for _, e := range entries {
-		if !e.IsDir() {
+		if e.IsDir() {
 			keys = append(keys, filepath.Join(prefix, e.Name()))
+		} else {
+			// Strip extension for flat files
+			name := e.Name()
+			if strings.HasSuffix(name, ".jsonl") {
+				name = name[:len(name)-6]
+			}
+			keys = append(keys, filepath.Join(prefix, name))
 		}
 	}
 	return keys, nil

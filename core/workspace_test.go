@@ -25,12 +25,20 @@ func TestWorkspace_SetDir(t *testing.T) {
 	assert.Equal(t, "/custom/path", GetWorkspace().Dir())
 }
 
+func TestWorkspace_MemoryDir(t *testing.T) {
+	old := GetWorkspace().Dir()
+	defer GetWorkspace().SetDir(old)
+
+	GetWorkspace().SetDir("/ws")
+	assert.Equal(t, filepath.Join("/ws", "memory"), GetWorkspace().MemoryDir())
+}
+
 func TestWorkspace_SessionsDir(t *testing.T) {
 	old := GetWorkspace().Dir()
 	defer GetWorkspace().SetDir(old)
 
 	GetWorkspace().SetDir("/ws")
-	assert.Equal(t, filepath.Join("/ws", "sessions"), GetWorkspace().SessionsDir())
+	assert.Equal(t, filepath.Join("/ws", "memory", "sessions"), GetWorkspace().SessionsDir())
 }
 
 func TestWorkspace_PlansDir(t *testing.T) {
@@ -38,7 +46,7 @@ func TestWorkspace_PlansDir(t *testing.T) {
 	defer GetWorkspace().SetDir(old)
 
 	GetWorkspace().SetDir("/ws")
-	assert.Equal(t, filepath.Join("/ws", "plans"), GetWorkspace().PlansDir())
+	assert.Equal(t, filepath.Join("/ws", "memory", "plans"), GetWorkspace().PlansDir())
 }
 
 func TestWorkspace_MemoryFile(t *testing.T) {
@@ -54,7 +62,7 @@ func TestWorkspace_SessionPath(t *testing.T) {
 	defer GetWorkspace().SetDir(old)
 
 	GetWorkspace().SetDir("/ws")
-	assert.Equal(t, filepath.Join("/ws", "sessions", "abc.json"), GetWorkspace().SessionPath("abc"))
+	assert.Equal(t, filepath.Join("/ws", "memory", "sessions", "abc.jsonl"), GetWorkspace().SessionPath("abc"))
 }
 
 func TestWorkspace_PlanPath(t *testing.T) {
@@ -62,7 +70,7 @@ func TestWorkspace_PlanPath(t *testing.T) {
 	defer GetWorkspace().SetDir(old)
 
 	GetWorkspace().SetDir("/ws")
-	assert.Equal(t, filepath.Join("/ws", "plans", "abc.json"), GetWorkspace().PlanPath("abc"))
+	assert.Equal(t, filepath.Join("/ws", "memory", "plans", "abc", "plan.jsonl"), GetWorkspace().PlanPath("abc"))
 }
 
 func TestWorkspace_CheckpointPath(t *testing.T) {
@@ -70,7 +78,7 @@ func TestWorkspace_CheckpointPath(t *testing.T) {
 	defer GetWorkspace().SetDir(old)
 
 	GetWorkspace().SetDir("/ws")
-	assert.Equal(t, filepath.Join("/ws", "checkpoints", "p1", "0001.json"), GetWorkspace().CheckpointPath("p1", 1))
+	assert.Equal(t, filepath.Join("/ws", "memory", "plans", "p1", "checkpoints", "0001.jsonl"), GetWorkspace().CheckpointPath("p1", 1))
 }
 
 func TestWorkspace_MkdirAll(t *testing.T) {
@@ -84,9 +92,11 @@ func TestWorkspace_MkdirAll(t *testing.T) {
 
 	_, err := os.Stat(dir)
 	assert.NoError(t, err)
-	_, err = os.Stat(filepath.Join(dir, "sessions"))
+	_, err = os.Stat(filepath.Join(dir, "memory"))
 	assert.NoError(t, err)
-	_, err = os.Stat(filepath.Join(dir, "plans"))
+	_, err = os.Stat(filepath.Join(dir, "memory", "sessions"))
+	assert.NoError(t, err)
+	_, err = os.Stat(filepath.Join(dir, "memory", "plans"))
 	assert.NoError(t, err)
 }
 
@@ -98,5 +108,5 @@ func TestWorkspace_WindowsPathNormalization(t *testing.T) {
 	defer GetWorkspace().SetDir(old)
 
 	GetWorkspace().SetDir(`C:\Users\test\.kugelblitz`)
-	assert.Contains(t, GetWorkspace().SessionsDir(), `C:\Users\test\.kugelblitz\sessions`)
+	assert.Contains(t, GetWorkspace().SessionsDir(), `C:\Users\test\.kugelblitz\memory\sessions`)
 }

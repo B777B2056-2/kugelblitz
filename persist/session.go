@@ -21,12 +21,12 @@ func SaveSessionJSONL(sessionID string, summary string, messages []core.Message)
 		msgPayload, _ := json.Marshal(msg)
 		events = append(events, JSONLEvent{Type: "msg", Payload: msgPayload})
 	}
-	return mgr.JSONL().WriteAll(context.Background(), filepath.Join("sessions", sessionID+".jsonl"), events)
+	return mgr.JSONL().WriteAll(context.Background(), filepath.Join("memory", "sessions", sessionID+".jsonl"), events)
 }
 
 func LoadSessionJSONL(sessionID string) (summary string, messages []core.Message, _ error) {
 	mgr := GetManager()
-	events, err := mgr.JSONL().ReadAll(filepath.Join("sessions", sessionID+".jsonl"))
+	events, err := mgr.JSONL().ReadAll(filepath.Join("memory", "sessions", sessionID+".jsonl"))
 	if err != nil {
 		return "", nil, nil
 	}
@@ -49,10 +49,10 @@ func LoadSessionJSONL(sessionID string) (summary string, messages []core.Message
 
 func ListSessions() ([]string, error) {
 	mgr := GetManager()
-	return mgr.JSONL().List(context.Background(), "sessions")
+	return mgr.JSONL().List(context.Background(), filepath.Join("memory", "sessions"))
 }
 
 func DeleteSession(sessionID string) error {
 	mgr := GetManager()
-	return mgr.JSONL().Delete(context.Background(), filepath.Join("sessions", sessionID+".jsonl"))
+	return mgr.JSONL().Delete(context.Background(), filepath.Join("memory", "sessions", sessionID+".jsonl"))
 }

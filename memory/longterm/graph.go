@@ -45,7 +45,7 @@ type RelCandidate struct {
 
 // GraphStore is a local in-memory knowledge graph persisted as JSONL.
 // Entities and relationships are extracted from conversations and
-// stored alongside MEMORY.md as {workspace}/memory_graph.jsonl.
+// stored under {workspace}/memory/longterm/.
 type GraphStore struct {
 	entities      map[string]*Entity      // ID → Entity
 	relationships []*Relationship
