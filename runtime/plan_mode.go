@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -13,67 +12,74 @@ import (
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/persist"
+	"github.com/B777B2056-2/kugelblitz/runtime/prompts"
 	"github.com/B777B2056-2/kugelblitz/skills"
 	"github.com/B777B2056-2/kugelblitz/tools/internals"
+	"github.com/B777B2056-2/kugelblitz/utils"
 )
 
-const plannerSystemPrompt = `You are a Planner agent. Follow this workflow:
-
-1. PLAN – use plan_create to create an empty plan, then task_insert to add subtasks.
-2. EXECUTE – set plan_status_update to "doing", then use worker_spawn with a task_id.
-3. ADAPT – if a task failed (check via task_query), adjust the plan.
-4. FINISH – when all tasks are done/failed, call plan_status_update with "done" and summarize.
-
-Rules:
-- Always create a plan first. Never execute without a plan.
-- When tasks are independent (different files, no shared state), spawn them together in one response. They execute concurrently.
-- When tasks depend on each other, execute sequentially -- wait for the first to finish before spawning the next.
-- Use task_query to verify task independence before parallel spawn.
-- worker_spawn handles all task lifecycle automatically.`
-
 type ReviewConfig struct {
-	FailuresBeforeReview  int
-	ReActStepInterval     int
-	MaxToolResultChars    int // 0 = no limit; >0 = compress tool results exceeding this many UTF-8 chars
+	FailuresBeforeReview int
+	ReActStepInterval    int
+	MaxToolResultChars   int // 0 = no limit; >0 = compress tool results exceeding this many UTF-8 chars
 }
 
 func DefaultReviewConfig() ReviewConfig {
-	return ReviewConfig{FailuresBeforeReview: 3, ReActStepInterval: 8}
+	return ReviewConfig{FailuresBeforeReview: 5, ReActStepInterval: 12}
 }
 
 // DefaultMaxToolResultChars is the default threshold for tool result compression.
 const DefaultMaxToolResultChars = 4000
 
 type Planner struct {
-	react            *ReactAgent
-	mem              *memory.SessionMemory
-	ltm              *longterm.LongTermMemory
-	indexMgr         *longterm.IndexManager
-	writePipeline    *longterm.WritePipeline
-	dreamScheduler   *longterm.DreamScheduler
-	compressor       *memory.Compressor
-	reviewer         *Reviewer
-	reviewCfg        ReviewConfig
-	goal             string
-	consecutiveFails int
-	enableThinking   *bool
-	reasoningEffort  string
-	skillTool        *internals.SkillUse
-	activeSkill      *skills.Skill
-	skillList        []*skills.Skill
-	obs              core.Observer
-	currentTrace     core.TraceSpan
-	instr            *observability.PlannerInstrument
-	onLLMUsage       func(core.LLMUsageReport)
+	react              *ReactAgent
+	mem                *memory.SessionMemory
+	ltm                *longterm.LongTermMemory
+	indexMgr           *longterm.IndexManager
+	writePipeline      *longterm.WritePipeline
+	dreamScheduler     *longterm.DreamScheduler
+	compressor         *memory.Compressor
+	reviewer           *Reviewer
+	reviewCfg          ReviewConfig
+	goal               string
+	consecutiveFails   int
+	enableThinking     *bool
+	reasoningEffort    string
+	skillTool          *internals.SkillUse
+	activeSkill        *skills.Skill
+	skillList          []*skills.Skill
+	obs                core.Observer
+	currentTrace       core.TraceSpan
+	instr              *observability.PlannerInstrument
+	eventHooks         core.AgentEventHooks // Planner-level callbacks (OnPlanRollback, etc.)
+	onLLMUsage         func(core.LLMUsageReport)
 	maxToolResultChars int
+	sessionOverride *memory.SessionMemory // if set, reuse instead of creating new
+	customTools     []string
+	stateMachine    *PlannerStateMachine
+	dagExecutor     *DAGTaskExecutor
 }
 
 // PlannerOption configures a Planner at creation time.
 type PlannerOption func(*Planner)
 
-// WithCustomTools adds additional tool names to the Planner's ReAct agent.
+// WithCustomTools adds additional tool names to Planner, StateMachine, and Workers.
 func WithCustomTools(names ...string) PlannerOption {
-	return func(p *Planner) { p.react.WithTools(names...) }
+	return func(p *Planner) {
+		p.react.WithTools(names...)
+		p.customTools = append(p.customTools, names...)
+	}
+}
+
+// collectCustomTools extracts customTools from opts without creating a Planner.
+func collectCustomTools(opts []PlannerOption) []string {
+	var tools []string
+	dummy := &Planner{}
+	for _, opt := range opts {
+		opt(dummy)
+		tools = dummy.customTools
+	}
+	return tools
 }
 
 // WithObserver sets the observability observer for tracing Planner execution.
@@ -98,53 +104,110 @@ func WithMaxToolResultChars(n int) PlannerOption {
 	return func(p *Planner) { p.maxToolResultChars = n }
 }
 
-func NewPlanner(provider core.ILMProvider, streamMode bool, opts ...PlannerOption) *Planner {
-	internals.RegisterWorkerSpawn(func(goal, action string) (string, *core.Usage, error) {
-		worker := NewWorkerAgent(provider, streamMode, []string{
-			"file_read", "file_write", "file_copy",
-			"dir_create", "dir_copy",
-		})
-		return worker.ExecuteTask(context.Background(), goal, action)
-	})
+// WithExistingSession makes Planner reuse an existing session instead of
+// creating a new one. Used by IntentRouter to share session across phases.
+func WithExistingSession(mem *memory.SessionMemory) PlannerOption {
+	return func(p *Planner) { p.sessionOverride = mem }
+}
 
+// WithExistingSessionID is like WithExistingSession but takes a session ID
+// string and resolves or creates the SessionMemory internally. Preferred
+// when the caller only has a session ID.
+func WithExistingSessionID(sessionID string) PlannerOption {
+	return func(p *Planner) {
+		p.sessionOverride = memory.GetSessionMemoryManager().CreateSessionMemory(sessionID)
+	}
+}
+
+// ltmSetup bundles the long-term memory subsystem components.
+type ltmSetup struct {
+	ltm            *longterm.LongTermMemory
+	indexMgr       *longterm.IndexManager
+	writePipeline  *longterm.WritePipeline
+	dreamScheduler *longterm.DreamScheduler
+}
+
+func NewPlanner(provider core.ILMProvider, streamMode bool, opts ...PlannerOption) *Planner {
+	react := buildReactAgent(provider, streamMode)
+	ltmSetup := initLTM(provider)
+	skillTool, activeSkill, skillList := initSkills()
+	initSemanticJudge(provider)
+
+	planner := &Planner{
+		react:              react,
+		mem:                nil,
+		ltm:                ltmSetup.ltm,
+		indexMgr:           ltmSetup.indexMgr,
+		writePipeline:      ltmSetup.writePipeline,
+		dreamScheduler:     ltmSetup.dreamScheduler,
+		compressor:         memory.NewCompressor(provider),
+		reviewer:           NewReviewer(provider),
+		reviewCfg:          DefaultReviewConfig(),
+		skillTool:          skillTool,
+		activeSkill:        activeSkill,
+		skillList:          skillList,
+		obs:                core.NoopObserver{},
+		maxToolResultChars: DefaultMaxToolResultChars,
+	}
+
+	// Apply opts to populate customTools, then create DAG+SM
+	for _, opt := range opts {
+		opt(planner)
+	}
+	planner.dagExecutor = buildDAGExecutor(provider, streamMode, planner.customTools...)
+	planner.stateMachine = NewPlannerStateMachine(planner.dagExecutor, planner.customTools...)
+	planner.stateMachine.SetReviewer(planner.reviewer, 5, 12)
+
+	wireCallbacks(planner, planner.stateMachine)
+	finishInit(planner, provider, ltmSetup.indexMgr)
+	return planner
+}
+
+func buildDAGExecutor(provider core.ILMProvider, streamMode bool, customTools ...string) *DAGTaskExecutor {
+	return NewDAGTaskExecutor(provider, streamMode, customTools...)
+}
+
+func buildReactAgent(provider core.ILMProvider, streamMode bool) *ReactAgent {
 	react := NewReactAgent(provider, streamMode)
 	react.WithTools(
-		"plan_create", "plan_query", "plan_status_update", "plan_rollback",
+		"plan_create", "plan_query", "confirm_plan", "plan_rollback",
 		"task_insert", "task_delete", "task_query",
 		"memory_store", "memory_search", "memory_get_section",
 		"memory_remove", "memory_list_sections", "memory_stats",
 		"memory_extract", "memory_resolve_conflict",
-		"skill_use", "worker_spawn", "ask_human",
+		"skill_use", "ask_human", "set_work_mode",
 	)
 	react.EnableHumanInTheLoop()
+	return react
+}
 
-	sessionID := memory.GetSessionMemoryManager().CreateSessionMemory()
-	mem, _ := memory.GetSessionMemoryManager().GetSessionMemory(sessionID)
-
+func initLTM(provider core.ILMProvider) ltmSetup {
 	mgr := persist.GetManager()
-	ltm, _ := longterm.NewLongTermMemory(mgr.Markdown())
+	ltm, err := longterm.NewLongTermMemory(mgr.Markdown())
+	if err != nil {
+		core.Warn("plan_mode: failed to init long-term memory", "error", err)
+		return ltmSetup{}
+	}
 	indexMgr := longterm.NewIndexManager(mgr.Vector(), ltm)
 	writePipeline := longterm.NewWritePipeline(provider, ltm, indexMgr, 0.15)
 	internals.RegisterMemoryTools(ltm, indexMgr, writePipeline)
+	graphStore := longterm.NewGraphStore(mgr.JSONL(), "memory/longterm/memory_graph.jsonl")
+	graphStore.Load(context.Background())
+	ltm.SetGraph(graphStore)
 
-	// Set up entity-relationship graph store
-	var dreamScheduler *longterm.DreamScheduler
-	if ltm != nil {
-		graphStore := longterm.NewGraphStore(mgr.JSONL(), "memory/longterm/memory_graph.jsonl")
-		graphStore.Load(context.Background())
-		ltm.SetGraph(graphStore)
+	dreamer := &longterm.Dreamer{}
+	dreamer.SetProvider(provider)
+	dreamer.SetLTM(ltm)
+	dreamer.SetGraph(graphStore)
+	dreamer.SetIndexManager(indexMgr)
+	dreamScheduler := longterm.NewDreamScheduler(dreamer)
+	dreamScheduler.Start()
 
-		// Set up dreamer + scheduler for background memory consolidation
-		dreamer := &longterm.Dreamer{}
-		dreamer.SetProvider(provider)
-		dreamer.SetLTM(ltm)
-		dreamer.SetGraph(graphStore)
-		dreamer.SetIndexManager(indexMgr)
-		dreamScheduler = longterm.NewDreamScheduler(dreamer)
-		dreamScheduler.Start()
-	}
+	return ltmSetup{ltm, indexMgr, writePipeline, dreamScheduler}
+}
 
-	// Load skills and register skill_use tool
+// lint:ignore U1000 — retained for type clarity
+func initSkills() (*internals.SkillUse, *skills.Skill, []*skills.Skill) {
 	activeSkill := &skills.Skill{}
 	skillNames, _ := skills.List()
 	skillList := make([]*skills.Skill, 0, len(skillNames))
@@ -154,15 +217,16 @@ func NewPlanner(provider core.ILMProvider, streamMode bool, opts ...PlannerOptio
 		}
 	}
 	skillTool := internals.RegisterSkillTool(skillList, activeSkill)
+	return skillTool, activeSkill, skillList
+}
 
-	// Configure LLM-based semantic judge for memory conflict resolution
+func initSemanticJudge(provider core.ILMProvider) {
 	longterm.SetSemanticJudge(func(oldVal, newVal string) bool {
-		prompt := fmt.Sprintf(
-			`Are these two statements semantically equivalent (same fact, different wording)?
-A: %s
-B: %s
-Answer ONLY "YES" or "NO".`, oldVal, newVal)
-		msg := core.NewUserMessage("judge", core.TextContent{Text: prompt})
+		msg := core.NewUserMessage("judge", core.TextContent{
+			Text: prompts.DefaultFactory.MustRender(prompts.TypeSemanticJudge, prompts.SemanticJudgeParams{
+				OldVal: oldVal, NewVal: newVal,
+			}),
+		})
 		resp, err := provider.Generate(context.Background(), core.GenerateParams{
 			Messages: []core.Message{msg}, Stream: false,
 		})
@@ -174,25 +238,15 @@ Answer ONLY "YES" or "NO".`, oldVal, newVal)
 		}
 		return false
 	})
+}
 
-	planner := &Planner{
-		react:              react,
-		mem:                mem,
-		ltm:                ltm,
-		indexMgr:           indexMgr,
-		writePipeline:      writePipeline,
-		dreamScheduler:     dreamScheduler,
-		compressor:         memory.NewCompressor(provider),
-		reviewer:           NewReviewer(provider),
-		reviewCfg:          DefaultReviewConfig(),
-		skillTool:          skillTool,
-		activeSkill:        activeSkill,
-		skillList:          skillList,
-		obs:                core.NoopObserver{},
-		maxToolResultChars: DefaultMaxToolResultChars,
-	}
+func wireCallbacks(planner *Planner, sm *PlannerStateMachine) {
+	sm.OnDrift(func(plan *working.Plan, reason string) {
+		if planner.eventHooks.OnPlanRollback != nil {
+			planner.eventHooks.OnPlanRollback(plan.ID, plan.Version, plan.Name)
+		}
+	})
 
-	// Wire BuildExtractContext for the memory_extract tool
 	internals.BuildExtractContext = func() *longterm.ExtractionContext {
 		return planner.buildExtractionContext(
 			core.NewUserMessage("planner", core.TextContent{Text: planner.goal}),
@@ -201,23 +255,17 @@ Answer ONLY "YES" or "NO".`, oldVal, newVal)
 	}
 
 	planner.react.SetOnToolResult(func(results []core.ToolCallResult, step int) bool {
-		// Compress oversized tool results before they enter context
 		planner.compressToolResults(context.Background(), results)
-
-		// Capture LLM usage before StepSpan (it resets internal accumulators)
 		var stepUsage core.Usage
 		if planner.instr != nil {
 			stepUsage = planner.instr.LastUsage()
 			sp := planner.instr.StepSpan(step, results)
 			sp.End()
 		}
-		// Fire usage callback for this planner step (always, even without instr)
 		planner.fireLLMUsage(core.LLMUsageReport{
 			Identity: fmt.Sprintf("planner.step-%d", step),
 			Usage:    stepUsage,
 		})
-
-		// Fire usage callback for worker spawn results
 		for _, r := range results {
 			if task, ok := r.Outputs["task"].(map[string]any); ok {
 				if um, ok := task["usage"].(map[string]any); ok {
@@ -232,42 +280,28 @@ Answer ONLY "YES" or "NO".`, oldVal, newVal)
 				}
 			}
 		}
-
-		hasFailure := false
-		for _, r := range results {
-			if _, isErr := r.Outputs["error"]; isErr {
-				hasFailure = true
-				break
-			}
-		}
-		if hasFailure {
-			planner.consecutiveFails++
-		} else {
-			planner.consecutiveFails = 0
-		}
-		if planner.reviewCfg.ReActStepInterval > 0 && step%planner.reviewCfg.ReActStepInterval == 0 {
-			planner.maybeReview(context.Background(), "ReAct step", "")
-		}
-		if planner.reviewCfg.FailuresBeforeReview > 0 &&
-			planner.consecutiveFails >= planner.reviewCfg.FailuresBeforeReview {
-			planner.maybeReview(context.Background(), "consecutive failures", "")
-		}
 		return true
 	})
 
-	for _, opt := range opts {
-		opt(planner)
+	sm.OnContextExceeded(func() {
+		planner.handleContextExceeded(context.Background(),
+			core.NewUserMessage("planner", core.TextContent{Text: planner.goal}),
+			planner.mem.GetHistoryMessages())
+	})
+}
+
+func finishInit(planner *Planner, provider core.ILMProvider, indexMgr *longterm.IndexManager) {
+	if planner.sessionOverride != nil {
+		planner.mem = planner.sessionOverride
+	} else {
+		planner.mem = memory.GetSessionMemoryManager().CreateSessionMemory(utils.GenerateSessionID())
 	}
-	// Rebuild ChromaDB index from MEMORY.md at startup
 	if indexMgr != nil && indexMgr.IsAvailable() {
 		indexMgr.RebuildIfStale(context.Background())
 	}
-
-	// Skip resume when provider is nil (test/headless scenario)
-	if provider != nil {
+	if provider != nil && planner.sessionOverride == nil {
 		planner.ResumeIncomplete(context.Background())
 	}
-	return planner
 }
 
 func (p *Planner) SetThinking(enabled bool, effort string) {
@@ -312,18 +346,11 @@ func (p *Planner) compressToolResults(ctx context.Context, results []core.ToolCa
 
 // summarizeToolResult asks the LLM to produce a concise summary of a large string field.
 func (p *Planner) summarizeToolResult(ctx context.Context, toolName, fieldKey, raw string) (string, error) {
-	prompt := fmt.Sprintf(
-		`Summarize this tool result field. Keep key items, IDs, file paths, error messages, and numbers.
-Be concise but don't drop critical data. Output ONLY the summary, no preamble.
-
-Tool: %s
-Field: %s
-Original length: %d chars
-
-Content:
-%s`, toolName, fieldKey, utf8.RuneCountInString(raw), raw)
-
-	msg := core.NewUserMessage("tool-compressor", core.TextContent{Text: prompt})
+	msg := core.NewUserMessage("tool-compressor", core.TextContent{
+		Text: prompts.DefaultFactory.MustRender(prompts.TypeCompressTool, prompts.CompressToolParams{
+			ToolName: toolName, FieldKey: fieldKey, OrigLen: utf8.RuneCountInString(raw), Raw: raw,
+		}),
+	})
 	resp, err := p.reviewer.provider.Generate(ctx, core.GenerateParams{
 		Messages: []core.Message{msg},
 		Stream:   false,
@@ -342,127 +369,51 @@ func (p *Planner) SetReviewConfig(cfg ReviewConfig) {
 }
 
 func (p *Planner) RegisterEventHooks(hooks core.AgentEventHooks) {
+	p.eventHooks = hooks
 	p.react.RegisterEventHooks(hooks)
+	if p.dagExecutor != nil {
+		p.dagExecutor.hooks = hooks
+	}
 }
+
+// SessionID returns the ID of the underlying session memory.
+func (p *Planner) SessionID() string { return p.mem.SessionID() }
 
 func (p *Planner) Execute(ctx context.Context, goal string) ([]core.Message, error) {
 	p.goal = goal
-
-	// Notify dream scheduler of activity (resets idle timer)
 	if p.dreamScheduler != nil {
 		p.dreamScheduler.NotifyActivity()
 	}
-
 	traceName := p.mem.SessionID()
-
-	var result []core.Message
 	ctx, p.currentTrace = p.obs.StartTrace(ctx, traceName, goal)
 	defer func() {
-		if p.instr != nil {
-			p.instr.Flush()
-		}
-		// Capture output from the last assistant message
-		if len(result) > 0 {
-			if tc, ok := result[len(result)-1].Content.(core.TextContent); ok && tc.Text != "" {
-				output := tc.Text
-				if len(output) > 200 {
-					output = output[:200] + "..."
-				}
-				p.currentTrace.SetAttributes(map[string]any{"output": output})
-			}
-		}
+		if p.instr != nil { p.instr.Flush() }
 		p.currentTrace.End()
 	}()
-
-	// Wire PlanckInstrument to this trace
 	if p.instr != nil {
 		p.instr.SetTrace(p.currentTrace)
 		p.react.eventHooks.ModelEventHandler = p.instr.EventHandler()
 	}
-
-	history := p.mem.GetHistoryMessages()
-
-	// Build system prompt: agent context + skills + active skill + planner instructions
-	agentContext := core.LoadAgentContext()
-	var promptBuilder strings.Builder
-	if agentContext != "" {
-		promptBuilder.WriteString(agentContext)
-		promptBuilder.WriteString("\n\n")
-	}
-	// Skill list
-	if len(p.skillList) > 0 {
-		var names []string
-		for _, s := range p.skillList {
-			desc := s.Description
-			if desc == "" {
-				desc = s.Name
-			}
-			names = append(names, fmt.Sprintf("- %s: %s", s.Name, desc))
-		}
-		promptBuilder.WriteString("Available skills (use skill_use to activate):\n")
-		promptBuilder.WriteString(strings.Join(names, "\n"))
-		promptBuilder.WriteString("\n\n")
-	}
-	// Active skill
-	if p.activeSkill.Name != "" {
-		promptBuilder.WriteString("Active skill: ")
-		promptBuilder.WriteString(p.activeSkill.Name)
-		promptBuilder.WriteString(" — ")
-		promptBuilder.WriteString(p.activeSkill.Prompt)
-		promptBuilder.WriteString("\n\n")
-	}
-	// Inject pending memory conflicts if any
-	p.injectPendingConflicts(&promptBuilder)
-
-	promptBuilder.WriteString(plannerSystemPrompt)
-	sysMsg := core.NewUserMessage("planner", core.TextContent{Text: promptBuilder.String()})
-	sysMsg.Role = "system"
 	userMsg := core.NewUserMessage("planner", core.TextContent{Text: goal})
-
-	var err error
-	result, err = p.react.Execute(ctx, sysMsg, append(history, userMsg))
-	if errors.Is(err, core.ErrContextLengthExceeded) {
-		historyBefore := len(p.mem.GetHistoryMessages())
-		oldSummary := p.mem.Summary()
-
-		// Extract long-term memories before compression (last chance for detail)
-		p.extractBeforeCompress(ctx, userMsg, history)
-
-		compSpan := p.currentTrace.StartSpan("context.compress", map[string]any{
-			"messages_before": historyBefore,
-			"prior_summary":   oldSummary,
-		})
-		compressUsage, _ := p.mem.Compress(ctx, p.compressor, memory.CompressConfig{KeepLastN: 4, MinMessagesToCompress: 1})
-		history = p.mem.GetHistoryMessages()
-		compSpan.SetAttributes(map[string]any{
-			"output":          p.mem.Summary(),
-			"messages_after":  len(history),
-			"messages_before": historyBefore,
-		})
-		if compressUsage != nil {
-			compSpan.SetAttributes(map[string]any{
-				"tokens_in":    compressUsage.InputTokens,
-				"tokens_out":   compressUsage.OutputTokens,
-				"tokens_total": compressUsage.TotalTokens,
-			})
-			p.fireLLMUsage(core.LLMUsageReport{
-				Identity: "compressor",
-				Usage:    *compressUsage,
-			})
-		}
-		compSpan.End()
-		p.maybeReview(ctx, "context exceeded - aggressive compress", goal)
-		result, err = p.react.Execute(ctx, sysMsg, append(history, userMsg))
-	}
+	result, err := p.stateMachine.Run(ctx, p.react, p.mem, goal, p.ltm)
 	if err != nil {
 		return result, err
 	}
-
 	p.mem.AppendMessage(userMsg)
 	p.mem.AppendMessages(result)
 	_ = p.mem.Persist()
-
 	return result, nil
+}
+
+// handleContextExceeded compresses session memory and updates history.
+func (p *Planner) handleContextExceeded(ctx context.Context, userMsg core.Message, history []core.Message) {
+	p.extractBeforeCompress(ctx, userMsg, history)
+	compressUsage, _ := p.mem.Compress(ctx, p.compressor,
+		memory.CompressConfig{KeepLastN: 4, MinMessagesToCompress: 1})
+	if compressUsage != nil {
+		p.fireLLMUsage(core.LLMUsageReport{Identity: "compressor", Usage: *compressUsage})
+	}
+	p.maybeReview(ctx, "context exceeded - aggressive compress", p.goal)
 }
 
 func (p *Planner) maybeReview(ctx context.Context, trigger, goalOverride string) {
@@ -521,18 +472,24 @@ func (p *Planner) replan(plan *working.Plan) {
 	plan.Persist()
 
 	alert := core.NewUserMessage(plan.ID, core.TextContent{
-		Text: fmt.Sprintf("[System] Goal drift was detected and the plan has been rolled back to version %d.", targetVersion),
+		Text: fmt.Sprintf("⚠️ 自动审查检测到执行可能偏离目标，计划已回滚至版本 %d。请在下一轮回复中向用户解释回滚原因，列出回滚后计划的任务，并请用户确认是否继续。", targetVersion),
 	})
 	alert.Role = "system"
 	p.mem.AppendMessage(alert)
+
+	// Notify frontend via Planner-level callback so the UI can show a visible
+	// rollback banner (instead of silently reverting the plan).
+	if p.eventHooks.OnPlanRollback != nil {
+		p.eventHooks.OnPlanRollback(plan.ID, targetVersion, plan.Name)
+	}
 }
 
 // injectPendingConflicts adds unresolved memory conflicts to the system prompt.
-func (p *Planner) injectPendingConflicts(sb *strings.Builder) {
-	if p.ltm == nil {
+func injectPendingConflicts(sb *strings.Builder, ltm *longterm.LongTermMemory) {
+	if ltm == nil {
 		return
 	}
-	pending := p.ltm.PendingConflicts()
+	pending := ltm.PendingConflicts()
 	if len(pending) == 0 {
 		return
 	}
@@ -548,6 +505,28 @@ func (p *Planner) injectPendingConflicts(sb *strings.Builder) {
 		))
 	}
 	sb.WriteString("\n")
+}
+
+// injectPlanState tells the model about the current session's latest plan
+// so it doesn't re-confirm plans that have already been approved.
+func (p *Planner) injectPlanState(sb *strings.Builder) {
+	plan := working.LatestIncompletePlan(p.mem.SessionID())
+	if plan == nil {
+		return
+	}
+
+	done := 0
+	for _, t := range plan.SubTasks {
+		if t.Status == "done" {
+			done++
+		}
+	}
+	sb.WriteString("## Current Plan\n")
+	sb.WriteString(fmt.Sprintf("- %q (status: %s, %d/%d tasks done)\n\n",
+		plan.Name, plan.Status, done, len(plan.SubTasks)))
+	sb.WriteString("Continue from the current state above. ")
+	sb.WriteString("If confirmed, spawn workers for pending tasks. ")
+	sb.WriteString("If executing, check results via task_query.\n\n")
 }
 
 // extractBeforeCompress runs the write pipeline on old messages before they are
@@ -613,7 +592,7 @@ func (p *Planner) resume(ctx context.Context, planID string) {
 		`Resume the plan %q (id: %s). It is currently in status %q.
 Use plan_query to see the full state with all subtasks.
 Continue from where it left off — spawn workers for remaining pending tasks.
-When all tasks are done, call plan_status_update "done" and summarize.`,
+When all tasks are done, call confirm_plan "done" and summarize.`,
 		plan.Name, plan.ID, plan.Status,
 	)
 	p.Execute(ctx, prompt)
@@ -626,7 +605,21 @@ func (p *Planner) Interrupt(ctx context.Context) error {
 // ResumeWithHumanResponse delegates to the inner ReactAgent to provide a
 // human response that unblocks a pending ask_human tool call.
 func (p *Planner) ResumeWithHumanResponse(ctx context.Context, response string) error {
-	return p.react.ResumeWithHumanResponse(ctx, response)
+	if p.react.HumanLoopWaiting() {
+		return p.react.ResumeWithHumanResponse(ctx, response)
+	}
+	if p.dagExecutor != nil {
+		for id, gate := range p.dagExecutor.hitlAgents {
+			if gate.HumanLoopWaiting() {
+				defer func() {
+					delete(p.dagExecutor.hitlAgents, id)
+					p.dagExecutor.Resume()
+				}()
+				return gate.ResumeWithHumanResponse(ctx, response)
+			}
+		}
+	}
+	return fmt.Errorf("no agent waiting for human input")
 }
 
 // HumanLoopWaiting reports whether the agent is currently waiting for human input.

@@ -41,33 +41,44 @@ func (t *MemoryStore) Definition() core.ToolDefinition {
 		JsonSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"section": map[string]any{"type": "string", "description": "Section: user_preferences, project_facts, episodic, lessons, patterns"},
-				"key":     map[string]any{"type": "string", "description": "MemoryItem key"},
-				"value":   map[string]any{"type": "string", "description": "MemoryItem value"},
+				"section": map[string]any{
+					"type": "string",
+					"description": "Memory section. One of: user_preferences (user info/prefs), " +
+						"project_facts (project-specific knowledge), episodic (session summaries), " +
+						"lessons (learned patterns), patterns (recurring observations).",
+				},
+				"key":   map[string]any{"type": "string", "description": "Unique key within the section for this fact."},
+				"value": map[string]any{"type": "string", "description": "The fact value to store."},
 			},
 			"required": []string{"section", "key", "value"},
 		},
 		OutputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"accepted":   map[string]any{"type": "boolean"},
-				"section":    map[string]any{"type": "string"},
-				"key":        map[string]any{"type": "string"},
-				"value":      map[string]any{"type": "string"},
-				"confidence": map[string]any{"type": "number"},
-				"version":    map[string]any{"type": "integer"},
-				"conflict":   map[string]any{"type": "object"},
+				"accepted":   map[string]any{"type": "boolean", "description": "true if stored without conflict, false if conflict detected."},
+				"section":    map[string]any{"type": "string", "description": "Section where the fact was stored."},
+				"key":        map[string]any{"type": "string", "description": "Key of the stored or winning fact."},
+				"value":      map[string]any{"type": "string", "description": "Value of the stored or winning fact."},
+				"confidence": map[string]any{"type": "number", "description": "Confidence score (0.0-1.0) of the stored fact."},
+				"version":    map[string]any{"type": "integer", "description": "Version number of the fact."},
+				"conflict":   map[string]any{"type": "object", "description": "Conflict details if accepted=false: {old_value, rejected_value}."},
 			},
 		},
 	}
 }
 
 func (t *MemoryStore) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-	section, _ := tools.Arg(detail, "section")
-	key, _ := tools.Arg(detail, "key")
-	value, _ := tools.Arg(detail, "value")
-	if section == "" || key == "" || value == "" {
-		return tools.ErrorResult(detail.ID, "memory_store", fmt.Errorf("section, key, and value are required"))
+	section, err := tools.RequiredString(detail, "section")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "memory_store", err)
+	}
+	key, err := tools.RequiredString(detail, "key")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "memory_store", err)
+	}
+	value, err := tools.RequiredString(detail, "value")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "memory_store", err)
 	}
 	winner, conflict, err := t.ltm.Store(section, key, value)
 	if err != nil {
@@ -99,27 +110,43 @@ type MemorySearch struct {
 func (t *MemorySearch) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "memory_search",
-		Description: "Search long-term memory. Uses ChromaDB for semantic search; falls back to keyword search on MEMORY.md. Modes: 'semantic', 'bm25', 'hybrid'.",
+		Description: "Search long-term memory. Uses ChromaDB for semantic search; falls back to keyword search on MEMORY.md.",
 		JsonSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"query": map[string]any{"type": "string", "description": "Search term"},
-				"mode":  map[string]any{"type": "string", "description": "'semantic', 'bm25', or 'hybrid'"},
+				"query": map[string]any{
+					"type":        "string",
+					"description": "Search term or phrase. Supports natural language queries.",
+				},
+				"mode": map[string]any{
+					"type": "string",
+					"description": "Search mode: 'semantic' (vector similarity), " +
+						"'bm25' (keyword relevance), or 'hybrid' (both). Default: bm25.",
+				},
+				"section": map[string]any{
+					"type":        "string",
+					"description": "Optional: restrict search to a single memory section.",
+				},
 			},
 		},
 		OutputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"results": map[string]any{"type": "array", "description": "List of {section, key, value, confidence, version}"},
-				"count":   map[string]any{"type": "integer"},
+				"results": map[string]any{"type": "array", "description": "List of matching items: {section, key, value, confidence, version}."},
+				"count":   map[string]any{"type": "integer", "description": "Number of results returned."},
 			},
 		},
 	}
 }
 
 func (t *MemorySearch) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-	query, _ := tools.Arg(detail, "query")
-	modeStr, _ := tools.Arg(detail, "mode")
+	query := tools.OptionalString(detail, "query")
+	modeStr := tools.OptionalString(detail, "mode")
+	if modeStr != "" {
+		if err := tools.In(modeStr, "semantic", "bm25", "hybrid"); err != nil {
+			return tools.ErrorResult(detail.ID, "memory_search", err)
+		}
+	}
 	mode := persist.SearchBM25
 	switch modeStr {
 	case "semantic":
@@ -185,23 +212,31 @@ func (t *MemoryGetSection) Definition() core.ToolDefinition {
 		Name:        "memory_get_section",
 		Description: "Get all items in a memory section.",
 		JsonSchema: map[string]any{
-			"type":       "object",
-			"properties": map[string]any{"section": map[string]any{"type": "string"}},
-			"required":   []string{"section"},
+			"type": "object",
+			"properties": map[string]any{
+				"section": map[string]any{
+					"type":        "string",
+					"description": "Section name: user_preferences, project_facts, episodic, lessons, or patterns.",
+				},
+			},
+			"required": []string{"section"},
 		},
 		OutputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"entries": map[string]any{"type": "object"},
+				"entries": map[string]any{
+					"type":        "object",
+					"description": "Map of key to {value, confidence, version} for all facts in the section.",
+				},
 			},
 		},
 	}
 }
 
 func (t *MemoryGetSection) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-	section, _ := tools.Arg(detail, "section")
-	if section == "" {
-		return tools.ErrorResult(detail.ID, "memory_get_section", fmt.Errorf("section is required"))
+	section, err := tools.RequiredString(detail, "section")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "memory_get_section", err)
 	}
 	items := t.ltm.GetSection(section)
 	entries := make(map[string]any, len(items))
@@ -222,17 +257,31 @@ func (t *MemoryRemove) Definition() core.ToolDefinition {
 		Name:        "memory_remove",
 		Description: "Permanently delete a fact from long-term memory.",
 		JsonSchema: map[string]any{
-			"type":       "object",
-			"properties": map[string]any{"section": map[string]any{"type": "string"}, "key": map[string]any{"type": "string"}},
-			"required":   []string{"section", "key"},
+			"type": "object",
+			"properties": map[string]any{
+				"section": map[string]any{"type": "string", "description": "Section containing the fact to delete."},
+				"key":     map[string]any{"type": "string", "description": "Key of the fact to delete."},
+			},
+			"required": []string{"section", "key"},
 		},
-		OutputSchema: map[string]any{"type": "object", "properties": map[string]any{"removed": map[string]any{"type": "boolean"}}},
+		OutputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"removed": map[string]any{"type": "boolean", "description": "true if the fact was successfully deleted."},
+			},
+		},
 	}
 }
 
 func (t *MemoryRemove) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-	section, _ := tools.Arg(detail, "section")
-	key, _ := tools.Arg(detail, "key")
+	section, err := tools.RequiredString(detail, "section")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "memory_remove", err)
+	}
+	key, err := tools.RequiredString(detail, "key")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "memory_remove", err)
+	}
 	if err := t.ltm.Remove(section, key); err != nil {
 		return tools.ErrorResult(detail.ID, "memory_remove", err)
 	}
@@ -249,8 +298,13 @@ func (t *MemoryListSections) Definition() core.ToolDefinition {
 		Description: "List all memory sections with fact counts.",
 		JsonSchema:  map[string]any{"type": "object", "properties": map[string]any{}},
 		OutputSchema: map[string]any{
-			"type":       "object",
-			"properties": map[string]any{"sections": map[string]any{"type": "object"}},
+			"type": "object",
+			"properties": map[string]any{
+				"sections": map[string]any{
+					"type":        "object",
+					"description": "Map of section name to number of facts in that section.",
+				},
+			},
 		},
 	}
 }
@@ -279,10 +333,10 @@ func (t *MemoryStats) Definition() core.ToolDefinition {
 		OutputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"total_facts":    map[string]any{"type": "integer"},
-				"sections":       map[string]any{"type": "integer"},
-				"avg_confidence": map[string]any{"type": "number"},
-				"indexed":        map[string]any{"type": "boolean"},
+				"total_facts":    map[string]any{"type": "integer", "description": "Total number of facts across all sections."},
+				"sections":       map[string]any{"type": "integer", "description": "Number of memory sections."},
+				"avg_confidence": map[string]any{"type": "number", "description": "Average confidence across all facts (0.0-1.0)."},
+				"indexed":        map[string]any{"type": "boolean", "description": "Whether ChromaDB vector index is available."},
 			},
 		},
 	}
@@ -307,20 +361,40 @@ func (t *MemoryResolveConflict) Definition() core.ToolDefinition {
 		JsonSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"section":  map[string]any{"type": "string"},
-				"key":      map[string]any{"type": "string"},
-				"decision": map[string]any{"type": "string", "description": "'keep_new' or 'keep_old'"},
+				"section": map[string]any{"type": "string", "description": "Section of the conflicting fact."},
+				"key":     map[string]any{"type": "string", "description": "Key of the conflicting fact."},
+				"decision": map[string]any{
+					"type": "string",
+					"description": "Resolution: 'keep_new' (accept new value) or 'keep_old' (keep existing value).",
+				},
 			},
 			"required": []string{"section", "key", "decision"},
 		},
-		OutputSchema: map[string]any{"type": "object", "properties": map[string]any{"resolved": map[string]any{"type": "boolean"}}},
+		OutputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"resolved": map[string]any{"type": "boolean", "description": "true if the conflict was successfully resolved."},
+			},
+		},
 	}
 }
 
 func (t *MemoryResolveConflict) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-	section, _ := tools.Arg(detail, "section")
-	key, _ := tools.Arg(detail, "key")
-	decision, _ := tools.Arg(detail, "decision")
+	section, err := tools.RequiredString(detail, "section")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "memory_resolve_conflict", err)
+	}
+	key, err := tools.RequiredString(detail, "key")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "memory_resolve_conflict", err)
+	}
+	decision, err := tools.RequiredString(detail, "decision")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "memory_resolve_conflict", err)
+	}
+	if err := tools.In(decision, "keep_new", "keep_old"); err != nil {
+		return tools.ErrorResult(detail.ID, "memory_resolve_conflict", err)
+	}
 	if err := t.ltm.ResolveConflict(section, key, decision); err != nil {
 		return tools.ErrorResult(detail.ID, "memory_resolve_conflict", err)
 	}
@@ -341,16 +415,16 @@ func (t *MemoryExtract) Definition() core.ToolDefinition {
 		JsonSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"focus": map[string]any{"type": "string", "description": "Optional extraction focus hint"},
+				"focus": map[string]any{"type": "string", "description": "Optional extraction focus hint."},
 			},
 		},
 		OutputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"facts_extracted": map[string]any{"type": "integer"},
-				"facts_stored":    map[string]any{"type": "integer"},
-				"facts_conflicts": map[string]any{"type": "integer"},
-				"needs_human":     map[string]any{"type": "integer"},
+				"facts_extracted": map[string]any{"type": "integer", "description": "Number of facts extracted from the session."},
+				"facts_stored":    map[string]any{"type": "integer", "description": "Number of facts successfully stored (including merged)."},
+				"facts_conflicts": map[string]any{"type": "integer", "description": "Number of facts with conflicting existing values."},
+				"needs_human":     map[string]any{"type": "integer", "description": "Number of conflicts requiring human resolution."},
 			},
 		},
 	}

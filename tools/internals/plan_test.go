@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/persist"
@@ -27,7 +28,7 @@ func TestPlanCreate(t *testing.T) {
 	})
 	assert.Nil(t, result.Outputs["error"])
 	assert.Equal(t, "Test Plan", result.Outputs["name"])
-	assert.Equal(t, string(working.PlanStatusInit), result.Outputs["status"])
+	assert.Equal(t, string(constants.PlanStatusInit), result.Outputs["status"])
 	assert.NotEmpty(t, result.Outputs["id"])
 }
 
@@ -120,13 +121,13 @@ func TestPlanQuery_ByID(t *testing.T) {
 	assert.Equal(t, "P", result.Outputs["name"])
 }
 
-func TestPlanStatusUpdate(t *testing.T) {
+func TestConfirmPlan(t *testing.T) {
 	resetStore(t)
 	pc := &PlanCreate{}
 	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "P"}})
 	planID := pres.Outputs["id"].(string)
 
-	ps := &PlanStatusUpdate{}
+	ps := &ConfirmPlan{}
 	result := ps.Execute(context.Background(), core.ToolCallDetail{ID: "s1", Args: map[string]any{"plan_id": planID, "status": "doing"}})
 	assert.Nil(t, result.Outputs["error"])
 	assert.Equal(t, "doing", result.Outputs["status"])

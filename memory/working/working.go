@@ -5,9 +5,11 @@ package working
 
 import (
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/persist"
 )
@@ -35,26 +37,18 @@ type Task struct {
 	Usage         *core.Usage `json:"usage,omitempty"`
 }
 
-// PlanStatus represents the lifecycle state of a plan.
-type PlanStatus string
-
-const (
-	PlanStatusInit     PlanStatus = "init"
-	PlanStatusDoing    PlanStatus = "doing"
-	PlanStatusUpdating PlanStatus = "update"
-	PlanStatusDone     PlanStatus = "done"
-	PlanStatusFailed   PlanStatus = "failed"
-)
-
 // Plan is a versioned plan with subtasks, persisted as JSONL.
 type Plan struct {
-	ID                        string     `json:"id"`
-	Name                      string     `json:"name"`
-	SubTasks                  []Task     `json:"subtasks"`
-	CurrentActivateSubTaskIDs []string   `json:"current_active_subtask_ids"`
-	Status                    PlanStatus `json:"status"`
-	FinishedReson             string     `json:"finished_reason,omitempty"`
-	Version                   int        `json:"version"`
+	ID                        string               `json:"id"`
+	SessionID                 string               `json:"session_id,omitempty"`
+	Name                      string               `json:"name"`
+	SubTasks                  []Task               `json:"subtasks"`
+	CurrentActivateSubTaskIDs []string             `json:"current_active_subtask_ids"`
+	Status                    constants.PlanStatus `json:"status"`
+	FinishedReson             string               `json:"finished_reason,omitempty"`
+	Version                   int                  `json:"version"`
+
+	mu sync.Mutex `json:"-"` // serializes saveCheckpoint calls for this plan
 }
 
 // Checkpoint is a versioned snapshot of a plan.
@@ -62,7 +56,7 @@ type Checkpoint struct {
 	Version   int       `json:"version"`
 	Timestamp time.Time `json:"timestamp"`
 	Reason    string    `json:"reason"`
-	Plan      Plan      `json:"plan"`
+	Plan      *Plan     `json:"plan"` // pointer avoids copying Plan.mu
 }
 
 // ---- In-memory store ----
@@ -86,22 +80,39 @@ func PutPlan(p *Plan) { putPlanWithReason(p, "") }
 func putPlanWithReason(p *Plan, reason string) { saveCheckpoint(p, reason) }
 
 func saveCheckpoint(p *Plan, reason string) {
+	if p == nil {
+		return
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	p.Version++
+
+	// Build a deep copy for the checkpoint snapshot without copying the mutex.
+	snapshot := Plan{
+		ID:                        p.ID,
+		SessionID:                 p.SessionID,
+		Name:                      p.Name,
+		SubTasks:                  append([]Task{}, p.SubTasks...),
+		CurrentActivateSubTaskIDs: append([]string{}, p.CurrentActivateSubTaskIDs...),
+		Status:                    p.Status,
+		FinishedReson:             p.FinishedReson,
+		Version:                   p.Version,
+	}
 	cp := Checkpoint{
 		Version:   p.Version,
 		Timestamp: time.Now(),
 		Reason:    reason,
-		Plan:      *p,
+		Plan:      &snapshot,
 	}
-	cp.Plan.CurrentActivateSubTaskIDs = append([]string{}, cp.Plan.CurrentActivateSubTaskIDs...)
-	cp.Plan.SubTasks = append([]Task{}, cp.Plan.SubTasks...)
 
 	planStoreMu.Lock()
 	planStore[p.ID] = p
 	planStoreMu.Unlock()
 
 	p.Persist()
-	_ = persist.SaveCheckpointJSON(p.ID, p.Version, cp)
+	_ = persist.SaveCheckpointJSON(p.ID, cp.Version, cp)
 }
 
 // ListPlans returns all plans in memory.
@@ -113,6 +124,35 @@ func ListPlans() []*Plan {
 		result = append(result, p)
 	}
 	return result
+}
+
+// ListPlansBySession returns all plans for the given session, newest first.
+func ListPlansBySession(sessionID string) []*Plan {
+	planStoreMu.RLock()
+	defer planStoreMu.RUnlock()
+	var result []*Plan
+	for _, p := range planStore {
+		if p.SessionID == sessionID {
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
+// LatestIncompletePlan returns the most recent incomplete plan for the session,
+// or nil if none found. "Most recent" = highest Version.
+func LatestIncompletePlan(sessionID string) *Plan {
+	planStoreMu.RLock()
+	defer planStoreMu.RUnlock()
+	var latest *Plan
+	for _, p := range planStore {
+		if p.SessionID == sessionID && p.IsIncomplete() {
+			if latest == nil || p.Version > latest.Version {
+				latest = p
+			}
+		}
+	}
+	return latest
 }
 
 // FindTask locates a task by ID across all plans.
@@ -139,11 +179,65 @@ func FindTaskIdx(plan *Plan, taskID string) int {
 	return -1
 }
 
+// SplitParentIDs splits a comma-separated parent_task_id into individual IDs.
+func SplitParentIDs(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	var result []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
+// AllParentsDone returns true if every parent task ID is marked done in the plan.
+func AllParentsDone(plan *Plan, parentIDs []string) bool {
+	if len(parentIDs) == 0 {
+		return true
+	}
+	for _, pid := range parentIDs {
+		found := false
+		for _, t := range plan.SubTasks {
+			if t.ID == pid {
+				if t.Status != TaskStatusDone {
+					return false
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+// ReadyTasks returns all pending tasks whose parents are done, for DAG execution.
+func ReadyTasks(plan *Plan) []*Task {
+	var ready []*Task
+	for i := range plan.SubTasks {
+		if plan.SubTasks[i].Status != TaskStatusPending {
+			continue
+		}
+		if AllParentsDone(plan, SplitParentIDs(plan.SubTasks[i].ParentTaskID)) {
+			ready = append(ready, &plan.SubTasks[i])
+		}
+	}
+	return ready
+}
+
 // ---- Plan methods ----
 
 // IsIncomplete returns true if the plan needs resuming.
 func (p *Plan) IsIncomplete() bool {
-	return p.Status == PlanStatusInit || p.Status == PlanStatusDoing
+	return p.Status == constants.PlanStatusConfirmed || p.Status == constants.PlanStatusDoing || p.Status == constants.PlanStatusUpdating
 }
 
 // Persist saves the plan to disk via the persist package.
@@ -215,4 +309,3 @@ func RemoveFromSlice(slice []string, item string) []string {
 	}
 	return slice
 }
-

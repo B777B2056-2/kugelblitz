@@ -6,7 +6,6 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/persist"
-	"github.com/B777B2056-2/kugelblitz/utils"
 	"sync"
 )
 
@@ -156,11 +155,15 @@ func GetSessionMemoryManager() *SessionMemoryManager {
 	return SessionMemoryManagerInst
 }
 
-func (smm *SessionMemoryManager) CreateSessionMemory() string {
-	sessionID := utils.GenerateSessionID()
-	SessionMemory := newSessionMemory(sessionID)
-	smm.SessionMemoryMap.Store(sessionID, SessionMemory)
-	return sessionID
+// CreateSessionMemory returns the session for the given ID, creating it
+// if it does not already exist.
+func (smm *SessionMemoryManager) CreateSessionMemory(sessionID string) *SessionMemory {
+	if mem, ok := smm.GetSessionMemory(sessionID); ok {
+		return mem
+	}
+	mem := newSessionMemory(sessionID)
+	smm.SessionMemoryMap.Store(sessionID, mem)
+	return mem
 }
 
 func (smm *SessionMemoryManager) GetSessionMemory(sessionID string) (*SessionMemory, bool) {

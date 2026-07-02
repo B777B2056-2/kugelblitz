@@ -7,6 +7,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/persist"
+	"github.com/B777B2056-2/kugelblitz/utils"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -90,8 +91,8 @@ func TestManager_ReloadAfterRestart(t *testing.T) {
 
 	// Simulate: create session, add messages, persist, then "restart"
 	mgr := GetSessionMemoryManager()
-	id := mgr.CreateSessionMemory()
-	mem, _ := mgr.GetSessionMemory(id)
+	id := utils.GenerateSessionID()
+		mem := mgr.CreateSessionMemory(id)
 	mem.AppendMessage(core.NewUserMessage("r", core.TextContent{Text: "persisted msg"}))
 	mem.summary = "pre-restart context"
 	mem.Persist()
@@ -112,7 +113,8 @@ func TestManager_ReloadAfterRestart(t *testing.T) {
 
 func TestManager_CreateAndGet(t *testing.T) {
 	mgr := GetSessionMemoryManager()
-	id := mgr.CreateSessionMemory()
+	id := utils.GenerateSessionID()
+		mem := mgr.CreateSessionMemory(id)
 	assert.NotEmpty(t, id)
 
 	mem, ok := mgr.GetSessionMemory(id)
@@ -238,12 +240,11 @@ func TestLoadSessionMemory_NonExistent(t *testing.T) {
 
 func TestManager_MultipleSessions(t *testing.T) {
 	mgr := GetSessionMemoryManager()
-	id1 := mgr.CreateSessionMemory()
-	id2 := mgr.CreateSessionMemory()
+	id1 := utils.GenerateSessionID()
+	id2 := utils.GenerateSessionID()
+	mem1 := mgr.CreateSessionMemory(id1)
+	mem2 := mgr.CreateSessionMemory(id2)
 	assert.NotEqual(t, id1, id2)
-
-	mem1, _ := mgr.GetSessionMemory(id1)
-	mem2, _ := mgr.GetSessionMemory(id2)
 	assert.NotSame(t, mem1, mem2)
 
 	mem1.AppendMessage(core.NewUserMessage("r", core.TextContent{Text: "a"}))

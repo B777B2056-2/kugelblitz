@@ -19,7 +19,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/persist"
 )
 
@@ -57,7 +56,7 @@ type LongTermMemory struct {
 func NewLongTermMemory(mdStore *persist.MarkdownPersist) (*LongTermMemory, error) {
 	ltm := &LongTermMemory{
 		mdStore: mdStore,
-		path:    core.GetWorkspace().MemoryFile(),
+		path:    "MEMORY.md",
 	}
 	if err := ltm.load(); err != nil {
 		return nil, err

@@ -3,15 +3,18 @@ package longterm
 import (
 	"testing"
 
-	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/stretchr/testify/assert"
 )
 
+func newTestLTM_dedup(t *testing.T) *LongTermMemory {
+	t.Helper()
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
+	return ltm
+}
+
 func TestDeduplicator_DedupFacts_NoDuplicate(t *testing.T) {
-	core.GetWorkspace().SetDir(t.TempDir())
-	t.Cleanup(func() { core.GetWorkspace().SetDir("") })
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM_dedup(t)
 	dedup := NewDeduplicator(ltm)
 	items := []MemoryItem{
 		{Section: "prefs", Key: "lang", Value: "Go"},
@@ -23,9 +26,7 @@ func TestDeduplicator_DedupFacts_NoDuplicate(t *testing.T) {
 }
 
 func TestDeduplicator_DedupFacts_ExistingDuplicate(t *testing.T) {
-	core.GetWorkspace().SetDir(t.TempDir())
-	t.Cleanup(func() { core.GetWorkspace().SetDir("") })
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM_dedup(t)
 	ltm.Store("prefs", "lang", "Go")
 	dedup := NewDeduplicator(ltm)
 	result := dedup.DedupItems([]MemoryItem{{Section: "prefs", Key: "lang", Value: "Go"}})
@@ -34,9 +35,7 @@ func TestDeduplicator_DedupFacts_ExistingDuplicate(t *testing.T) {
 }
 
 func TestDeduplicator_DedupFacts_BatchDuplicate(t *testing.T) {
-	core.GetWorkspace().SetDir(t.TempDir())
-	t.Cleanup(func() { core.GetWorkspace().SetDir("") })
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM_dedup(t)
 	dedup := NewDeduplicator(ltm)
 	items := []MemoryItem{
 		{Section: "prefs", Key: "lang", Value: "Go"},

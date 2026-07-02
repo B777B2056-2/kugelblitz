@@ -35,6 +35,7 @@ type ReactAgent struct {
 	stepCount       int          // ReAct loop iterations
 	onToolResult    OnToolResult // per-tool-execution callback
 	humanLoop       *humanLoopState
+	pauseGate       *sync.RWMutex // shared gate; nil=no pausing; RLock blocks tool calls
 }
 
 func NewReactAgent(provider core.ILMProvider, streamMode bool) *ReactAgent {
@@ -64,11 +65,30 @@ func (a *ReactAgent) RegisterEventHooks(hooks core.AgentEventHooks) {
 	a.eventHooks = hooks
 }
 
+func (a *ReactAgent) WithPauseGate(g *sync.RWMutex) *ReactAgent {
+	a.pauseGate = g
+	return a
+}
+
 func (a *ReactAgent) SetOnToolResult(fn OnToolResult) { a.onToolResult = fn }
 
 func (a *ReactAgent) Execute(ctx context.Context, systemMessage core.Message, userMessages []core.Message) ([]core.Message, error) {
+	return a.ExecuteWithTools(ctx, systemMessage, userMessages, nil)
+}
+
+// ExecuteWithTools runs the ReAct loop with an optional per-call tool whitelist.
+// When tools is nil, uses the instance-level toolNames (set by WithTools). When non-nil,
+// overrides for this call only. Pass an empty slice to allow no tools.
+func (a *ReactAgent) ExecuteWithTools(ctx context.Context, systemMessage core.Message, userMessages []core.Message, tools []string) ([]core.Message, error) {
 	inputMessages := append([]core.Message{systemMessage}, userMessages...)
 	var assistantMessages []core.Message
+
+	// Override tools only when explicitly provided (nil = use instance config)
+	if tools != nil {
+		originalTools := a.toolNames
+		a.toolNames = tools
+		defer func() { a.toolNames = originalTools }()
+	}
 
 	a.stepCount = 0
 	for {
@@ -109,10 +129,32 @@ func (a *ReactAgent) Execute(ctx context.Context, systemMessage core.Message, us
 			return assistantMessages, nil
 		}
 
+		if needEarlyTerminating(toolCallResults) {
+			toolMsg := core.NewToolMessage(assistantMessage.ID, toolCallResults)
+			assistantMessages = append(assistantMessages, toolMsg)
+			return assistantMessages, nil
+		}
+
 		inputMessages = append(inputMessages, *assistantMessage)
+
 		toolMsg := core.NewToolMessage(assistantMessage.ID, toolCallResults)
 		inputMessages = append(inputMessages, toolMsg)
+		assistantMessages = append(assistantMessages, toolMsg)
 	}
+}
+
+// needEarlyTerminating returns true if any terminating tool in the
+// batch executed without error. In that case the caller should stop the
+// ReAct loop without feeding results back to the LLM.
+func needEarlyTerminating(results []core.ToolCallResult) bool {
+	for _, r := range results {
+		if core.GetToolRegistry().IsTerminating(r.ToolName) {
+			if _, isErr := r.Outputs["error"]; !isErr {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func extractToolCalls(content core.Content) []core.ToolCallDetail {
@@ -130,6 +172,28 @@ func extractToolCalls(content core.Content) []core.ToolCallDetail {
 			}
 		}
 		return details
+	default:
+		return nil
+	}
+}
+
+// extractToolResults extracts all ToolCallResults from a message's content,
+// handling both ToolResultContent and CompositeContent wrappers.
+func extractToolResults(content core.Content) []core.ToolCallResult {
+	if content == nil {
+		return nil
+	}
+	switch ct := content.(type) {
+	case core.ToolResultContent:
+		return ct.Results
+	case core.CompositeContent:
+		var results []core.ToolCallResult
+		for _, part := range ct.Parts {
+			if tr, ok := part.(core.ToolResultContent); ok {
+				results = append(results, tr.Results...)
+			}
+		}
+		return results
 	default:
 		return nil
 	}
@@ -174,6 +238,17 @@ func (a *ReactAgent) visibleTools() []core.ToolDefinition {
 			all = append(all, def)
 		}
 	}
+	// Debug: log all globally registered tools
+	{
+		names := make([]string, len(all))
+		for i, d := range all {
+			names[i] = d.Name
+		}
+		whitelist := a.toolNames
+		if whitelist == nil {
+			whitelist = []string{"<all>"}
+		}
+	}
 	if a.toolNames == nil {
 		return all
 	}
@@ -185,6 +260,13 @@ func (a *ReactAgent) visibleTools() []core.ToolDefinition {
 	for _, def := range all {
 		if allow[def.Name] {
 			filtered = append(filtered, def)
+		}
+	}
+	// Debug: log filtered tools
+	{
+		names := make([]string, len(filtered))
+		for i, d := range filtered {
+			names[i] = d.Name
 		}
 	}
 	return filtered
@@ -266,6 +348,10 @@ func (a *ReactAgent) HumanLoopWaiting() bool {
 
 // callTool resolves a tool call: local tools first, then the global registry.
 func (a *ReactAgent) callTool(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+	if a.pauseGate != nil {
+		a.pauseGate.RLock()
+		a.pauseGate.RUnlock()
+	}
 	if a.humanLoop != nil {
 		if fn, ok := a.humanLoop.localTools[detail.ToolName]; ok {
 			return fn(ctx, detail)

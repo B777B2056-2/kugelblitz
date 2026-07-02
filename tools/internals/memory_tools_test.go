@@ -12,9 +12,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func newTestLTM_memtools(t *testing.T) *longterm.LongTermMemory {
+	t.Helper()
+	ltm, err := longterm.NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
+	require.NoError(t, err)
+	return ltm
+}
+
 func TestMemoryStore_StoresFact(t *testing.T) {
-	core.GetWorkspace().SetDir(t.TempDir())
-	ltm, _ := longterm.NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM_memtools(t)
 
 	tool := &MemoryStore{ltm: ltm}
 	result := tool.Execute(context.Background(), core.ToolCallDetail{
@@ -28,8 +34,7 @@ func TestMemoryStore_StoresFact(t *testing.T) {
 }
 
 func TestMemoryStore_Conflict(t *testing.T) {
-	core.GetWorkspace().SetDir(t.TempDir())
-	ltm, _ := longterm.NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM_memtools(t)
 	ltm.Store("prefs", "lang", "Python")
 
 	tool := &MemoryStore{ltm: ltm}
@@ -46,8 +51,7 @@ func TestMemoryStore_Conflict(t *testing.T) {
 }
 
 func TestMemorySearch_FindsResults(t *testing.T) {
-	core.GetWorkspace().SetDir(t.TempDir())
-	ltm, _ := longterm.NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM_memtools(t)
 	ltm.Store("prefs", "lang", "Go")
 	ltm.Store("prefs", "editor", "VSCode")
 
@@ -69,8 +73,7 @@ func TestMemorySearch_FindsResults(t *testing.T) {
 }
 
 func TestMemoryGetSection_ReturnsAll(t *testing.T) {
-	core.GetWorkspace().SetDir(t.TempDir())
-	ltm, _ := longterm.NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM_memtools(t)
 	ltm.Store("prefs", "a", "1")
 	ltm.Store("prefs", "b", "2")
 

@@ -48,6 +48,10 @@ func (f *Format) Generate(ctx context.Context, params core.GenerateParams) (*cor
 	if err != nil {
 		return nil, err
 	}
+	// Debug: print raw request JSON
+	if raw, jerr := json.MarshalIndent(req, "", "  "); jerr == nil {
+		core.Info("=== LLM request ===\n" + string(raw))
+	}
 	if params.Stream {
 		return f.Stream(ctx, req, params)
 	}

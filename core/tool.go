@@ -15,6 +15,7 @@ type ToolDefinition struct {
 	Description  string
 	JsonSchema   map[string]any // input parameter schema (JSON Schema format)
 	OutputSchema map[string]any // output/return value schema (optional; nil = no schema)
+	Terminating  bool           // if true, ReAct loop stops immediately after calling this tool
 }
 
 type registryEntry struct {
@@ -79,6 +80,15 @@ func (tr *ToolRegistry) ListDefinitions() []ToolDefinition {
 		defs = append(defs, entry.def)
 	}
 	return defs
+}
+
+// IsTerminating returns true if the named tool should end the ReAct loop
+// immediately after execution (without feeding the result back to the LLM).
+func (tr *ToolRegistry) IsTerminating(name string) bool {
+	tr.mu.RLock()
+	defer tr.mu.RUnlock()
+	entry, ok := tr.tools[name]
+	return ok && entry.def.Terminating
 }
 
 // Reset clears all registered tools. Primarily intended for testing.

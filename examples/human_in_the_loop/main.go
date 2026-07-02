@@ -89,13 +89,12 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	systemMsg := core.NewUserMessage("root", core.TextContent{
+	systemMsg := core.NewSystemMessage("root", core.TextContent{
 		Text: "You are a helpful assistant with human-in-the-loop. " +
 			"Use tools when helpful, then answer in the user's language. " +
 			"CRITICAL: before calling schedule_meeting (which sends calendar invites), " +
 			"you MUST call ask_human to get the user's explicit approval.",
 	})
-	systemMsg.Role = "system"
 
 	userMsg := core.NewUserMessage("root", core.TextContent{
 		Text: "Check the current time in Tokyo. Then propose scheduling a short team standup for tomorrow, " +
@@ -298,8 +297,8 @@ func toolScheduleMeeting(ctx context.Context, detail core.ToolCallDetail) core.T
 
 type consoleEventHandler struct{}
 
-func (h *consoleEventHandler) OnThinkingChunk(chunk string)  { fmt.Print(chunk) }
-func (h *consoleEventHandler) OnReplyChunk(chunk string)     { fmt.Print(chunk) }
+func (h *consoleEventHandler) OnThinkingChunk(chunk string) { fmt.Print(chunk) }
+func (h *consoleEventHandler) OnReplyChunk(chunk string)    { fmt.Print(chunk) }
 func (h *consoleEventHandler) OnFunctionCall(detail core.ToolCallDetail) {
 	fmt.Printf("\n┌─ [call] %s\n", detail.ToolName)
 	for k, v := range detail.Args {

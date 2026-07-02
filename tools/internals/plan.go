@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/persist"
@@ -23,17 +24,20 @@ func (t *PlanCreate) Definition() core.ToolDefinition {
 		JsonSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"name": map[string]any{"type": "string", "description": "Name of the plan"},
+				"name": map[string]any{
+					"type":        "string",
+					"description": "Short, descriptive name for the plan (e.g. 'Deploy Iris SVM model').",
+				},
 			},
 			"required": []string{"name"},
 		},
 		OutputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"id":       map[string]any{"type": "string"},
-				"name":     map[string]any{"type": "string"},
-				"status":   map[string]any{"type": "string"},
-				"subtasks": map[string]any{"type": "array"},
+				"id":       map[string]any{"type": "string", "description": "Unique plan ID (e.g. 'plan-a1b2c3d4')."},
+				"name":     map[string]any{"type": "string", "description": "Plan name as provided."},
+				"status":   map[string]any{"type": "string", "description": "Initial status: 'init'."},
+				"subtasks": map[string]any{"type": "array", "description": "Empty array — add tasks via task_insert."},
 			},
 		},
 	}
@@ -45,9 +49,10 @@ func (t *PlanCreate) Execute(ctx context.Context, detail core.ToolCallDetail) co
 		return tools.ErrorResult(detail.ID, "plan_create", err)
 	}
 	plan := &working.Plan{
-		ID:     utils.GeneratePlanID(),
-		Name:   name,
-		Status: working.PlanStatusInit,
+		ID:        utils.GeneratePlanID(),
+		SessionID: core.SessionIDFromContext(ctx),
+		Name:      name,
+		Status:    constants.PlanStatusInit,
 	}
 	working.PutPlan(plan)
 	return tools.SuccessResult(detail.ID, "plan_create", working.PlanToMap(plan))
@@ -60,18 +65,22 @@ type PlanQuery struct{}
 func (t *PlanQuery) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "plan_query",
-		Description: "Query a plan by ID with all subtasks, or list all plans.",
+		Description: "Query a plan by ID to get all subtasks with status, or omit plan_id to list all plans.",
 		JsonSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"plan_id": map[string]any{"type": "string", "description": "Plan ID. Omit to list all."},
+				"plan_id": map[string]any{
+					"type":        "string",
+					"description": "Plan ID to fetch. Omit to list all plans with their IDs and statuses.",
+				},
 			},
 		},
 		OutputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"plans": map[string]any{"type": "array"},
-				"count": map[string]any{"type": "integer"},
+				"plans": map[string]any{"type": "array", "description": "List of plan objects (when no plan_id given)."},
+				"count": map[string]any{"type": "integer", "description": "Number of plans returned."},
+				// When plan_id is given: single plan object with id/name/status/subtasks
 			},
 		},
 	}
@@ -94,51 +103,73 @@ func (t *PlanQuery) Execute(ctx context.Context, detail core.ToolCallDetail) cor
 	})
 }
 
-// ---- PlanStatusUpdate ----
+// ---- ConfirmPlan ----
 
-type PlanStatusUpdate struct{}
+type ConfirmPlan struct{}
 
-func (t *PlanStatusUpdate) Definition() core.ToolDefinition {
+func (t *ConfirmPlan) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
-		Name:        "plan_status_update",
-		Description: "Update a plan's status: init → doing → done (or failed). Set status to 'update' to add tasks mid-plan.",
+		Name: "confirm_plan",
+		Description: "Confirm the plan after user review. Call after ask_human to finalize. " +
+			"Set status to 'doing' (approved), 'rejected', or 'update' (needs changes).",
 		JsonSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"plan_id": map[string]any{"type": "string"},
-				"status":  map[string]any{"type": "string", "description": "init, doing, update, done, failed"},
-				"reason":  map[string]any{"type": "string", "description": "Optional reason for status change"},
+				"plan_id": map[string]any{
+					"type":        "string",
+					"description": "The plan ID to confirm.",
+				},
+				"status": map[string]any{
+					"type": "string",
+					"description": "Target status after user review:\n" +
+						"- 'doing':    user approved — start executing tasks\n" +
+						"- 'rejected': user rejected the plan entirely\n" +
+						"- 'update':   user requested changes — return to planning",
+				},
+				"reason": map[string]any{
+					"type":        "string",
+					"description": "Optional reason or user feedback for the status change.",
+				},
 			},
 			"required": []string{"plan_id", "status"},
 		},
 		OutputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"id":     map[string]any{"type": "string"},
-				"status": map[string]any{"type": "string"},
+				"id":     map[string]any{"type": "string", "description": "Plan ID that was confirmed."},
+				"status": map[string]any{"type": "string", "description": "New plan status after confirmation."},
 			},
 		},
 	}
 }
 
-func (t *PlanStatusUpdate) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-	planID, _ := tools.Arg(detail, "plan_id")
-	statusStr, _ := tools.Arg(detail, "status")
-	reason, _ := tools.Arg(detail, "reason")
+func (t *ConfirmPlan) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+	planID, err := tools.RequiredString(detail, "plan_id")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "confirm_plan", err)
+	}
+	statusStr, err := tools.RequiredString(detail, "status")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "confirm_plan", err)
+	}
+	if err := tools.In(statusStr, "doing", "rejected", "update"); err != nil {
+		return tools.ErrorResult(detail.ID, "confirm_plan", err)
+	}
+	reason := tools.OptionalString(detail, "reason")
 
 	plan, found := working.GetPlan(planID)
 	if !found {
-		return tools.ErrorResult(detail.ID, "plan_status_update", fmt.Errorf("plan not found: %s", planID))
+		return tools.ErrorResult(detail.ID, "confirm_plan", fmt.Errorf("plan not found: %s", planID))
 	}
 
-	newStatus := working.PlanStatus(statusStr)
+	newStatus := constants.PlanStatus(statusStr)
 	plan.Status = newStatus
 	if reason != "" {
 		plan.FinishedReson = reason
 	}
 	working.PutPlan(plan)
 
-	return tools.SuccessResult(detail.ID, "plan_status_update", map[string]any{
+	return tools.SuccessResult(detail.ID, "confirm_plan", map[string]any{
 		"id": plan.ID, "status": string(plan.Status),
 	})
 }
@@ -150,30 +181,52 @@ type TaskInsert struct{}
 func (t *TaskInsert) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "task_insert",
-		Description: "Insert a new subtask into a plan.",
+		Description: "Insert a new subtask into a plan. Use parent_task_id to define execution order — independent tasks run concurrently.",
 		JsonSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"plan_id":        map[string]any{"type": "string"},
-				"goal":           map[string]any{"type": "string", "description": "What this task should accomplish"},
-				"parent_task_id": map[string]any{"type": "string", "description": "Optional parent task ID for dependency tracking"},
+				"plan_id": map[string]any{
+					"type":        "string",
+					"description": "The plan ID to add this task to.",
+				},
+				"goal": map[string]any{
+					"type":        "string",
+					"description": "What this task should accomplish — clear, actionable description.",
+				},
+				"action": map[string]any{
+					"type": "string",
+					"description": "Specific command or operation for the worker. " +
+						"Examples: 'Run: pip install -r requirements.txt', " +
+						"'Read config.yaml and extract database credentials'.",
+				},
+				"parent_task_id": map[string]any{
+					"type":        "string",
+					"description": "Comma-separated task IDs that must complete before this task starts. Omit if no dependencies.",
+				},
 			},
 			"required": []string{"plan_id", "goal"},
 		},
 		OutputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"task_id": map[string]any{"type": "string"},
-				"goal":    map[string]any{"type": "string"},
+				"task_id": map[string]any{"type": "string", "description": "Generated unique task ID."},
+				"goal":    map[string]any{"type": "string", "description": "Task goal as provided."},
 			},
 		},
 	}
 }
 
 func (t *TaskInsert) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-	planID, _ := tools.Arg(detail, "plan_id")
-	goal, _ := tools.Arg(detail, "goal")
-	parentTaskID, _ := tools.Arg(detail, "parent_task_id")
+	planID, err := tools.RequiredString(detail, "plan_id")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "task_insert", err)
+	}
+	goal, err := tools.RequiredString(detail, "goal")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "task_insert", err)
+	}
+	action := tools.OptionalString(detail, "action")
+	parentTaskID := tools.OptionalString(detail, "parent_task_id")
 
 	plan, found := working.GetPlan(planID)
 	if !found {
@@ -184,6 +237,7 @@ func (t *TaskInsert) Execute(ctx context.Context, detail core.ToolCallDetail) co
 		ID:           utils.GenerateTaskID(),
 		ParentTaskID: parentTaskID,
 		Goal:         goal,
+		Action:       action,
 		Status:       working.TaskStatusPending,
 	}
 	plan.SubTasks = append(plan.SubTasks, task)
@@ -201,23 +255,31 @@ type TaskDelete struct{}
 func (t *TaskDelete) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "task_delete",
-		Description: "Delete a task from a plan.",
+		Description: "Delete a task from its plan. Use to remove failed or unnecessary tasks during replanning.",
 		JsonSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"task_id": map[string]any{"type": "string"},
+				"task_id": map[string]any{
+					"type":        "string",
+					"description": "The task ID to delete.",
+				},
 			},
 			"required": []string{"task_id"},
 		},
 		OutputSchema: map[string]any{
-			"type":       "object",
-			"properties": map[string]any{"deleted": map[string]any{"type": "boolean"}},
+			"type": "object",
+			"properties": map[string]any{
+				"deleted": map[string]any{"type": "boolean", "description": "true if the task was successfully deleted."},
+			},
 		},
 	}
 }
 
 func (t *TaskDelete) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-	taskID, _ := tools.Arg(detail, "task_id")
+	taskID, err := tools.RequiredString(detail, "task_id")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "task_delete", err)
+	}
 	plan, _ := working.FindTask(taskID)
 	if plan == nil {
 		return tools.ErrorResult(detail.ID, "task_delete", fmt.Errorf("task not found: %s", taskID))
@@ -239,19 +301,33 @@ type TaskQuery struct{}
 func (t *TaskQuery) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "task_query",
-		Description: "Query a task by ID, or list all tasks in a plan.",
+		Description: "Query a task by ID to get full details, or list all tasks in a plan by plan_id. Provide exactly one of task_id or plan_id.",
 		JsonSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"task_id": map[string]any{"type": "string", "description": "Task ID. Omit plan_id to search all."},
-				"plan_id": map[string]any{"type": "string", "description": "Plan ID to list tasks."},
+				"task_id": map[string]any{
+					"type":        "string",
+					"description": "Task ID to fetch. Mutually exclusive with plan_id.",
+				},
+				"plan_id": map[string]any{
+					"type":        "string",
+					"description": "Plan ID to list all tasks for. Mutually exclusive with task_id.",
+				},
 			},
 		},
 		OutputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"id":     map[string]any{"type": "string"},
-				"status": map[string]any{"type": "string"},
+				// Single-task query
+				"id":              map[string]any{"type": "string", "description": "Task ID."},
+				"goal":            map[string]any{"type": "string", "description": "Task goal."},
+				"action":          map[string]any{"type": "string", "description": "Action to execute."},
+				"status":          map[string]any{"type": "string", "description": "Status: pending, doing, done, or failed."},
+				"finished_reason": map[string]any{"type": "string", "description": "Output or error message after completion."},
+				"parent_task_id":  map[string]any{"type": "string", "description": "Dependency task IDs (comma-separated)."},
+				// Plan-level query
+				"tasks": map[string]any{"type": "array", "description": "List of task objects (when plan_id given)."},
+				"count": map[string]any{"type": "integer", "description": "Number of tasks returned."},
 			},
 		},
 	}
@@ -288,30 +364,52 @@ type TaskStatusUpdate struct{}
 func (t *TaskStatusUpdate) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "task_status_update",
-		Description: "Update a task's status to pending, doing, done, or failed.",
+		Description: "Update a task's status manually. Use during execution to mark tasks as done or failed after reviewing their output.",
 		JsonSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"task_id": map[string]any{"type": "string"},
-				"status":  map[string]any{"type": "string", "description": "pending, doing, done, failed"},
-				"reason":  map[string]any{"type": "string", "description": "Optional reason"},
+				"task_id": map[string]any{
+					"type":        "string",
+					"description": "The task ID to update.",
+				},
+				"status": map[string]any{
+					"type": "string",
+					"description": "New status:\n" +
+						"- 'pending': reset to waiting state\n" +
+						"- 'doing':   mark as in-progress\n" +
+						"- 'done':    mark as completed successfully\n" +
+						"- 'failed':  mark as failed (provide reason)",
+				},
+				"reason": map[string]any{
+					"type":        "string",
+					"description": "Optional reason — required for 'failed', useful for 'done'.",
+				},
 			},
 			"required": []string{"task_id", "status"},
 		},
 		OutputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"id":     map[string]any{"type": "string"},
-				"status": map[string]any{"type": "string"},
+				"id":     map[string]any{"type": "string", "description": "Task ID that was updated."},
+				"status": map[string]any{"type": "string", "description": "New task status after update."},
 			},
 		},
 	}
 }
 
 func (t *TaskStatusUpdate) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-	taskID, _ := tools.Arg(detail, "task_id")
-	statusStr, _ := tools.Arg(detail, "status")
-	reason, _ := tools.Arg(detail, "reason")
+	taskID, err := tools.RequiredString(detail, "task_id")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "task_status_update", err)
+	}
+	statusStr, err := tools.RequiredString(detail, "status")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "task_status_update", err)
+	}
+	if err := tools.In(statusStr, "pending", "doing", "done", "failed"); err != nil {
+		return tools.ErrorResult(detail.ID, "task_status_update", err)
+	}
+	reason := tools.OptionalString(detail, "reason")
 
 	plan, task := working.FindTask(taskID)
 	if task == nil {
@@ -329,72 +427,6 @@ func (t *TaskStatusUpdate) Execute(ctx context.Context, detail core.ToolCallDeta
 	})
 }
 
-// ---- WorkerSpawn ----
-
-// RegisteredSpawnFactory is called to spawn workers. Set by runtime at startup.
-var RegisteredSpawnFactory working.WorkerFactory
-
-// RegisterWorkerSpawn sets the worker factory (delegates to working package).
-func RegisterWorkerSpawn(fn working.WorkerFactory) {
-	RegisteredSpawnFactory = fn
-	working.RegisterWorkerFactory(fn)
-}
-
-type WorkerSpawn struct{}
-
-func (t *WorkerSpawn) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
-		Name: "worker_spawn",
-		Description: "Spawn a WorkerAgent to execute a task. The worker runs independently — its status is updated automatically when done/failed. You only need to call this; there's no output to process.",
-		JsonSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"task_id": map[string]any{"type": "string"},
-			},
-			"required": []string{"task_id"},
-		},
-	}
-}
-
-func (t *WorkerSpawn) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-	taskID, _ := tools.Arg(detail, "task_id")
-	fn := working.GetWorkerFactory()
-	if fn == nil {
-		return tools.ErrorResult(detail.ID, "worker_spawn", fmt.Errorf("worker factory not registered"))
-	}
-
-	plan, task := working.FindTask(taskID)
-	if task == nil {
-		return tools.ErrorResult(detail.ID, "worker_spawn", fmt.Errorf("task not found: %s", taskID))
-	}
-
-	task.Status = working.TaskStatusDoing
-	working.PutPlan(plan)
-
-	go func() {
-		output, usage, err := fn(task.Goal, task.Action)
-		planMu, _ := working.GetPlan(plan.ID)
-		if planMu == nil {
-			return
-		}
-		_, taskMu := working.FindTask(taskID)
-		if taskMu == nil {
-			return
-		}
-		if err != nil {
-			taskMu.Status = working.TaskStatusFailed
-			taskMu.FinishedReson = err.Error()
-		} else {
-			taskMu.Status = working.TaskStatusDone
-			taskMu.FinishedReson = output
-		}
-		taskMu.Usage = usage
-		working.PutPlan(planMu)
-	}()
-
-	return tools.SuccessResult(detail.ID, "worker_spawn", working.TaskToMap(task))
-}
-
 // ---- PlanRollback ----
 
 type PlanRollback struct{}
@@ -402,21 +434,27 @@ type PlanRollback struct{}
 func (t *PlanRollback) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "plan_rollback",
-		Description: "Rollback a plan to a previous checkpoint. Each rollback creates a new checkpoint.",
+		Description: "Rollback a plan to a previous checkpoint. Use when execution has drifted or produced incorrect results. A new checkpoint is created on rollback.",
 		JsonSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"plan_id": map[string]any{"type": "string", "description": "Plan ID"},
-				"version": map[string]any{"type": "integer", "description": "Target version (optional; defaults to current-1)"},
+				"plan_id": map[string]any{
+					"type":        "string",
+					"description": "Plan ID to rollback.",
+				},
+				"version": map[string]any{
+					"type":        "integer",
+					"description": "Target checkpoint version to restore. Defaults to current-1 if omitted. Must be between 1 and current-1.",
+				},
 			},
 			"required": []string{"plan_id", "version"},
 		},
 		OutputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"plan_id":      map[string]any{"type": "string"},
-				"from_version": map[string]any{"type": "integer"},
-				"to_version":   map[string]any{"type": "integer"},
+				"plan_id":      map[string]any{"type": "string", "description": "Plan ID that was rolled back."},
+				"from_version": map[string]any{"type": "integer", "description": "Version before rollback."},
+				"to_version":   map[string]any{"type": "integer", "description": "Version after rollback."},
 			},
 		},
 	}

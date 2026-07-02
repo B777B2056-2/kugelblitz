@@ -65,6 +65,13 @@ func (t *WebSearch) Definition() core.ToolDefinition {
 			},
 			"required": []string{"query"},
 		},
+		OutputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query":   map[string]any{"type": "string", "description": "The search query that was executed."},
+				"results": map[string]any{"type": "array", "description": "List of results, each with {title, url, snippet}."},
+			},
+		},
 	}
 }
 
@@ -74,20 +81,15 @@ func (t *WebSearch) Execute(ctx context.Context, detail core.ToolCallDetail) cor
 		return tools.ErrorResult(detail.ID, "web_search", err)
 	}
 
-	limit := 5
-	if v, ok := detail.Args["limit"]; ok {
-		switch n := v.(type) {
-		case float64:
-			limit = int(n)
-		case int:
-			limit = n
-		}
-		if limit < 1 {
-			limit = 1
-		}
-		if limit > 10 {
-			limit = 10
-		}
+	limit, err2 := tools.OptionalInt(detail, "limit", 5)
+	if err2 != nil {
+		return tools.ErrorResult(detail.ID, "web_search", err2)
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 10 {
+		limit = 10
 	}
 
 	results, err := t.backend.Search(ctx, query, limit)

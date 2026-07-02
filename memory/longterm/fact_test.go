@@ -6,26 +6,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func tempMemoryPath(t *testing.T) string {
+func newTestLTM(t *testing.T) *LongTermMemory {
 	t.Helper()
-	dir := t.TempDir()
-	p := filepath.Join(dir, "MEMORY.md")
-	// Override workspace
-	orig := core.GetWorkspace().Dir()
-	core.GetWorkspace().SetDir(dir)
-	t.Cleanup(func() { core.GetWorkspace().SetDir(orig) })
-	return p
+	ltm, err := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
+	require.NoError(t, err)
+	return ltm
 }
 
 func TestLongTermMemory_StoreNewFact(t *testing.T) {
-	_ = tempMemoryPath(t)
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM(t)
 
 	winner, conflict, err := ltm.Store("prefs", "lang", "Go")
 	require.NoError(t, err)
@@ -35,8 +29,7 @@ func TestLongTermMemory_StoreNewFact(t *testing.T) {
 }
 
 func TestLongTermMemory_StoreSameValue(t *testing.T) {
-	_ = tempMemoryPath(t)
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM(t)
 
 	ltm.Store("prefs", "lang", "Go")
 	winner, conflict, _ := ltm.Store("prefs", "lang", "Go")
@@ -48,8 +41,7 @@ func TestLongTermMemory_StoreSameValue(t *testing.T) {
 }
 
 func TestLongTermMemory_StoreConflictNewWins(t *testing.T) {
-	_ = tempMemoryPath(t)
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM(t)
 
 	// Store an old fact with low confidence (set UpdatedAt far in the past)
 	ltm.items = append(ltm.items, MemoryItem{
@@ -66,8 +58,7 @@ func TestLongTermMemory_StoreConflictNewWins(t *testing.T) {
 }
 
 func TestLongTermMemory_StoreConflictOldWins(t *testing.T) {
-	_ = tempMemoryPath(t)
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM(t)
 
 	// Old fact with high confidence
 	ltm.items = append(ltm.items, MemoryItem{
@@ -90,8 +81,7 @@ func TestLongTermMemory_ConfidenceDecay(t *testing.T) {
 }
 
 func TestLongTermMemory_GetReturnsDecayed(t *testing.T) {
-	_ = tempMemoryPath(t)
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM(t)
 
 	ltm.items = append(ltm.items, MemoryItem{
 		Section: "prefs", Key: "lang", Value: "Go",
@@ -104,7 +94,8 @@ func TestLongTermMemory_GetReturnsDecayed(t *testing.T) {
 }
 
 func TestLongTermMemory_LoadExisting(t *testing.T) {
-	p := tempMemoryPath(t)
+	dir := t.TempDir()
+	p := filepath.Join(dir, "MEMORY.md")
 	today := time.Now().Format("2006-01-02")
 	os.WriteFile(p, []byte(`# Project Memory
 
@@ -112,7 +103,9 @@ func TestLongTermMemory_LoadExisting(t *testing.T) {
 - lang: Go  `+"`v2 c0.95 "+today+"`"+`
 `), 0644)
 
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm, err := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(dir)))
+	require.NoError(t, err)
+
 	f, ok := ltm.Get("prefs", "lang")
 	assert.True(t, ok)
 	assert.Equal(t, "Go", f.Value)
@@ -121,8 +114,7 @@ func TestLongTermMemory_LoadExisting(t *testing.T) {
 }
 
 func TestLongTermMemory_Search(t *testing.T) {
-	_ = tempMemoryPath(t)
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM(t)
 	ltm.Store("prefs", "lang", "Go")
 	ltm.Store("items", "deploy", "production")
 
@@ -132,8 +124,7 @@ func TestLongTermMemory_Search(t *testing.T) {
 }
 
 func TestLongTermMemory_CaseInsensitive(t *testing.T) {
-	_ = tempMemoryPath(t)
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM(t)
 	// Section normalization is case-insensitive; keys are case-sensitive
 	ltm.Store("PREFS", "lang", "Go")
 
@@ -143,8 +134,7 @@ func TestLongTermMemory_CaseInsensitive(t *testing.T) {
 }
 
 func TestLongTermMemory_Remove(t *testing.T) {
-	_ = tempMemoryPath(t)
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM(t)
 	ltm.Store("prefs", "lang", "Go")
 
 	err := ltm.Remove("prefs", "lang")
@@ -154,8 +144,7 @@ func TestLongTermMemory_Remove(t *testing.T) {
 }
 
 func TestLongTermMemory_GetSection(t *testing.T) {
-	_ = tempMemoryPath(t)
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM(t)
 	ltm.Store("prefs", "lang", "Go")
 	ltm.Store("prefs", "editor", "VSCode")
 
@@ -204,8 +193,7 @@ func TestLongTermMemory_SemanticMatchNoJudge(t *testing.T) {
 }
 
 func TestLongTermMemory_StoreSemanticMatch(t *testing.T) {
-	_ = tempMemoryPath(t)
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM(t)
 
 	oldJudge := semanticJudge
 	semanticJudge = func(old, new string) bool { return true } // always match
@@ -221,8 +209,7 @@ func TestLongTermMemory_StoreSemanticMatch(t *testing.T) {
 }
 
 func TestLongTermMemory_StoreSemanticMismatch(t *testing.T) {
-	_ = tempMemoryPath(t)
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM(t)
 
 	oldJudge := semanticJudge
 	semanticJudge = func(old, new string) bool { return false }
@@ -239,8 +226,7 @@ func TestLongTermMemory_StoreSemanticMismatch(t *testing.T) {
 }
 
 func TestLongTermMemory_StoreReturnsMetadata(t *testing.T) {
-	_ = tempMemoryPath(t)
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM(t)
 
 	winner, _, _ := ltm.Store("prefs", "lang", "Go")
 	assert.Equal(t, "prefs", winner.Section)
@@ -250,8 +236,7 @@ func TestLongTermMemory_StoreReturnsMetadata(t *testing.T) {
 }
 
 func TestLongTermMemory_BulkStore(t *testing.T) {
-	_ = tempMemoryPath(t)
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM(t)
 
 	items := []MemoryItem{
 		{Section: "prefs", Key: "lang", Value: "Go", Confidence: 1.0},
@@ -271,8 +256,7 @@ func TestLongTermMemory_BulkStore(t *testing.T) {
 }
 
 func TestLongTermMemory_Facts(t *testing.T) {
-	_ = tempMemoryPath(t)
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM(t)
 	ltm.Store("prefs", "lang", "Go")
 	ltm.Store("items", "deploy", "prod")
 
@@ -281,8 +265,7 @@ func TestLongTermMemory_Facts(t *testing.T) {
 }
 
 func TestLongTermMemory_ListSections(t *testing.T) {
-	_ = tempMemoryPath(t)
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM(t)
 	ltm.Store("prefs", "lang", "Go")
 	ltm.Store("prefs", "editor", "VSCode")
 	ltm.Store("items", "deploy", "prod")
@@ -293,8 +276,7 @@ func TestLongTermMemory_ListSections(t *testing.T) {
 }
 
 func TestLongTermMemory_Stats(t *testing.T) {
-	_ = tempMemoryPath(t)
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM(t)
 	ltm.Store("prefs", "lang", "Go")
 
 	total, sections, avg := ltm.Stats()

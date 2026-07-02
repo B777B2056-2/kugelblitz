@@ -31,10 +31,8 @@ func (m *dreamProvider) Generate(ctx context.Context, params core.GenerateParams
 
 func setupDreamer(t *testing.T) (*LongTermMemory, *Dreamer) {
 	t.Helper()
-	core.GetWorkspace().SetDir(t.TempDir())
-	t.Cleanup(func() { core.GetWorkspace().SetDir("") })
 
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
 	graph := NewGraphStore(nil, "")
 	ltm.SetGraph(graph)
 
@@ -209,10 +207,7 @@ func TestDreamReport_ToMarkdown(t *testing.T) {
 }
 
 func TestDreamer_EmptyMemories_NoOp(t *testing.T) {
-	core.GetWorkspace().SetDir(t.TempDir())
-	t.Cleanup(func() { core.GetWorkspace().SetDir("") })
-
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
 	d := &Dreamer{
 		ltm:      ltm,
 		provider: &dreamProvider{},

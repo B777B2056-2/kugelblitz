@@ -68,10 +68,9 @@ func main() {
 	// ---- 6. Run conversation ----
 	ctx := context.Background()
 
-	systemMsg := core.NewUserMessage("root", core.TextContent{
+	systemMsg := core.NewSystemMessage("root", core.TextContent{
 		Text: "You are a helpful assistant. Use tools when helpful, then answer in the user's language.",
 	})
-	systemMsg.Role = "system"
 
 	userMsg := core.NewUserMessage("root", core.TextContent{
 		Text: "What time is it in Tokyo right now? Also, what's (25 * 4) + (100 / 5)?",

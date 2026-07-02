@@ -45,6 +45,14 @@ func (t *WebFetch) Definition() core.ToolDefinition {
 			},
 			"required": []string{"url"},
 		},
+		OutputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"url":      map[string]any{"type": "string", "description": "The fetched URL."},
+				"title":    map[string]any{"type": "string", "description": "Page title from <title> tag."},
+				"markdown": map[string]any{"type": "string", "description": "Page content in Markdown (max 16000 chars)."},
+			},
+		},
 	}
 }
 

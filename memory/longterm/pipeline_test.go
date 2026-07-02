@@ -4,16 +4,19 @@ import (
 	"context"
 	"testing"
 
-	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+func newTestLTM_pipeline(t *testing.T) *LongTermMemory {
+	t.Helper()
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
+	return ltm
+}
+
 func TestWritePipeline_Run_ExtractsAndStoresFacts(t *testing.T) {
-	core.GetWorkspace().SetDir(t.TempDir())
-	t.Cleanup(func() { core.GetWorkspace().SetDir("") })
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM_pipeline(t)
 	provider := &mockExtractProvider{
 		response: `[{"section":"prefs","key":"lang","value":"Go","source_evidence":"user said","suggested_confidence":0.9}]`,
 	}
@@ -28,9 +31,7 @@ func TestWritePipeline_Run_ExtractsAndStoresFacts(t *testing.T) {
 }
 
 func TestWritePipeline_Run_ConflictCreatesPending(t *testing.T) {
-	core.GetWorkspace().SetDir(t.TempDir())
-	t.Cleanup(func() { core.GetWorkspace().SetDir("") })
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM_pipeline(t)
 	ltm.Store("prefs", "lang", "Python")
 	provider := &mockExtractProvider{
 		response: `[{"section":"prefs","key":"lang","value":"Go","source_evidence":"","suggested_confidence":0.95}]`,
@@ -43,9 +44,7 @@ func TestWritePipeline_Run_ConflictCreatesPending(t *testing.T) {
 }
 
 func TestWritePipeline_Run_EmptyConversation(t *testing.T) {
-	core.GetWorkspace().SetDir(t.TempDir())
-	t.Cleanup(func() { core.GetWorkspace().SetDir("") })
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist("")))
+	ltm := newTestLTM_pipeline(t)
 	provider := &mockExtractProvider{response: `[]`}
 	pipeline := NewWritePipeline(provider, ltm, nil, 0.15)
 	result, err := pipeline.Run(context.Background(), &ExtractionContext{})

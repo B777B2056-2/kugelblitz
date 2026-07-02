@@ -108,7 +108,7 @@ func (h *consoleHandler) OnThinkingChunk(chunk string) {}
 func (h *consoleHandler) OnReplyChunk(chunk string)    { fmt.Print(chunk) }
 func (h *consoleHandler) OnFunctionCall(detail core.ToolCallDetail) {
 	switch detail.ToolName {
-	case "plan_create", "plan_query", "plan_rollback", "plan_status_update",
+	case "plan_create", "plan_query", "plan_rollback", "confirm_plan",
 		"task_insert", "task_delete", "task_query", "worker_spawn":
 		fmt.Printf("\n[%s]\n", detail.ToolName)
 	default:

@@ -19,12 +19,14 @@ func All() []tools.Tool {
 		&ShellExec{},
 		&PlanCreate{},
 		&PlanQuery{},
-		&PlanStatusUpdate{},
+		&ConfirmPlan{},
 		&TaskInsert{},
 		&TaskDelete{},
 		&TaskQuery{},
 		&TaskStatusUpdate{},
 		&PlanRollback{},
+		&SetWorkMode{},
+		// WorkerSpawn removed — Planner state machine spawns workers directly via code
 	}
 }
 

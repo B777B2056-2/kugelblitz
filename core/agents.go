@@ -8,6 +8,8 @@ type AgentEventHooks struct {
 	ModelEventHandler
 	OnToolCallEnd        func(toolCallResult ToolCallResult)
 	OnWaitForHumanAction func(reason string, prompt string)
+	OnPlanRollback       func(planID string, targetVersion int, planName string)
+	OnTaskUpdated        func(taskID string, goal string, status string, output string)
 }
 
 // LLMUsageReport is sent to the Planner's usage callback for every LLM call

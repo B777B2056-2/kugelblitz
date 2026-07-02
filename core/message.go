@@ -18,10 +18,10 @@ type Usage struct {
 
 // MultiModalDetail describes non-text media content.
 type MultiModalDetail struct {
-	ID     string                  `json:"id"`
+	ID     string                   `json:"id"`
 	Type   constants.MultiModalType `json:"type"`
-	Path   string                  `json:"path,omitempty"`
-	Base64 string                  `json:"base64,omitempty"`
+	Path   string                   `json:"path,omitempty"`
+	Base64 string                   `json:"base64,omitempty"`
 }
 
 // ToolCallDetail represents a single tool call requested by the LLM.
@@ -100,11 +100,11 @@ type Message struct {
 // contentWrapper is the JSON representation of a Content value.
 // The Type field acts as a discriminator for reconstructing the concrete type.
 type contentWrapper struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text,omitempty"`
-	Reasoning string          `json:"reasoning,omitempty"`
-	Details   []ToolCallDetail `json:"details,omitempty"`
-	Results   []ToolCallResult `json:"results,omitempty"`
+	Type      string            `json:"type"`
+	Text      string            `json:"text,omitempty"`
+	Reasoning string            `json:"reasoning,omitempty"`
+	Details   []ToolCallDetail  `json:"details,omitempty"`
+	Results   []ToolCallResult  `json:"results,omitempty"`
 	Detail    *MultiModalDetail `json:"detail,omitempty"`
 	Parts     []json.RawMessage `json:"parts,omitempty"`
 }
@@ -200,6 +200,16 @@ func unmarshalContent(w contentWrapper) Content {
 		return CompositeContent{Parts: parts}
 	default:
 		return nil
+	}
+}
+
+// NewSystemMessage creates a new system message with the given content.
+func NewSystemMessage(parentID string, content Content) Message {
+	return Message{
+		ID:       utils.GenerateMessageID(),
+		ParentID: parentID,
+		Role:     constants.RoleSystem,
+		Content:  content,
 	}
 }
 
