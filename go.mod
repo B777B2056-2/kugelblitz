@@ -1,6 +1,6 @@
 module github.com/B777B2056-2/kugelblitz
 
-go 1.26.1
+go 1.26
 
 require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
