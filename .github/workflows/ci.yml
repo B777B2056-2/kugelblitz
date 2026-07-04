@@ -22,25 +22,25 @@ jobs:
       - name: golangci-lint (root)
         uses: golangci/golangci-lint-action@v6
         with:
-          version: v2
+          version: v2.0.0
           working-directory: .
 
       - name: golangci-lint (cmd/common)
         uses: golangci/golangci-lint-action@v6
         with:
-          version: v2
+          version: v2.0.0
           working-directory: cmd/common
 
       - name: golangci-lint (cmd/kugelblitz-ui)
         uses: golangci/golangci-lint-action@v6
         with:
-          version: v2
+          version: v2.0.0
           working-directory: cmd/kugelblitz-ui
 
       - name: golangci-lint (cmd/acp_server)
         uses: golangci/golangci-lint-action@v6
         with:
-          version: v2
+          version: v2.0.0
           working-directory: cmd/acp_server
 
   test:
