@@ -1,6 +1,7 @@
 package longterm
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -155,7 +156,7 @@ func TestUpsertRelationships(t *testing.T) {
 	rels := []RelCandidate{
 		{From: "Go", To: "kugelblitz", Type: "implements", Weight: 1.0},
 	}
-	g.UpsertRelationships(nil, entities, rels)
+	g.UpsertRelationships(context.TODO(), entities, rels)
 
 	assert.Len(t, g.entities, 2)
 	assert.Len(t, g.relationships, 1)

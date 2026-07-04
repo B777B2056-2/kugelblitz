@@ -21,7 +21,7 @@ func (t *AskHumanTool) Definition() core.ToolDefinition {
 			"Use this when you need clarification, need approval before proceeding, " +
 			"or require additional information only the user can provide. " +
 			"The agent will pause until the human responds.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"question": map[string]any{

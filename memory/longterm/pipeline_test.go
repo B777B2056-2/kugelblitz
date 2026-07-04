@@ -9,14 +9,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestLTM_pipeline(t *testing.T) *LongTermMemory {
+func newTestLTMPipeline(t *testing.T) *LongTermMemory {
 	t.Helper()
 	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
 	return ltm
 }
 
 func TestWritePipeline_Run_ExtractsAndStoresFacts(t *testing.T) {
-	ltm := newTestLTM_pipeline(t)
+	ltm := newTestLTMPipeline(t)
 	provider := &mockExtractProvider{
 		response: `[{"section":"prefs","key":"lang","value":"Go","source_evidence":"user said","suggested_confidence":0.9}]`,
 	}
@@ -31,8 +31,8 @@ func TestWritePipeline_Run_ExtractsAndStoresFacts(t *testing.T) {
 }
 
 func TestWritePipeline_Run_ConflictCreatesPending(t *testing.T) {
-	ltm := newTestLTM_pipeline(t)
-	ltm.Store("prefs", "lang", "Python")
+	ltm := newTestLTMPipeline(t)
+	_, _, _ = ltm.Store("prefs", "lang", "Python")
 	provider := &mockExtractProvider{
 		response: `[{"section":"prefs","key":"lang","value":"Go","source_evidence":"","suggested_confidence":0.95}]`,
 	}
@@ -43,7 +43,7 @@ func TestWritePipeline_Run_ConflictCreatesPending(t *testing.T) {
 }
 
 func TestWritePipeline_Run_EmptyConversation(t *testing.T) {
-	ltm := newTestLTM_pipeline(t)
+	ltm := newTestLTMPipeline(t)
 	provider := &mockExtractProvider{response: `[]`}
 	pipeline := NewWritePipeline(provider, ltm, nil, 0.15)
 	result, err := pipeline.Run(context.Background(), &ExtractionContext{})

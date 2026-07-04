@@ -16,7 +16,7 @@ import (
 func tmpDir(t *testing.T) string {
 	d, err := os.MkdirTemp("", "kugelblitz-test-*")
 	require.NoError(t, err)
-	t.Cleanup(func() { os.RemoveAll(d) })
+	t.Cleanup(func() { _ = os.RemoveAll(d) })
 	return d
 }
 

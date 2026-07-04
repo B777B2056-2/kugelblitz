@@ -13,9 +13,9 @@ import (
 
 func writeSkill(t *testing.T, name, yamlFrontmatter, prompt string) {
 	dir := filepath.Join(core.GetWorkspace().SkillsDir(), name)
-	os.MkdirAll(dir, 0755)
+	_ = os.MkdirAll(dir, 0755)
 	content := "---\n" + yamlFrontmatter + "\n---\n\n" + prompt
-	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0644)
 }
 
 func TestLoadSkill_FullFrontmatter(t *testing.T) {

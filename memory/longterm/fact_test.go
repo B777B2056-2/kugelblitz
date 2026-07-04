@@ -31,7 +31,7 @@ func TestLongTermMemory_StoreNewFact(t *testing.T) {
 func TestLongTermMemory_StoreSameValue(t *testing.T) {
 	ltm := newTestLTM(t)
 
-	ltm.Store("prefs", "lang", "Go")
+	_, _, _ = ltm.Store("prefs", "lang", "Go")
 	winner, conflict, _ := ltm.Store("prefs", "lang", "Go")
 
 	assert.Nil(t, conflict)
@@ -97,7 +97,7 @@ func TestLongTermMemory_LoadExisting(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "MEMORY.md")
 	today := time.Now().Format("2006-01-02")
-	os.WriteFile(p, []byte(`# Project Memory
+	_ = os.WriteFile(p, []byte(`# Project Memory
 
 ## prefs
 - lang: Go  `+"`v2 c0.95 "+today+"`"+`
@@ -115,8 +115,8 @@ func TestLongTermMemory_LoadExisting(t *testing.T) {
 
 func TestLongTermMemory_Search(t *testing.T) {
 	ltm := newTestLTM(t)
-	ltm.Store("prefs", "lang", "Go")
-	ltm.Store("items", "deploy", "production")
+	_, _, _ = ltm.Store("prefs", "lang", "Go")
+	_, _, _ = ltm.Store("items", "deploy", "production")
 
 	results := ltm.Search("Go")
 	assert.Len(t, results, 1)
@@ -126,7 +126,7 @@ func TestLongTermMemory_Search(t *testing.T) {
 func TestLongTermMemory_CaseInsensitive(t *testing.T) {
 	ltm := newTestLTM(t)
 	// Section normalization is case-insensitive; keys are case-sensitive
-	ltm.Store("PREFS", "lang", "Go")
+	_, _, _ = ltm.Store("PREFS", "lang", "Go")
 
 	f, ok := ltm.Get("prefs", "lang")
 	assert.True(t, ok)
@@ -135,7 +135,7 @@ func TestLongTermMemory_CaseInsensitive(t *testing.T) {
 
 func TestLongTermMemory_Remove(t *testing.T) {
 	ltm := newTestLTM(t)
-	ltm.Store("prefs", "lang", "Go")
+	_, _, _ = ltm.Store("prefs", "lang", "Go")
 
 	err := ltm.Remove("prefs", "lang")
 	require.NoError(t, err)
@@ -145,8 +145,8 @@ func TestLongTermMemory_Remove(t *testing.T) {
 
 func TestLongTermMemory_GetSection(t *testing.T) {
 	ltm := newTestLTM(t)
-	ltm.Store("prefs", "lang", "Go")
-	ltm.Store("prefs", "editor", "VSCode")
+	_, _, _ = ltm.Store("prefs", "lang", "Go")
+	_, _, _ = ltm.Store("prefs", "editor", "VSCode")
 
 	section := ltm.GetSection("prefs")
 	assert.Len(t, section, 2)
@@ -199,12 +199,12 @@ func TestLongTermMemory_StoreSemanticMatch(t *testing.T) {
 	semanticJudge = func(old, new string) bool { return true } // always match
 	defer func() { semanticJudge = oldJudge }()
 
-	ltm.Store("prefs", "lang", "Go")
+	_, _, _ = ltm.Store("prefs", "lang", "Go")
 	// Same semantic meaning — should bump confidence (capped at 1.0)
 	winner, conflict, _ := ltm.Store("prefs", "lang", "Golang")
 	assert.Nil(t, conflict)
-	assert.Equal(t, "Golang", winner.Value)  // newer phrasing wins
-	assert.Equal(t, 1.0, winner.Confidence)  // capped at 1.0
+	assert.Equal(t, "Golang", winner.Value) // newer phrasing wins
+	assert.Equal(t, 1.0, winner.Confidence) // capped at 1.0
 	assert.Equal(t, 2, winner.Version)
 }
 
@@ -257,8 +257,8 @@ func TestLongTermMemory_BulkStore(t *testing.T) {
 
 func TestLongTermMemory_Facts(t *testing.T) {
 	ltm := newTestLTM(t)
-	ltm.Store("prefs", "lang", "Go")
-	ltm.Store("items", "deploy", "prod")
+	_, _, _ = ltm.Store("prefs", "lang", "Go")
+	_, _, _ = ltm.Store("items", "deploy", "prod")
 
 	all := ltm.All()
 	assert.Len(t, all, 2)
@@ -266,9 +266,9 @@ func TestLongTermMemory_Facts(t *testing.T) {
 
 func TestLongTermMemory_ListSections(t *testing.T) {
 	ltm := newTestLTM(t)
-	ltm.Store("prefs", "lang", "Go")
-	ltm.Store("prefs", "editor", "VSCode")
-	ltm.Store("items", "deploy", "prod")
+	_, _, _ = ltm.Store("prefs", "lang", "Go")
+	_, _, _ = ltm.Store("prefs", "editor", "VSCode")
+	_, _, _ = ltm.Store("items", "deploy", "prod")
 
 	sections := ltm.ListSections()
 	assert.Equal(t, 2, sections["prefs"])
@@ -277,7 +277,7 @@ func TestLongTermMemory_ListSections(t *testing.T) {
 
 func TestLongTermMemory_Stats(t *testing.T) {
 	ltm := newTestLTM(t)
-	ltm.Store("prefs", "lang", "Go")
+	_, _, _ = ltm.Store("prefs", "lang", "Go")
 
 	total, sections, avg := ltm.Stats()
 	assert.Equal(t, 1, total)

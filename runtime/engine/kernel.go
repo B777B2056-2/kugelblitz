@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/B777B2056-2/kugelblitz/config"
+	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/memory"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
@@ -35,7 +36,6 @@ func NewKernel(
 	}
 
 	mainReact := infra.NewReactAgent(cfg.Model.Provider, cfg.Model.StreamMode)
-	mainReact.RegisterEventHooks(cfg.Hooks)
 	if cfg.Model.EnableThinking {
 		mainReact.SetThinking(true, cfg.Model.ReasoningEffort)
 	}
@@ -70,11 +70,13 @@ func NewKernel(
 	}
 }
 
-// RegisterEventHooks forwards hooks to mainReact and DAG.
+// RegisterEventHooks forwards hooks to all sub-agents.
 func (sm *Kernel) RegisterEventHooks(hooks core.AgentEventHooks) {
-	sm.cfg.Hooks = hooks
+	sm.mainReact.SetAgentIdentity(constants.AgentMain)
 	sm.mainReact.RegisterEventHooks(hooks)
-	sm.dagExec.Hooks = hooks
+
+	sm.dagExec.SetWorkerHooks(hooks)
+	sm.reviewer.SetHooks(hooks)
 }
 
 // Compressor returns the session memory compressor.
@@ -89,7 +91,7 @@ func (sm *Kernel) Run(ctx context.Context, goal string) ([]core.Message, error) 
 
 // Cancel stops the main ReAct loop, all workers, and marks the current plan as cancelled.
 func (sm *Kernel) Cancel(ctx context.Context) {
-	sm.mainReact.Interrupt(ctx)
+	_ = sm.mainReact.Interrupt(ctx)
 	sm.dagExec.Cancel()
 	// The machine's current plan is managed internally; we can't access planID
 	// directly anymore. The plan will be marked as failed when Run returns.
@@ -99,6 +101,9 @@ func (sm *Kernel) Cancel(ctx context.Context) {
 func (sm *Kernel) HumanLoopWaiting() bool {
 	return sm.mainReact.HumanLoopWaiting() || sm.dagExec.AnyWorkerInHumanLoopWaiting()
 }
+
+// Agent returns the underlying IAgent for external consumers (e.g. ACP server).
+func (sm *Kernel) Agent() core.IAgent { return sm.mainReact }
 
 // ResumeWithHumanResponse delivers a human response to whichever agent is waiting
 // (mainReact first, then DAG workers).

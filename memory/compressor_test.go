@@ -84,7 +84,6 @@ func TestTruncate_Long(t *testing.T) {
 	assert.True(t, result[len(result)-3:] == "...")
 }
 
-
 type mockCompressProvider struct {
 	generate func(ctx context.Context, params core.GenerateParams) (*core.Message, error)
 }

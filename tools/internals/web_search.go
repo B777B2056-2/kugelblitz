@@ -51,7 +51,7 @@ func (t *WebSearch) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "web_search",
 		Description: "Search the web and return a list of results with titles, snippets, and URLs.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"query": map[string]any{
@@ -119,15 +119,6 @@ type ddgBackend struct {
 	client *http.Client
 }
 
-type ddgResponse struct {
-	Results []ddgResult `json:"Results"`
-}
-
-type ddgResult struct {
-	FirstURL string `json:"FirstURL"`
-	Text     string `json:"Text"`
-}
-
 func (d *ddgBackend) Search(ctx context.Context, query string, limit int) ([]SearchResult, error) {
 	params := url.Values{}
 	params.Set("q", query)
@@ -145,7 +136,7 @@ func (d *ddgBackend) Search(ctx context.Context, query string, limit int) ([]Sea
 	if err != nil {
 		return nil, fmt.Errorf("ddg search: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("ddg search: http %d", resp.StatusCode)
@@ -239,7 +230,7 @@ func ddgHTMLFallback(ctx context.Context, client *http.Client, query string, lim
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(resp.Body)
 	html := string(body)

@@ -20,7 +20,7 @@ func (t *SkillUse) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "skill_use",
 		Description: "Activate a skill by name to take on a specialized role (e.g. 'code-reviewer', 'researcher'). Call with no name to deactivate. Returns the skill's prompt, description, and available tools.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"name": map[string]any{"type": "string", "description": "Skill name to activate (omit to deactivate)"},
@@ -29,11 +29,11 @@ func (t *SkillUse) Definition() core.ToolDefinition {
 		OutputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"activated":    map[string]any{"type": "boolean", "description": "Whether a skill was activated"},
-				"deactivated":  map[string]any{"type": "boolean", "description": "Whether skill was deactivated"},
-				"name":         map[string]any{"type": "string", "description": "Skill name"},
-				"prompt":       map[string]any{"type": "string", "description": "Skill prompt to follow"},
-				"skill_tools":  map[string]any{"type": "array", "description": "Tools the skill recommends"},
+				"activated":   map[string]any{"type": "boolean", "description": "Whether a skill was activated"},
+				"deactivated": map[string]any{"type": "boolean", "description": "Whether skill was deactivated"},
+				"name":        map[string]any{"type": "string", "description": "Skill name"},
+				"prompt":      map[string]any{"type": "string", "description": "Skill prompt to follow"},
+				"skill_tools": map[string]any{"type": "array", "description": "Tools the skill recommends"},
 			},
 		},
 	}

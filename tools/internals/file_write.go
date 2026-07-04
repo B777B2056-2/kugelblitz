@@ -15,7 +15,7 @@ func (t *FileWrite) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "file_write",
 		Description: "Write content to a file at the given path. Overwrites existing files. Creates parent directories if needed.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"path": map[string]any{

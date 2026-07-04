@@ -1,3 +1,4 @@
+//nolint:staticcheck
 package chat_completions
 
 import (
@@ -225,7 +226,7 @@ func (c *Converter) ConvertTools(tools []core.ToolDefinition) ([]openai.ChatComp
 				Name:        tool.Name,
 				Strict:      param.NewOpt(true),
 				Description: param.NewOpt(desc),
-				Parameters:  openai.FunctionParameters(tool.JsonSchema),
+				Parameters:  openai.FunctionParameters(tool.JSONSchema),
 			},
 		))
 	}
@@ -342,7 +343,7 @@ func (c *Converter) ParseStreamChunk(ctx context.Context, parentID string, raw o
 		}
 	}
 	if raw.Choices[0].FinishReason != "" {
-		msg.FinishReason = string(raw.Choices[0].FinishReason)
+		msg.FinishReason = raw.Choices[0].FinishReason
 	}
 
 	ch := raw.Choices[0]

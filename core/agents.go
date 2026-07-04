@@ -1,24 +1,33 @@
 package core
 
-import "context"
+import (
+	"context"
 
-// AgentEventHooks holds callbacks for agent-level events.
-// ModelEventHandler is embedded for model response callbacks.
+	"github.com/B777B2056-2/kugelblitz/constants"
+)
+
+// AgentEventHooks holds callbacks for agent-level events. Every callback
+// receives an AgentIdentity as the first argument so consumers can distinguish
+// which agent produced the event.
 type AgentEventHooks struct {
-	ModelEventHandler
-	OnToolCallEnd        func(toolCallResult ToolCallResult)
-	OnWaitForHumanAction func(reason string, prompt string)
-	OnPlanRollback       func(planID string, targetVersion int, planName string)
-	OnTaskUpdated        func(taskID string, goal string, status string, output string)
-	OnBeforeCompress     func()              // fired before SM compresses session memory; AgentLoop extracts LTM
-	OnLLMUsage           func(LLMUsageReport) // fired for worker task LLM usage
-}
+	// ── Model event callbacks (receive AgentIdentity) ──
 
-// LLMUsageReport is sent to the Planner's usage callback for every LLM call
-// made during execution, regardless of source (main loop, compressor, reviewer, worker).
-type LLMUsageReport struct {
-	Identity string // "planner.step-1", "compressor", "reviewer", "worker.<taskID>"
-	Usage    Usage
+	OnThinkingChunk func(identity constants.AgentIdentity, chunk string)
+	OnReplyChunk    func(identity constants.AgentIdentity, chunk string)
+	OnBlockThinking func(identity constants.AgentIdentity, reasoning string)
+	OnBlockReply    func(identity constants.AgentIdentity, text string)
+	OnFunctionCall  func(identity constants.AgentIdentity, detail ToolCallDetail)
+	OnModelFinished func(identity constants.AgentIdentity, reason string)
+	OnError         func(identity constants.AgentIdentity, err error)
+	OnUsageUpdated  func(identity constants.AgentIdentity, usage Usage)
+
+	// ── Agent-level hooks (receive AgentIdentity) ──
+
+	OnToolCallEnd        func(identity constants.AgentIdentity, result ToolCallResult)
+	OnWaitForHumanAction func(identity constants.AgentIdentity, reason string, prompt string)
+	OnPlanRollback       func(identity constants.AgentIdentity, planID string, targetVersion int, planName string)
+	OnTaskUpdated        func(identity constants.AgentIdentity, taskID string, goal string, status string, output string)
+	OnBeforeCompress     func(identity constants.AgentIdentity)
 }
 
 // IAgent is the interface all agents must implement.

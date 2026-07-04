@@ -29,6 +29,7 @@ type ReactAgent struct {
 	toolRegistry    *core.ToolRegistry
 	StreamMode      bool
 	EventHooks      core.AgentEventHooks
+	agentIdentity   constants.AgentIdentity
 	abortSignal     chan struct{}
 	EnableThinking  *bool
 	ReasoningEffort string
@@ -60,6 +61,14 @@ func (a *ReactAgent) WithTools(names ...string) *ReactAgent {
 		a.toolNames = append(a.toolNames, names...)
 	}
 	return a
+}
+
+func (a *ReactAgent) SetAgentIdentity(agentIdentity constants.AgentIdentity) {
+	a.agentIdentity = agentIdentity
+}
+
+func (a *ReactAgent) GetAgentIdentity() constants.AgentIdentity {
+	return a.agentIdentity
 }
 
 func (a *ReactAgent) RegisterEventHooks(hooks core.AgentEventHooks) {
@@ -107,7 +116,7 @@ func (a *ReactAgent) ExecuteWithTools(ctx context.Context, systemMessage core.Me
 			Messages:        inputMessages,
 			Tools:           a.visibleTools(),
 			Stream:          a.StreamMode,
-			EventHandler:    a.EventHooks.ModelEventHandler,
+			EventHandler:    a.modelEventHandler(),
 			EnableThinking:  a.EnableThinking,
 			ReasoningEffort: a.ReasoningEffort,
 		}
@@ -117,6 +126,15 @@ func (a *ReactAgent) ExecuteWithTools(ctx context.Context, systemMessage core.Me
 			return assistantMessages, err
 		}
 		assistantMessages = append(assistantMessages, *assistantMessage)
+
+		// Ensure OnUsageUpdated fires for every LLM call. Streaming
+		// providers dispatch per-chunk; Block() does not. Always fire
+		// from the final message to cover both paths.
+		if assistantMessage.Usage != nil {
+			if eh := a.modelEventHandler(); eh != nil {
+				eh.OnUsageUpdated(*assistantMessage.Usage)
+			}
+		}
 
 		details := extractToolCalls(assistantMessage.Content)
 		if len(details) == 0 {
@@ -198,7 +216,7 @@ func (a *ReactAgent) executeTools(ctx context.Context, details []core.ToolCallDe
 		result := a.callTool(ctx, detail)
 		results[i] = result
 		if a.EventHooks.OnToolCallEnd != nil {
-			a.EventHooks.OnToolCallEnd(result)
+			a.EventHooks.OnToolCallEnd(a.agentIdentity, result)
 		}
 	}
 	return results
@@ -286,7 +304,7 @@ func (a *ReactAgent) WaitForHuman(ctx context.Context, reason, prompt string) (s
 		return "", fmt.Errorf("human-in-the-loop not enabled")
 	}
 	if a.EventHooks.OnWaitForHumanAction != nil {
-		a.EventHooks.OnWaitForHumanAction(reason, prompt)
+		a.EventHooks.OnWaitForHumanAction(a.agentIdentity, reason, prompt)
 	}
 	a.humanLoop.isWaiting.Store(true)
 	defer a.humanLoop.isWaiting.Store(false)
@@ -324,10 +342,21 @@ func (a *ReactAgent) HumanLoopWaiting() bool {
 }
 
 // callTool resolves a tool call: local tools first, then the global registry.
+//
+// Before executing, it checks the shared DAG pause gate (sync.RWMutex).
+// When another worker enters HITL, the DAG executor write-locks this mutex
+// (PauseMu.Lock). RLock blocks until the write-lock is released, so every
+// tool call becomes a synchronization checkpoint:
+//
+//	Normal:  write-lock NOT held → RLock passes instantly → RUnlock → proceed
+//	Paused:  write-lock IS held  → RLock blocks until Resume() → proceed
+//
+// We don't need to hold the read lock during tool execution — a single
+// RLock/RUnlock round-trip is enough to detect whether the DAG is paused.
 func (a *ReactAgent) callTool(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
 	if a.pauseGate != nil {
 		a.pauseGate.RLock()
-		a.pauseGate.RUnlock()
+		a.pauseGate.RUnlock() //nolint:staticcheck // DAG pause checkpoint, see doc above
 	}
 	if a.humanLoop != nil {
 		if fn, ok := a.humanLoop.localTools[detail.ToolName]; ok {
@@ -335,4 +364,10 @@ func (a *ReactAgent) callTool(ctx context.Context, detail core.ToolCallDetail) c
 		}
 	}
 	return a.toolRegistry.Call(ctx, detail)
+}
+
+// modelEventHandler returns a ModelEventHandler for the provider by creating
+// a bridge from the AgentEventHooks callback fields.
+func (a *ReactAgent) modelEventHandler() core.ModelEventHandler {
+	return core.NewAgentEventBridge(&a.EventHooks, a.agentIdentity)
 }

@@ -10,9 +10,9 @@ import (
 )
 
 func writeFiles(ws *Workspace, files map[string]string) {
-	ws.MkdirAll()
+	_ = ws.MkdirAll()
 	for name, content := range files {
-		os.WriteFile(filepath.Join(ws.Dir(), name), []byte(content), 0644)
+		_ = os.WriteFile(filepath.Join(ws.Dir(), name), []byte(content), 0644)
 	}
 }
 

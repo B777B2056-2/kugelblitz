@@ -7,16 +7,16 @@ import (
 	"time"
 
 	"github.com/B777B2056-2/kugelblitz/core"
-	"github.com/B777B2056-2/kugelblitz/utils"
+	"github.com/google/uuid"
 )
 
 // Session represents an ACP conversation session.
 type Session struct {
-	ID        string        `json:"id"`
-	Cwd       string        `json:"cwd"`
+	ID        string         `json:"id"`
+	Cwd       string         `json:"cwd"`
 	Messages  []core.Message `json:"messages"`
-	CreatedAt time.Time     `json:"created_at"`
-	Agent     core.IAgent   `json:"-"`
+	CreatedAt time.Time      `json:"created_at"`
+	Agent     core.IAgent    `json:"-"`
 	cancelFn  context.CancelFunc
 }
 
@@ -37,7 +37,7 @@ func NewSessionManager() *SessionManager {
 // Create creates a new session with the given cwd and agent.
 func (sm *SessionManager) Create(cwd string, agent core.IAgent) *Session {
 	session := &Session{
-		ID:        utils.GenerateSessionID(),
+		ID:        uuid.New().String(),
 		Cwd:       cwd,
 		CreatedAt: time.Now(),
 		Agent:     agent,

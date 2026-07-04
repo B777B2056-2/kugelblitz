@@ -50,7 +50,7 @@ func (t *MemoryStore) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "memory_store",
 		Description: "Store a fact in long-term memory (MEMORY.md).",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"section": map[string]any{
@@ -123,7 +123,7 @@ func (t *MemorySearch) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "memory_search",
 		Description: "Search long-term memory. Uses ChromaDB for semantic search; falls back to keyword search on MEMORY.md.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"query": map[string]any{
@@ -223,7 +223,7 @@ func (t *MemoryGetSection) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "memory_get_section",
 		Description: "Get all items in a memory section.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"section": map[string]any{
@@ -268,7 +268,7 @@ func (t *MemoryRemove) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "memory_remove",
 		Description: "Permanently delete a fact from long-term memory.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"section": map[string]any{"type": "string", "description": "Section containing the fact to delete."},
@@ -308,7 +308,7 @@ func (t *MemoryListSections) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "memory_list_sections",
 		Description: "List all memory sections with fact counts.",
-		JsonSchema:  map[string]any{"type": "object", "properties": map[string]any{}},
+		JSONSchema:  map[string]any{"type": "object", "properties": map[string]any{}},
 		OutputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -341,7 +341,7 @@ func (t *MemoryStats) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "memory_stats",
 		Description: "Get aggregate statistics about long-term memory.",
-		JsonSchema:  map[string]any{"type": "object", "properties": map[string]any{}},
+		JSONSchema:  map[string]any{"type": "object", "properties": map[string]any{}},
 		OutputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -374,7 +374,7 @@ func (t *MemoryExtract) Definition() core.ToolDefinition {
 		Name: "memory_extract",
 		Description: "Extract and store long-term memories from the current session. " +
 			"All memories are stored in MEMORY.md; ChromaDB index is rebuilt automatically.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"focus": map[string]any{"type": "string", "description": "Optional extraction focus hint."},

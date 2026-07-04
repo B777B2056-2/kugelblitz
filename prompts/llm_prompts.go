@@ -113,8 +113,3 @@ func truncateStr(s string, maxLen int) string {
 	}
 	return s[:maxLen] + "..."
 }
-
-func truncateMap(m map[string]any, maxLen int) string {
-	s := fmt.Sprintf("%v", m)
-	return truncateStr(s, maxLen)
-}

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 
 	"github.com/stretchr/testify/assert"
@@ -219,7 +220,14 @@ func TestReactAgent_Execute_BlockMode_CallsEventHandler(t *testing.T) {
 	handler := &testEventHandler{}
 	agent := NewReactAgent(provider, false)
 	agent.RegisterEventHooks(core.AgentEventHooks{
-		ModelEventHandler: handler,
+		OnReplyChunk:    func(id constants.AgentIdentity, chunk string) { handler.OnReplyChunk(chunk) },
+		OnThinkingChunk: func(id constants.AgentIdentity, chunk string) { handler.OnThinkingChunk(chunk) },
+		OnBlockReply:    func(id constants.AgentIdentity, text string) { handler.OnBlockReply(text) },
+		OnBlockThinking: func(id constants.AgentIdentity, reasoning string) { handler.OnBlockThinking(reasoning) },
+		OnFunctionCall:  func(id constants.AgentIdentity, detail core.ToolCallDetail) { handler.OnFunctionCall(detail) },
+		OnModelFinished: func(id constants.AgentIdentity, reason string) { handler.OnFinished(reason) },
+		OnUsageUpdated:  func(id constants.AgentIdentity, usage core.Usage) { handler.OnUsageUpdated(usage) },
+		OnError:         func(id constants.AgentIdentity, err error) { handler.OnError(err) },
 	})
 
 	messages, err := agent.Execute(
@@ -253,7 +261,14 @@ func TestReactAgent_Execute_StreamMode_CallsEventHandler(t *testing.T) {
 	handler := &testEventHandler{}
 	agent := NewReactAgent(provider, true)
 	agent.RegisterEventHooks(core.AgentEventHooks{
-		ModelEventHandler: handler,
+		OnReplyChunk:    func(id constants.AgentIdentity, chunk string) { handler.OnReplyChunk(chunk) },
+		OnThinkingChunk: func(id constants.AgentIdentity, chunk string) { handler.OnThinkingChunk(chunk) },
+		OnBlockReply:    func(id constants.AgentIdentity, text string) { handler.OnBlockReply(text) },
+		OnBlockThinking: func(id constants.AgentIdentity, reasoning string) { handler.OnBlockThinking(reasoning) },
+		OnFunctionCall:  func(id constants.AgentIdentity, detail core.ToolCallDetail) { handler.OnFunctionCall(detail) },
+		OnModelFinished: func(id constants.AgentIdentity, reason string) { handler.OnFinished(reason) },
+		OnUsageUpdated:  func(id constants.AgentIdentity, usage core.Usage) { handler.OnUsageUpdated(usage) },
+		OnError:         func(id constants.AgentIdentity, err error) { handler.OnError(err) },
 	})
 
 	messages, err := agent.Execute(
@@ -271,7 +286,7 @@ func TestReactAgent_Execute_StreamMode_CallsEventHandler(t *testing.T) {
 func TestReactAgent_RegisterEventHooks_StoresCorrectly(t *testing.T) {
 	agent := NewReactAgent(nil, false)
 	hooks := core.AgentEventHooks{
-		OnToolCallEnd: func(result core.ToolCallResult) {},
+		OnToolCallEnd: func(id constants.AgentIdentity, result core.ToolCallResult) {},
 	}
 	agent.RegisterEventHooks(hooks)
 	assert.NotNil(t, agent.EventHooks.OnToolCallEnd)
@@ -387,6 +402,10 @@ func (h *testEventHandler) OnThinkingChunk(chunk string) {
 	h.thinkingChunks = append(h.thinkingChunks, chunk)
 }
 func (h *testEventHandler) OnReplyChunk(chunk string) { h.replyChunks = append(h.replyChunks, chunk) }
+func (h *testEventHandler) OnBlockThinking(reasoning string) {
+	h.thinkingChunks = append(h.thinkingChunks, reasoning)
+}
+func (h *testEventHandler) OnBlockReply(text string) { h.replyChunks = append(h.replyChunks, text) }
 func (h *testEventHandler) OnFunctionCall(detail core.ToolCallDetail) {
 	h.toolCalls = append(h.toolCalls, detail)
 }
@@ -459,7 +478,7 @@ func TestWaitForHuman_FiresCallback(t *testing.T) {
 	cbWg.Add(1)
 
 	agent.RegisterEventHooks(core.AgentEventHooks{
-		OnWaitForHumanAction: func(reason, prompt string) {
+		OnWaitForHumanAction: func(id constants.AgentIdentity, reason, prompt string) {
 			cbReason = reason
 			cbPrompt = prompt
 			cbWg.Done()
@@ -470,7 +489,7 @@ func TestWaitForHuman_FiresCallback(t *testing.T) {
 	defer cancel()
 
 	go func() {
-		agent.WaitForHuman(ctx, "need_approval", "proceed?")
+		_, _ = agent.WaitForHuman(ctx, "need_approval", "proceed?")
 	}()
 
 	cbWg.Wait()
@@ -561,7 +580,7 @@ func TestWaitForHuman_OnWaitForHumanActionCanBeNil(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		agent.WaitForHuman(ctx, "r", "p")
+		_, _ = agent.WaitForHuman(ctx, "r", "p")
 	}()
 
 	time.Sleep(50 * time.Millisecond)
@@ -613,7 +632,7 @@ func TestReactAgent_Execute_MultipleSequentialAskHuman(t *testing.T) {
 	var waitReasons []string
 	var waitPrompts []string
 	agent.RegisterEventHooks(core.AgentEventHooks{
-		OnWaitForHumanAction: func(reason, prompt string) {
+		OnWaitForHumanAction: func(id constants.AgentIdentity, reason, prompt string) {
 			waitReasons = append(waitReasons, reason)
 			waitPrompts = append(waitPrompts, prompt)
 		},
@@ -692,7 +711,7 @@ func TestReactAgent_OnToolCallEndFiresForAskHuman(t *testing.T) {
 
 	var toolCallEndResults []core.ToolCallResult
 	agent.RegisterEventHooks(core.AgentEventHooks{
-		OnToolCallEnd: func(r core.ToolCallResult) {
+		OnToolCallEnd: func(id constants.AgentIdentity, r core.ToolCallResult) {
 			toolCallEndResults = append(toolCallEndResults, r)
 		},
 	})
@@ -704,7 +723,7 @@ func TestReactAgent_OnToolCallEndFiresForAskHuman(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		agent.Execute(ctx,
+		_, _ = agent.Execute(ctx,
 			core.NewUserMessage(core.TextContent{Text: "system"}),
 			[]core.Message{core.NewUserMessage(core.TextContent{Text: "check"})},
 		)
@@ -718,7 +737,7 @@ func TestReactAgent_OnToolCallEndFiresForAskHuman(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	agent.ResumeWithHumanResponse(ctx, "approved")
+	_ = agent.ResumeWithHumanResponse(ctx, "approved")
 
 	wg.Wait()
 
@@ -789,7 +808,7 @@ func TestReactAgent_ParallelToolsWithAskHuman(t *testing.T) {
 	}
 	require.True(t, agent.humanLoop.isWaiting.Load(), "ask_human should be blocking")
 
-	agent.ResumeWithHumanResponse(ctx, "yes")
+	_ = agent.ResumeWithHumanResponse(ctx, "yes")
 
 	wg.Wait()
 	require.Len(t, messages, 3)
@@ -815,7 +834,7 @@ func TestHumanLoopWaiting_ReturnsTrueWhileWaiting(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		agent.WaitForHuman(ctx, "r", "p")
+		_, _ = agent.WaitForHuman(ctx, "r", "p")
 	}()
 
 	time.Sleep(50 * time.Millisecond)
@@ -873,7 +892,7 @@ func TestReactAgent_Execute_WithAskHumanIntegration(t *testing.T) {
 
 	var onWaitCalled bool
 	agent.RegisterEventHooks(core.AgentEventHooks{
-		OnWaitForHumanAction: func(reason, prompt string) {
+		OnWaitForHumanAction: func(id constants.AgentIdentity, reason, prompt string) {
 			onWaitCalled = true
 		},
 	})

@@ -45,9 +45,9 @@ func (m *Machine) registerStates() {
 // Run executes the state machine main loop.
 func (m *Machine) Run(ctx context.Context, goal string) ([]core.Message, error) {
 	fsmCtx := &Context{
-		Ctx:   ctx,
-		Goal:  goal,
-		Deps:  m.deps,
+		Ctx:  ctx,
+		Goal: goal,
+		Deps: m.deps,
 	}
 	// Wire up drift handling
 	fsmCtx.Deps.HandleDrift = func(c *Context, reason string) {
@@ -148,9 +148,16 @@ func (m *Machine) handleDrift(ctx *Context, reason string) {
 	plan.CurrentActivateSubTaskIDs = cp.Plan.CurrentActivateSubTaskIDs
 	plan.State = constants.PlanStateUpdating
 	plan.FinishedReson = fmt.Sprintf("drift: %s", reason)
-	plan.Persist()
+	_ = plan.Persist()
 
 	ctx.Deps.Session.AppendMessage(core.NewSystemMessage(core.TextContent{
 		Text: fmt.Sprintf("⚠️ 自动审查检测到执行可能偏离目标（%s），计划已回滚至版本 %d。请根据当前任务进度和目标偏差，调整任务计划，完成后系统将进入确认阶段。", reason, targetVersion),
 	}))
+
+	if ctx.Deps.React.EventHooks.OnPlanRollback != nil {
+		ctx.Deps.React.EventHooks.OnPlanRollback(
+			ctx.Deps.React.GetAgentIdentity(),
+			plan.ID, targetVersion, plan.Name,
+		)
+	}
 }

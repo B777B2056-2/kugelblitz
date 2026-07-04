@@ -90,7 +90,7 @@ func (ltm *LongTermMemory) Store(section, key, value string) (winner MemoryItem,
 
 	if curIdx < 0 {
 		ltm.items = append(ltm.items, newFact)
-		ltm.write()
+		_ = ltm.write()
 		return newFact, nil, nil
 	}
 
@@ -108,14 +108,14 @@ func (ltm *LongTermMemory) Store(section, key, value string) (winner MemoryItem,
 		existing.UpdatedAt = now
 		existing.Version++
 		ltm.items[curIdx] = existing
-		ltm.write()
+		_ = ltm.write()
 		return existing, nil, nil
 
 	case newFact.Confidence > decayed.Confidence:
 		newFact.Version = existing.Version + 1
 		conflictCopy := ltm.items[curIdx]
 		ltm.items[curIdx] = newFact
-		ltm.write()
+		_ = ltm.write()
 		return newFact, &conflictCopy, nil
 
 	default:
@@ -175,7 +175,7 @@ func (ltm *LongTermMemory) Remove(section, key string) error {
 	for i, f := range ltm.items {
 		if ltm.normalize(f.Section) == section && f.Key == key {
 			ltm.items = append(ltm.items[:i], ltm.items[i+1:]...)
-			ltm.write()
+			_ = ltm.write()
 			return nil
 		}
 	}
@@ -356,4 +356,3 @@ func (ltm *LongTermMemory) isSemanticMatch(a, b string) bool {
 func (ltm *LongTermMemory) normalize(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }
-

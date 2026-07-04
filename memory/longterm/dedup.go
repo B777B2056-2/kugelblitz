@@ -5,7 +5,7 @@ import "strings"
 // DedupResult is the output of fact deduplication.
 type DedupResult struct {
 	Accepted []MemoryItem // All after dedup (ready to store)
-	Rejected int    // All dropped (near-duplicates)
+	Rejected int          // All dropped (near-duplicates)
 }
 
 // Deduplicator performs semantic dedup on extracted items against

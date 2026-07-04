@@ -13,9 +13,9 @@ import (
 // Context holds the per-run mutable state shared across all states during
 // a single Machine.Run invocation.
 type Context struct {
-	Ctx      context.Context
-	Goal     string
-	Results  []core.Message
+	Ctx     context.Context
+	Goal    string
+	Results []core.Message
 
 	Plan     *working.Plan
 	PlanID   string

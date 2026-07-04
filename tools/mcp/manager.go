@@ -8,12 +8,14 @@ import (
 	"os/exec"
 	"sync"
 
+	"github.com/B777B2056-2/kugelblitz/config"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // ToolPrefix is prepended to MCP tool names to avoid conflicts with built-in tools.
-const ToolPrefix = "mcp:"
+// Must use characters allowed by LLM APIs (DeepSeek requires ^[a-zA-Z0-9_-]+$).
+const ToolPrefix = "mcp_"
 
 // entry holds a connected MCP session and its client.
 type entry struct {
@@ -23,20 +25,25 @@ type entry struct {
 
 // Manager connects to MCP servers, discovers their tools, and registers them
 // in the global ToolRegistry. Each server's tools are prefixed to avoid
-// collisions: "mcp:<server>_<tool>".
+// collisions: "mcp_<server>_<tool>".
 type Manager struct {
-	config   *Config
+	servers  map[string]config.MCPServerConfig
 	sessions map[string]entry
 	mu       sync.Mutex
 }
 
-// NewManager creates a Manager from the given Config.
-func NewManager(cfg *Config) (*Manager, error) {
-	if err := cfg.Validate(); err != nil {
-		return nil, err
+// NewManager creates a Manager from a server config map.
+func NewManager(servers map[string]config.MCPServerConfig) (*Manager, error) {
+	if len(servers) == 0 {
+		return nil, fmt.Errorf("mcp: no servers configured")
+	}
+	for name, srv := range servers {
+		if srv.Command == "" {
+			return nil, fmt.Errorf("mcp: server %q has no command", name)
+		}
 	}
 	return &Manager{
-		config:   cfg,
+		servers:  servers,
 		sessions: make(map[string]entry),
 	}, nil
 }
@@ -44,7 +51,7 @@ func NewManager(cfg *Config) (*Manager, error) {
 // ConnectAll connects to all configured MCP servers, discovers their tools,
 // and registers them in the global ToolRegistry.
 func (m *Manager) ConnectAll(ctx context.Context) error {
-	for name, srvCfg := range m.config.MCPServers {
+	for name, srvCfg := range m.servers {
 		if err := m.connectServer(ctx, name, srvCfg); err != nil {
 			return fmt.Errorf("mcp: server %q: %w", name, err)
 		}
@@ -53,7 +60,7 @@ func (m *Manager) ConnectAll(ctx context.Context) error {
 }
 
 // connectServer connects to a single MCP server via subprocess and registers its tools.
-func (m *Manager) connectServer(ctx context.Context, name string, cfg ServerConfig) error {
+func (m *Manager) connectServer(ctx context.Context, name string, cfg config.MCPServerConfig) error {
 	core.Info("MCP: connecting", "server", name, "command", cfg.Command)
 
 	cmd := exec.Command(cfg.Command, cfg.Args...)
@@ -73,7 +80,7 @@ func (m *Manager) connectServer(ctx context.Context, name string, cfg ServerConf
 	}
 
 	if err := m.discoverAndRegister(ctx, name, session); err != nil {
-		session.Close()
+		_ = session.Close()
 		return err
 	}
 
@@ -125,7 +132,7 @@ func (m *Manager) Shutdown(_ context.Context) error {
 	return nil
 }
 
-// mcpToolName builds the prefixed tool name: "mcp:<server>_<tool>"
+// mcpToolName builds the prefixed tool name: "mcp_<server>_<tool>"
 func mcpToolName(server, tool string) string {
 	return ToolPrefix + server + "_" + tool
 }
@@ -156,7 +163,7 @@ func convertToolDef(regName string, tool *mcp.Tool, serverName string) core.Tool
 	return core.ToolDefinition{
 		Name:        regName,
 		Description: desc,
-		JsonSchema:  schema,
+		JSONSchema:  schema,
 	}
 }
 

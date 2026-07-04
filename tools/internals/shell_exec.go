@@ -21,7 +21,7 @@ func (t *ShellExec) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "shell_exec",
 		Description: "Execute a shell command and return the output. Supports optional cwd and timeout (seconds, default 30). Max output: 4000 chars each for stdout/stderr.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"command": map[string]any{

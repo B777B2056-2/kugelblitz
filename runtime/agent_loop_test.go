@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/config"
+	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
@@ -199,7 +200,7 @@ func TestOnToolResult_TracksConsecutiveFails(t *testing.T) {
 		return true
 	})
 
-	agent.Execute(context.Background(),
+	_, _ = agent.Execute(context.Background(),
 		core.NewUserMessage(core.TextContent{Text: "sys"}),
 		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})})
 }
@@ -270,7 +271,7 @@ func TestPlanner_LLMUsageCallback_NilSafe(t *testing.T) {
 func TestPlanner_LLMUsageCallback_FiresWithIdentity(t *testing.T) {
 	core.GetToolRegistry().Reset()
 
-	var reports []core.LLMUsageReport
+	var reports []core.Usage
 	callCount := 0
 	provider := &MockProvider{
 		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
@@ -280,6 +281,9 @@ func TestPlanner_LLMUsageCallback_FiresWithIdentity(t *testing.T) {
 					Details: []core.ToolCallDetail{{ID: "t1", ToolName: "test_tool"}},
 				})
 				msg.Usage = &core.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15}
+				if params.EventHandler != nil {
+					params.EventHandler.OnUsageUpdated(*msg.Usage)
+				}
 				return &msg, nil
 			}
 			msg := core.NewAssistantMessage(core.TextContent{Text: "final"})
@@ -294,14 +298,14 @@ func TestPlanner_LLMUsageCallback_FiresWithIdentity(t *testing.T) {
 
 	planner := NewAgentLoop(testCfg(provider))
 	planner.RegisterEventHooks(core.AgentEventHooks{
-		OnLLMUsage: func(report core.LLMUsageReport) {
-			reports = append(reports, report)
+		OnUsageUpdated: func(id constants.AgentIdentity, usage core.Usage) {
+			reports = append(reports, usage)
 		},
 	})
 	_, err := planner.execute(context.Background(), "test")
 	require.NoError(t, err)
 
-	_ = reports
+	assert.NotEmpty(t, reports)
 }
 
 func TestPlanner_LLMUsageCallback_NoCallback_NoPanic(t *testing.T) {

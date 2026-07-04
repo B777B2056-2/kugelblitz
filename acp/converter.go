@@ -3,7 +3,7 @@ package acp
 import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
-	"github.com/B777B2056-2/kugelblitz/utils"
+	"github.com/google/uuid"
 )
 
 // ContentBlocksToMessages converts ACP content blocks into Kugelblitz core.Messages.
@@ -20,7 +20,7 @@ func ContentBlocksToMessages(blocks []ContentBlock) ([]core.Message, error) {
 			continue
 		}
 		msgs = append(msgs, core.Message{
-			ID:      utils.GenerateMessageID(),
+			ID:      uuid.New().String(),
 			Role:    constants.RoleUser,
 			Content: content,
 		})

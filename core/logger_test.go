@@ -89,7 +89,7 @@ func TestSlogLogger_Levels(t *testing.T) {
 type captureLogger struct {
 	lastMsg  string
 	lastArgs []any
-	count     int
+	count    int
 }
 
 func (c *captureLogger) Debug(msg string, args ...any) { c.lastMsg = msg; c.lastArgs = args; c.count++ }

@@ -17,12 +17,22 @@ type testEventHandler struct {
 	errors         []error
 }
 
-func (h *testEventHandler) OnThinkingChunk(chunk string)           { h.thinkingChunks = append(h.thinkingChunks, chunk) }
-func (h *testEventHandler) OnReplyChunk(chunk string)              { h.replyChunks = append(h.replyChunks, chunk) }
-func (h *testEventHandler) OnFunctionCall(detail ToolCallDetail)   { h.toolCalls = append(h.toolCalls, detail) }
-func (h *testEventHandler) OnFinished(reason string)               { h.finishReasons = append(h.finishReasons, reason) }
-func (h *testEventHandler) OnUsageUpdated(usage Usage)             { h.usages = append(h.usages, usage) }
-func (h *testEventHandler) OnError(err error)                      { h.errors = append(h.errors, err) }
+func (h *testEventHandler) OnThinkingChunk(chunk string) {
+	h.thinkingChunks = append(h.thinkingChunks, chunk)
+}
+func (h *testEventHandler) OnReplyChunk(chunk string) { h.replyChunks = append(h.replyChunks, chunk) }
+func (h *testEventHandler) OnBlockThinking(reasoning string) {
+	h.thinkingChunks = append(h.thinkingChunks, reasoning)
+}
+func (h *testEventHandler) OnBlockReply(text string) { h.replyChunks = append(h.replyChunks, text) }
+func (h *testEventHandler) OnFunctionCall(detail ToolCallDetail) {
+	h.toolCalls = append(h.toolCalls, detail)
+}
+func (h *testEventHandler) OnFinished(reason string) {
+	h.finishReasons = append(h.finishReasons, reason)
+}
+func (h *testEventHandler) OnUsageUpdated(usage Usage) { h.usages = append(h.usages, usage) }
+func (h *testEventHandler) OnError(err error)          { h.errors = append(h.errors, err) }
 
 var _ ModelEventHandler = (*testEventHandler)(nil)
 

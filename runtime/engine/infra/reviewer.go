@@ -3,6 +3,7 @@ package infra
 import (
 	"context"
 
+	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/prompts"
 )
@@ -10,6 +11,7 @@ import (
 // Reviewer checks for goal drift using a dedicated tool call.
 type Reviewer struct {
 	Provider core.ILMProvider
+	Hooks    core.AgentEventHooks
 }
 
 type ReviewResult struct {
@@ -22,6 +24,9 @@ type ReviewResult struct {
 func NewReviewer(provider core.ILMProvider) *Reviewer {
 	return &Reviewer{Provider: provider}
 }
+
+// SetHooks sets the event hooks for the reviewer.
+func (r *Reviewer) SetHooks(hooks core.AgentEventHooks) { r.Hooks = hooks }
 
 // Review does a single Generate call with a reviewer_report tool to get
 // structured drift assessment via function calling.
@@ -36,7 +41,7 @@ func (r *Reviewer) Review(ctx context.Context, originalGoal, planSummary, recent
 		Tools: []core.ToolDefinition{{
 			Name:        "reviewer_report",
 			Description: "Report your goal-alignment assessment.",
-			JsonSchema: map[string]any{
+			JSONSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"drift":      map[string]any{"type": "boolean", "description": "true if execution has drifted from the original goal"},
@@ -46,7 +51,8 @@ func (r *Reviewer) Review(ctx context.Context, originalGoal, planSummary, recent
 				"required": []string{"drift", "reason"},
 			},
 		}},
-		Stream: false,
+		Stream:       false,
+		EventHandler: core.NewAgentEventBridge(&r.Hooks, constants.AgentReviewer),
 	}
 
 	result, err := r.Provider.Generate(ctx, params)

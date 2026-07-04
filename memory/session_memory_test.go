@@ -72,7 +72,6 @@ func TestSessionMemory_Compress_NoopWhenOldTooFew(t *testing.T) {
 	assert.Len(t, mem.GetHistoryMessages(), 12) // unchanged
 }
 
-
 func TestManager_ReloadAfterRestart(t *testing.T) {
 	oldPM := persist.GetManager()
 	persist.SetManager(persist.NewFileManager(t.TempDir()))
@@ -81,10 +80,10 @@ func TestManager_ReloadAfterRestart(t *testing.T) {
 	// Simulate: create session, add messages, persist, then "restart"
 	mgr := GetSessionMemoryManager()
 	id := utils.GenerateSessionID()
-		mem := mgr.CreateSessionMemory(id)
+	mem := mgr.CreateSessionMemory(id)
 	mem.AppendMessage(core.NewUserMessage(core.TextContent{Text: "persisted msg"}))
 	mem.summary = "pre-restart context"
-	mem.Persist()
+	_ = mem.Persist()
 
 	// "Restart": clear the in-memory map
 	mgr.SessionMemoryMap = sync.Map{}
@@ -103,7 +102,7 @@ func TestManager_ReloadAfterRestart(t *testing.T) {
 func TestManager_CreateAndGet(t *testing.T) {
 	mgr := GetSessionMemoryManager()
 	id := utils.GenerateSessionID()
-		mem := mgr.CreateSessionMemory(id)
+	_ = mgr.CreateSessionMemory(id)
 	assert.NotEmpty(t, id)
 
 	mem, ok := mgr.GetSessionMemory(id)
@@ -214,7 +213,7 @@ func TestPersist_ThenDeleteFile(t *testing.T) {
 	require.NoError(t, mem.Persist())
 
 	// Remove the persisted data
-	persist.DeleteSession("tmp-session")
+	_ = persist.DeleteSession("tmp-session")
 
 	loaded, err := LoadSessionMemory("tmp-session")
 	assert.NoError(t, err)

@@ -3,6 +3,7 @@ package persist
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 
 	"github.com/B777B2056-2/kugelblitz/core"
@@ -28,12 +29,17 @@ func LoadSessionJSONL(sessionID string) (summary string, messages []core.Message
 	mgr := GetManager()
 	events, err := mgr.JSONL().ReadAll(filepath.Join("memory", "sessions", sessionID+".jsonl"))
 	if err != nil {
-		return "", nil, nil
+		if os.IsNotExist(err) {
+			return "", nil, nil
+		}
+		return "", nil, err
 	}
 	for _, evt := range events {
 		switch evt.Type {
 		case "summary":
-			var s struct{ Summary string `json:"summary"` }
+			var s struct {
+				Summary string `json:"summary"`
+			}
 			if err := json.Unmarshal(evt.Payload, &s); err == nil {
 				summary = s.Summary
 			}

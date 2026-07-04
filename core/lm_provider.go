@@ -3,14 +3,25 @@ package core
 import "context"
 
 // ModelEventHandler receives model response events during both streaming and
-// non-streaming generation. OnThinkingChunk and OnReplyChunk are only called
-// in streaming mode; all other methods are called in both modes.
+// non-streaming generation.
 //
-// Implementations may provide only the methods they care about;
-// nil interface checks are done by the provider before calling.
+// Streaming mode (Stream=true):
+//
+//	OnThinkingChunk / OnReplyChunk — called per chunk as the model responds.
+//
+// Non-streaming mode (Stream=false):
+//
+//	OnBlockThinking / OnBlockReply — called once with the complete text after
+//	the response is fully received.
+//
+// OnFunctionCall, OnFinished, OnUsageUpdated, OnError are called in both modes.
+//
+// Nil interface checks are done by the provider before calling.
 type ModelEventHandler interface {
 	OnThinkingChunk(chunk string)
 	OnReplyChunk(chunk string)
+	OnBlockThinking(reasoning string)
+	OnBlockReply(text string)
 	OnFunctionCall(toolCallDetail ToolCallDetail)
 	OnFinished(finishReason string)
 	OnUsageUpdated(usage Usage)
@@ -31,10 +42,10 @@ const (
 
 // GenerateParams bundles all inputs for a single provider call.
 type GenerateParams struct {
-	Messages      []Message
-	Tools         []ToolDefinition
-	Stream        bool
-	EventHandler  ModelEventHandler // event callbacks for both stream and block modes
+	Messages     []Message
+	Tools        []ToolDefinition
+	Stream       bool
+	EventHandler ModelEventHandler // event callbacks for both stream and block modes
 
 	// EnableThinking controls whether the model spends tokens on internal reasoning.
 	// nil = provider default; true = enabled; false = disabled.
@@ -70,22 +81,44 @@ type combinedHandler struct {
 }
 
 func (h *combinedHandler) OnThinkingChunk(chunk string) {
-	for _, d := range h.handlers { d.OnThinkingChunk(chunk) }
+	for _, d := range h.handlers {
+		d.OnThinkingChunk(chunk)
+	}
 }
 func (h *combinedHandler) OnReplyChunk(chunk string) {
-	for _, d := range h.handlers { d.OnReplyChunk(chunk) }
+	for _, d := range h.handlers {
+		d.OnReplyChunk(chunk)
+	}
+}
+func (h *combinedHandler) OnBlockThinking(reasoning string) {
+	for _, d := range h.handlers {
+		d.OnBlockThinking(reasoning)
+	}
+}
+func (h *combinedHandler) OnBlockReply(text string) {
+	for _, d := range h.handlers {
+		d.OnBlockReply(text)
+	}
 }
 func (h *combinedHandler) OnFunctionCall(detail ToolCallDetail) {
-	for _, d := range h.handlers { d.OnFunctionCall(detail) }
+	for _, d := range h.handlers {
+		d.OnFunctionCall(detail)
+	}
 }
 func (h *combinedHandler) OnFinished(reason string) {
-	for _, d := range h.handlers { d.OnFinished(reason) }
+	for _, d := range h.handlers {
+		d.OnFinished(reason)
+	}
 }
 func (h *combinedHandler) OnUsageUpdated(usage Usage) {
-	for _, d := range h.handlers { d.OnUsageUpdated(usage) }
+	for _, d := range h.handlers {
+		d.OnUsageUpdated(usage)
+	}
 }
 func (h *combinedHandler) OnError(err error) {
-	for _, d := range h.handlers { d.OnError(err) }
+	for _, d := range h.handlers {
+		d.OnError(err)
+	}
 }
 
 // ILMProvider is the interface all language model providers must implement.

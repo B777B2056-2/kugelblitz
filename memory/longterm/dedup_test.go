@@ -7,14 +7,14 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func newTestLTM_dedup(t *testing.T) *LongTermMemory {
+func newTestLTMDedup(t *testing.T) *LongTermMemory {
 	t.Helper()
 	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
 	return ltm
 }
 
 func TestDeduplicator_DedupFacts_NoDuplicate(t *testing.T) {
-	ltm := newTestLTM_dedup(t)
+	ltm := newTestLTMDedup(t)
 	dedup := NewDeduplicator(ltm)
 	items := []MemoryItem{
 		{Section: "prefs", Key: "lang", Value: "Go"},
@@ -26,8 +26,8 @@ func TestDeduplicator_DedupFacts_NoDuplicate(t *testing.T) {
 }
 
 func TestDeduplicator_DedupFacts_ExistingDuplicate(t *testing.T) {
-	ltm := newTestLTM_dedup(t)
-	ltm.Store("prefs", "lang", "Go")
+	ltm := newTestLTMDedup(t)
+	_, _, _ = ltm.Store("prefs", "lang", "Go")
 	dedup := NewDeduplicator(ltm)
 	result := dedup.DedupItems([]MemoryItem{{Section: "prefs", Key: "lang", Value: "Go"}})
 	assert.Empty(t, result.Accepted)
@@ -35,7 +35,7 @@ func TestDeduplicator_DedupFacts_ExistingDuplicate(t *testing.T) {
 }
 
 func TestDeduplicator_DedupFacts_BatchDuplicate(t *testing.T) {
-	ltm := newTestLTM_dedup(t)
+	ltm := newTestLTMDedup(t)
 	dedup := NewDeduplicator(ltm)
 	items := []MemoryItem{
 		{Section: "prefs", Key: "lang", Value: "Go"},

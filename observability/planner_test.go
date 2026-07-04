@@ -27,7 +27,7 @@ func newCaptureObserver(t *testing.T) *captureObserver {
 	c.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		var payload map[string]any
-		json.Unmarshal(body, &payload)
+		_ = json.Unmarshal(body, &payload)
 		batch, _ := payload["batch"].([]any)
 		for _, e := range batch {
 			c.events = append(c.events, e.(map[string]any))
@@ -86,7 +86,7 @@ func TestPlannerInstrument_LLMUsageFlowsIntoGeneration(t *testing.T) {
 	sp.End()
 
 	trace.End()
-	c.Flush(context.Background())
+	_ = c.Flush(context.Background())
 
 	usages := c.generationUsages()
 	require.Len(t, usages, 1, "should have 1 generation with usage")
@@ -116,7 +116,7 @@ func TestPlannerInstrument_ToolSpansHaveInputOutput(t *testing.T) {
 	sp.End()
 
 	trace.End()
-	c.Flush(context.Background())
+	_ = c.Flush(context.Background())
 
 	var toolSpan map[string]any
 	for _, e := range c.eventsByType("span-create") {
@@ -157,10 +157,10 @@ func TestPlannerInstrument_HierarchyStructure(t *testing.T) {
 	sp.End()
 
 	trace.End()
-	c.Flush(context.Background())
+	_ = c.Flush(context.Background())
 
 	// Build parent-child map
-	spanIDs := map[string]string{} // spanID -> name
+	spanIDs := map[string]string{}   // spanID -> name
 	parentMap := map[string]string{} // spanID -> parentID
 	for _, e := range c.eventsByType("span-create") {
 		body, _ := e["body"].(map[string]any)

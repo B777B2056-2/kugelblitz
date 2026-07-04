@@ -15,7 +15,7 @@ func (t *FileDelete) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "file_delete",
 		Description: "Delete a file at the given path. Returns an error if the file does not exist.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"path": map[string]any{

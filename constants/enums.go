@@ -37,3 +37,13 @@ const (
 	PlanStateDone      PlanState = "done"      // all tasks completed
 	PlanStateFailed    PlanState = "failed"    // unrecoverable
 )
+
+// AgentIdentity identifies which agent made an LLM call.
+// It is passed as the first argument to all AgentEventHooks model callbacks.
+type AgentIdentity string
+
+const (
+	AgentMain     AgentIdentity = "main"     // main ReAct loop, all FSM states
+	AgentWorker   AgentIdentity = "worker"   // DAG task execution
+	AgentReviewer AgentIdentity = "reviewer" // goal drift detection
+)

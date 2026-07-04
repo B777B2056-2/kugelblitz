@@ -52,7 +52,7 @@ func TestFactory_DynamicPrompts(t *testing.T) {
 			ToolName: "shell_exec",
 			FieldKey: "stdout",
 			OrigLen:  100,
-			Raw:       "100% complete — use 50%% margin",
+			Raw:      "100% complete — use 50%% margin",
 		})
 		require.NoError(t, err)
 		assert.Contains(t, result, "100% complete — use 50%% margin")

@@ -2,9 +2,9 @@ package mcp
 
 import (
 	"context"
-	"os"
 	"testing"
 
+	"github.com/B777B2056-2/kugelblitz/config"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -16,7 +16,6 @@ import (
 func newTestManager(t *testing.T) *Manager {
 	t.Helper()
 
-	// Build test server with one tool
 	srv := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0"}, nil)
 
 	tool := &mcp.Tool{
@@ -43,26 +42,18 @@ func newTestManager(t *testing.T) *Manager {
 		}, nil, nil
 	})
 
-	// Create in-memory transport pair
 	t1, t2 := mcp.NewInMemoryTransports()
 
-	// Connect server side (in background)
 	go func() {
 		_, err := srv.Connect(context.Background(), t1, nil)
 		require.NoError(t, err)
 	}()
 
-	// Create Manager with a test config that uses our transport
 	m := &Manager{
-		config: &Config{
-			MCPServers: map[string]ServerConfig{
-				"test": {Command: "test"},
-			},
-		},
+		servers:  map[string]config.MCPServerConfig{"test": {Command: "test"}},
 		sessions: make(map[string]entry),
 	}
 
-	// Connect client side using the paired transport
 	client := mcp.NewClient(&mcp.Implementation{Name: "kugelblitz", Version: "0.1.0"}, nil)
 	session, err := client.Connect(context.Background(), t2, nil)
 	require.NoError(t, err)
@@ -72,47 +63,42 @@ func newTestManager(t *testing.T) *Manager {
 }
 
 func TestManager_DiscoverAndRegisterTools(t *testing.T) {
-	// Reset tool registry
 	core.GetToolRegistry().Reset()
 
 	m := newTestManager(t)
-	defer m.Shutdown(context.Background())
+	defer func() { _ = m.Shutdown(context.Background()) }()
 
-	// Discover and register tools for the test server
 	err := m.discoverAndRegister(context.Background(), "test", m.sessions["test"].session)
 	require.NoError(t, err)
 
-	// Verify tool is registered
 	defs := core.ListToolDefinitions()
 	names := map[string]bool{}
 	for _, d := range defs {
 		names[d.Name] = true
 	}
-	assert.True(t, names["mcp:test_echo"], "expected mcp:test_echo to be registered")
+	assert.True(t, names["mcp_test_echo"], "expected mcp:test_echo to be registered")
 }
 
 func TestManager_CallMCPTool(t *testing.T) {
 	core.GetToolRegistry().Reset()
 
 	m := newTestManager(t)
-	defer m.Shutdown(context.Background())
+	defer func() { _ = m.Shutdown(context.Background()) }()
 
 	err := m.discoverAndRegister(context.Background(), "test", m.sessions["test"].session)
 	require.NoError(t, err)
 
-	// Call the tool through the ToolRegistry
 	result := core.CallTool(context.Background(), core.ToolCallDetail{
 		ID:       "call_1",
-		ToolName: "mcp:test_echo",
+		ToolName: "mcp_test_echo",
 		Args:     map[string]any{"message": "hello"},
 	})
 
-	assert.Nil(t, result.Outputs["error"], "expected no error, got: %v", result.Outputs["error"])
+	assert.Nil(t, result.Outputs["error"])
 	assert.Contains(t, result.Outputs["text_0"], "echo: hello")
 }
 
 func TestManager_CallMCPTool_Error(t *testing.T) {
-	// Build server with a tool that always errors
 	srv := mcp.NewServer(&mcp.Implementation{Name: "errsrv", Version: "1.0"}, nil)
 	errorTool := &mcp.Tool{
 		Name:        "failing",
@@ -129,16 +115,16 @@ func TestManager_CallMCPTool_Error(t *testing.T) {
 	})
 
 	t1, t2 := mcp.NewInMemoryTransports()
-	go srv.Connect(context.Background(), t1, nil)
+	go func() { _, _ = srv.Connect(context.Background(), t1, nil) }()
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "kugelblitz", Version: "0.1.0"}, nil)
 	session, err := client.Connect(context.Background(), t2, nil)
 	require.NoError(t, err)
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	core.GetToolRegistry().Reset()
 	m := &Manager{
-		config:   &Config{MCPServers: map[string]ServerConfig{"errsrv": {Command: "err"}}},
+		servers:  map[string]config.MCPServerConfig{"errsrv": {Command: "err"}},
 		sessions: map[string]entry{"errsrv": {session: session, client: client}},
 	}
 
@@ -147,7 +133,7 @@ func TestManager_CallMCPTool_Error(t *testing.T) {
 
 	result := core.CallTool(context.Background(), core.ToolCallDetail{
 		ID:       "call_2",
-		ToolName: "mcp:errsrv_failing",
+		ToolName: "mcp_errsrv_failing",
 		Args:     map[string]any{},
 	})
 
@@ -155,74 +141,20 @@ func TestManager_CallMCPTool_Error(t *testing.T) {
 	assert.Contains(t, result.Outputs["error"].(string), "deliberate failure")
 }
 
-func TestConfig_LoadAndValidate(t *testing.T) {
-	// Test validation
-	cfg := &Config{MCPServers: map[string]ServerConfig{}}
-	assert.Error(t, cfg.Validate())
+func TestNewManager_Validate(t *testing.T) {
+	_, err := NewManager(map[string]config.MCPServerConfig{})
+	assert.Error(t, err)
 
-	cfg.MCPServers["test"] = ServerConfig{Command: ""}
-	assert.Error(t, cfg.Validate())
+	_, err = NewManager(map[string]config.MCPServerConfig{"test": {Command: ""}})
+	assert.Error(t, err)
 
-	cfg.MCPServers["test"] = ServerConfig{Command: "echo"}
-	assert.NoError(t, cfg.Validate())
-}
-
-func TestLoadFromWorkspace(t *testing.T) {
-	dir := t.TempDir()
-	ws := &core.Workspace{}
-	ws.SetDir(dir)
-
-	content := `mcpServers:
-  github:
-    command: npx
-    args:
-      - "-y"
-      - "@modelcontextprotocol/server-github"
-    env:
-      GITHUB_TOKEN: ghp_xxx
-  postgres:
-    command: npx
-    args:
-      - "-y"
-      - "@modelcontextprotocol/server-postgres"
-      - "postgresql://localhost/mydb"
-`
-	require.NoError(t, os.WriteFile(dir+"/mcp.yaml", []byte(content), 0644))
-
-	cfg, err := LoadFromWorkspace(ws)
-	require.NoError(t, err)
-	require.NotNil(t, cfg)
-	require.Len(t, cfg.MCPServers, 2)
-
-	assert.Equal(t, "npx", cfg.MCPServers["github"].Command)
-	assert.Equal(t, []string{"-y", "@modelcontextprotocol/server-github"}, cfg.MCPServers["github"].Args)
-	assert.Equal(t, "ghp_xxx", cfg.MCPServers["github"].Env["GITHUB_TOKEN"])
-
-	assert.Equal(t, "npx", cfg.MCPServers["postgres"].Command)
-	assert.Len(t, cfg.MCPServers["postgres"].Args, 3)
-}
-
-func TestLoadFromWorkspace_NoFile(t *testing.T) {
-	dir := t.TempDir()
-	ws := &core.Workspace{}
-	ws.SetDir(dir)
-
-	cfg, err := LoadFromWorkspace(ws)
+	_, err = NewManager(map[string]config.MCPServerConfig{"test": {Command: "echo"}})
 	assert.NoError(t, err)
-	assert.Nil(t, cfg, "no config file means no MCP servers")
-}
-
-func TestLoadFromWorkspace_NilWorkspace(t *testing.T) {
-	// Should fall back to global workspace (may or may not have mcp.yaml)
-	cfg, err := LoadFromWorkspace(nil)
-	assert.NoError(t, err)
-	// Just verify it doesn't panic; cfg may be nil or not
-	_ = cfg
 }
 
 func TestMCPToolName(t *testing.T) {
-	assert.Equal(t, "mcp:github_search", mcpToolName("github", "search"))
-	assert.Equal(t, "mcp:slack_post", mcpToolName("slack", "post"))
+	assert.Equal(t, "mcp_github_search", mcpToolName("github", "search"))
+	assert.Equal(t, "mcp_slack_post", mcpToolName("slack", "post"))
 }
 
 func TestConvertToolDef(t *testing.T) {
@@ -238,11 +170,11 @@ func TestConvertToolDef(t *testing.T) {
 		},
 	}
 
-	def := convertToolDef("mcp:test_greet", mcpTool, "test")
-	assert.Equal(t, "mcp:test_greet", def.Name)
+	def := convertToolDef("mcp_test_greet", mcpTool, "test")
+	assert.Equal(t, "mcp_test_greet", def.Name)
 	assert.Contains(t, def.Description, "Greet someone")
-	assert.NotNil(t, def.JsonSchema["properties"])
-	assert.Contains(t, def.JsonSchema["required"].([]string), "name")
+	assert.NotNil(t, def.JSONSchema["properties"])
+	assert.Contains(t, def.JSONSchema["required"].([]string), "name")
 }
 
 func TestManager_Shutdown(t *testing.T) {

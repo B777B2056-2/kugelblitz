@@ -16,7 +16,7 @@ func (t *DirCreate) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "dir_create",
 		Description: "Create a directory at the given path. Creates parent directories as needed (like mkdir -p).",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"path": map[string]any{"type": "string", "description": "Path to the directory to create"},
@@ -52,7 +52,7 @@ func (t *DirCopy) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "dir_copy",
 		Description: "Copy or move a directory and all its contents from source to destination. Set 'move' to true to move instead of copy.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"source":      map[string]any{"type": "string", "description": "Source directory path"},
@@ -96,7 +96,7 @@ func (t *DirCopy) Execute(ctx context.Context, detail core.ToolCallDetail) core.
 			if err := copyDir(src, dst); err != nil {
 				return tools.ErrorResult(detail.ID, "dir_copy", err)
 			}
-			os.RemoveAll(src)
+			_ = os.RemoveAll(src)
 		}
 	} else {
 		if err := copyDir(src, dst); err != nil {

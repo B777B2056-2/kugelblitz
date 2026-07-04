@@ -93,7 +93,7 @@ func TestSessionManager_SetCancelFunc(t *testing.T) {
 	s := sm.Create("/tmp", nil)
 	called := false
 	require.NoError(t, sm.SetCancelFunc(s.ID, func() { called = true }))
-	sm.Cancel(s.ID)
+	_ = sm.Cancel(s.ID)
 	assert.True(t, called)
 }
 

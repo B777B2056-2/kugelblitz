@@ -3,11 +3,11 @@ package memory
 import (
 	"context"
 	"fmt"
+	"sync"
+	"unicode/utf8"
 
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/persist"
-	"sync"
-	"unicode/utf8"
 )
 
 // ---- Config ----

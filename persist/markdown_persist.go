@@ -132,10 +132,10 @@ func formatMarkdown(entries []MarkdownEntry) []byte {
 	var sb strings.Builder
 	sb.WriteString("# Project Memory\n\n")
 	for _, sec := range sections {
-		sb.WriteString(fmt.Sprintf("## %s\n", sec))
+		fmt.Fprintf(&sb, "## %s\n", sec)
 		for _, e := range grouped[sec] {
 			meta := fmt.Sprintf("`v%d c%.2f %s`", e.Version, e.Confidence, e.UpdatedAt.Format("2006-01-02"))
-			sb.WriteString(fmt.Sprintf("- %s: %s  %s\n", e.Key, e.Value, meta))
+			fmt.Fprintf(&sb, "- %s: %s  %s\n", e.Key, e.Value, meta)
 		}
 		sb.WriteString("\n")
 	}
@@ -161,4 +161,3 @@ func parseMarkdownMeta(meta string, version *int, confidence *float64, updatedAt
 		}
 	}
 }
-

@@ -21,7 +21,9 @@ func NewIndexManager(store *persist.VectorPersist, ltm *LongTermMemory) *IndexMa
 }
 
 // IsAvailable reports whether ChromaDB indexing is configured.
-func (im *IndexManager) IsAvailable() bool { return im != nil && im.store != nil && im.store.IsAvailable() }
+func (im *IndexManager) IsAvailable() bool {
+	return im != nil && im.store != nil && im.store.IsAvailable()
+}
 
 // Rebuild fully rebuilds the ChromaDB index from MEMORY.md items.
 // Reads all items, converts to vector entries, deletes old index, upserts new.

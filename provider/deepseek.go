@@ -40,7 +40,7 @@ type deepSeekFormat struct {
 }
 
 func (f *deepSeekFormat) Generate(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-	req, err := f.Format.BuildRequest(params)
+	req, err := f.BuildRequest(params)
 	if err != nil {
 		return nil, err
 	}
@@ -63,9 +63,9 @@ func (f *deepSeekFormat) Generate(ctx context.Context, params core.GenerateParam
 
 	// Delegate to the Chat Completions format with the modified request
 	if params.Stream {
-		return f.Format.Stream(ctx, req, params)
+		return f.Stream(ctx, req, params)
 	}
-	return f.Format.Block(ctx, req, params)
+	return f.Block(ctx, req, params)
 }
 
 // Ensure deepSeekFormat satisfies APIFormat.

@@ -23,7 +23,7 @@ func TestConflictResolver_NoConflict_NewFact(t *testing.T) {
 
 func TestConflictResolver_SemanticMatch_NoConflict(t *testing.T) {
 	ltm := &LongTermMemory{}
-	ltm.Store("prefs", "lang", "Go")
+	_, _, _ = ltm.Store("prefs", "lang", "Go")
 	oldJudge := semanticJudge
 	semanticJudge = func(old, new string) bool { return true }
 	defer func() { semanticJudge = oldJudge }()

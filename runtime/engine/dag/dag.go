@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
@@ -16,21 +17,27 @@ import (
 // ExecuteBatch runs all batches automatically until the DAG reaches a terminal
 // state (all done, any failed, or context cancelled).
 type DAGTaskExecutor struct {
-	provider   core.ILMProvider
-	streamMode bool
-	cancel     context.CancelFunc
-	Hooks      core.AgentEventHooks          // set by Planner.RegisterEventHooks
-	PauseMu    sync.RWMutex                  // shared pause gate for all workers
-	hitlAgents map[string]*infra.ReactAgent // taskID → waiting worker (HITL)
+	provider            core.ILMProvider
+	streamMode          bool
+	cancel              context.CancelFunc
+	workerHooks         core.AgentEventHooks         // set by Planner.RegisterEventHooks
+	workerAgentIdentity constants.AgentIdentity      // set by Kernel
+	PauseMu             sync.RWMutex                 // shared pause gate for all workers
+	hitlAgents          map[string]*infra.ReactAgent // taskID → waiting worker (HITL)
 }
 
 // NewDAGTaskExecutor creates an executor that spawns WorkerAgents internally.
 func NewDAGTaskExecutor(provider core.ILMProvider, streamMode bool) *DAGTaskExecutor {
 	return &DAGTaskExecutor{
-		provider:   provider,
-		streamMode: streamMode,
-		hitlAgents: make(map[string]*infra.ReactAgent),
+		provider:            provider,
+		streamMode:          streamMode,
+		workerAgentIdentity: constants.AgentWorker,
+		hitlAgents:          make(map[string]*infra.ReactAgent),
 	}
+}
+
+func (d *DAGTaskExecutor) SetWorkerHooks(hooks core.AgentEventHooks) {
+	d.workerHooks = hooks
 }
 
 // AnyWorkerInHumanLoopWaiting returns true if any worker is waiting for human input.
@@ -87,7 +94,7 @@ func (d *DAGTaskExecutor) Resume() { d.PauseMu.Unlock() }
 // onTaskFailed is called synchronously from the worker goroutine whenever a
 // task fails. The caller can call d.Cancel() from this callback to abort
 // remaining batches (already-running tasks complete normally).
-func (d *DAGTaskExecutor) ExecuteBatch(plan *working.Plan, ctx context.Context,
+func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 	onTaskFailed func(taskID, goal, reason string)) BatchResult {
 
 	// Create a child context so Cancel() stops only this invocation.
@@ -139,7 +146,7 @@ func (d *DAGTaskExecutor) ExecuteBatch(plan *working.Plan, ctx context.Context,
 					return nil
 				}
 				worker := infra.NewWorkerAgent(d.provider, d.streamMode)
-				worker.SetHooks(d.Hooks)
+				worker.SetHooks(d.workerHooks)
 				worker.SetPauseGate(&d.PauseMu)
 				worker.SetOnHITL(func(agent *infra.ReactAgent, reason, prompt string) {
 					d.hitlAgents[task.ID] = agent
@@ -168,13 +175,13 @@ func (d *DAGTaskExecutor) ExecuteBatch(plan *working.Plan, ctx context.Context,
 				taskMu.Usage = usage
 				working.PutPlan(planMu)
 
-				if d.Hooks.OnTaskUpdated != nil {
-					d.Hooks.OnTaskUpdated(task.ID, task.Goal, string(taskMu.Status), output)
+				if d.workerHooks.OnTaskUpdated != nil {
+					d.workerHooks.OnTaskUpdated(d.workerAgentIdentity, task.ID, task.Goal, string(taskMu.Status), output)
 				}
 				return nil
 			})
 		}
-		g.Wait()
+		_ = g.Wait()
 
 		if atomic.LoadInt32(&failCount) > 0 {
 			return BatchResult{Batched: true, HasFailed: true, AllDone: d.isDAGDone(plan)}

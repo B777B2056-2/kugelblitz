@@ -20,7 +20,7 @@ func TestToolRegistry_RegisterAndCall(t *testing.T) {
 	r := registry()
 
 	r.Register(
-		ToolDefinition{Name: "greet", Description: "Greets someone", JsonSchema: map[string]any{"type": "object"}},
+		ToolDefinition{Name: "greet", Description: "Greets someone", JSONSchema: map[string]any{"type": "object"}},
 		func(ctx context.Context, detail ToolCallDetail) ToolCallResult {
 			return ToolCallResult{
 				ToolCallID: detail.ID,
@@ -127,7 +127,7 @@ func TestToolDefinition_Fields(t *testing.T) {
 	def := ToolDefinition{
 		Name:        "search",
 		Description: "Search the web",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"query": map[string]any{"type": "string"},
@@ -136,7 +136,7 @@ func TestToolDefinition_Fields(t *testing.T) {
 	}
 	assert.Equal(t, "search", def.Name)
 	assert.Equal(t, "Search the web", def.Description)
-	assert.NotNil(t, def.JsonSchema)
+	assert.NotNil(t, def.JSONSchema)
 }
 
 func TestGetToolRegistry_ReturnsSingleton(t *testing.T) {

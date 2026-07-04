@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 )
 
@@ -113,7 +114,6 @@ func (h *Handler) invoke(_ context.Context, id json.RawMessage, rawParams json.R
 
 // handleNotification processes JSON-RPC notifications (no response expected).
 func (h *Handler) handleNotification(_ context.Context, _ *JSONRPCMessage) error {
-	// Currently no notifications from client need handling
 	return nil
 }
 
@@ -138,12 +138,8 @@ func (h *Handler) handleInitialize(_ context.Context, p json.RawMessage) (any, e
 
 // handleSessionNew creates a new ACP session.
 func (h *Handler) handleSessionNew(_ context.Context, params SessionNewParams) (any, error) {
-	// Create a new agent instance for this session
-	// Each session gets its own agent instance for isolation
-	agent := h.agent // Use the server's agent as a template
-
+	agent := h.agent
 	session := h.sessions.Create(params.Cwd, agent)
-
 	return SessionNewResult{SessionID: session.ID}, nil
 }
 
@@ -155,7 +151,6 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
 	}
 
-	// Create a cancellable context for this prompt execution
 	promptCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -163,13 +158,11 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 		return nil, err
 	}
 
-	// Convert ACP content blocks to Kugelblitz messages
 	userMessages, err := ContentBlocksToMessages(params.Prompt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert prompt: %w", err)
 	}
 
-	// Build system message from session context
 	systemMsg := core.Message{
 		ID:   "system",
 		Role: "system",
@@ -179,12 +172,25 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 	}
 
 	// Register event hooks to stream progress to the client
+	sid := params.SessionID
 	hooks := core.AgentEventHooks{
-		ModelEventHandler: &acpEventHandler{
-			transport:  h.transport,
-			sessionID:  params.SessionID,
+		OnReplyChunk: func(id constants.AgentIdentity, chunk string) {
+			_ = h.transport.SendNotification("session/update", SessionUpdateParams{
+				SessionID: sid, Update: NewAgentMessageChunk(chunk),
+			})
 		},
-		OnToolCallEnd: func(result core.ToolCallResult) {
+		OnBlockReply: func(id constants.AgentIdentity, text string) {
+			_ = h.transport.SendNotification("session/update", SessionUpdateParams{
+				SessionID: sid, Update: NewAgentMessageChunk(text),
+			})
+		},
+		OnFunctionCall: func(id constants.AgentIdentity, detail core.ToolCallDetail) {
+			notif := NewToolCallNotification(detail.ID, detail.ToolName, detail.Args)
+			_ = h.transport.SendNotification("session/update", SessionUpdateParams{
+				SessionID: sid, Update: notif,
+			})
+		},
+		OnToolCallEnd: func(id constants.AgentIdentity, result core.ToolCallResult) {
 			status := ToolCallStatusCompleted
 			if _, hasErr := result.Outputs["error"]; hasErr {
 				status = ToolCallStatusError
@@ -199,10 +205,8 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 
 	session.Agent.RegisterEventHooks(hooks)
 
-	// Execute the agent
 	assistantMessages, err := session.Agent.Execute(promptCtx, systemMsg, userMessages)
 	if err != nil {
-		// Send error update and return cancelled stop reason
 		_ = h.transport.SendNotification("session/update", SessionUpdateParams{
 			SessionID: params.SessionID,
 			Update:    NewAgentMessageChunk(fmt.Sprintf("Error: %v", err)),
@@ -210,7 +214,6 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 		return SessionPromptResult{StopReason: StopReasonCancelled}, nil
 	}
 
-	// Store conversation history
 	for _, msg := range userMessages {
 		_ = h.sessions.AppendMessage(params.SessionID, msg)
 	}
@@ -233,7 +236,6 @@ func (h *Handler) handleSessionLoad(_ context.Context, params SessionLoadParams)
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
 	}
 
-	// Replay existing messages as content blocks
 	blocks := MessagesToContentBlocks(session.Messages)
 	for _, block := range blocks {
 		_ = h.transport.SendNotification("session/update", SessionUpdateParams{
@@ -259,45 +261,4 @@ func (h *Handler) handleSessionDelete(_ context.Context, params SessionDeletePar
 func (h *Handler) writeError(id json.RawMessage, code int, message string, data any) {
 	resp := NewErrorResponse(id, code, message, data)
 	_ = h.transport.WriteMessage(resp)
-}
-
-// acpEventHandler implements core.ModelEventHandler to stream agent progress
-// as ACP session/update notifications.
-type acpEventHandler struct {
-	transport *Transport
-	sessionID string
-}
-
-func (e *acpEventHandler) OnThinkingChunk(chunk string) {
-	// Thinking chunks are internal — not sent to the ACP client
-}
-
-func (e *acpEventHandler) OnReplyChunk(chunk string) {
-	_ = e.transport.SendNotification("session/update", SessionUpdateParams{
-		SessionID: e.sessionID,
-		Update:    NewAgentMessageChunk(chunk),
-	})
-}
-
-func (e *acpEventHandler) OnFunctionCall(detail core.ToolCallDetail) {
-	notif := NewToolCallNotification(detail.ID, detail.ToolName, detail.Args)
-	_ = e.transport.SendNotification("session/update", SessionUpdateParams{
-		SessionID: e.sessionID,
-		Update:    notif,
-	})
-}
-
-func (e *acpEventHandler) OnFinished(reason string) {
-	// Completion is communicated via the session/prompt response
-}
-
-func (e *acpEventHandler) OnUsageUpdated(usage core.Usage) {
-	// Usage stats could be sent as a plan notification
-}
-
-func (e *acpEventHandler) OnError(err error) {
-	_ = e.transport.SendNotification("session/update", SessionUpdateParams{
-		SessionID: e.sessionID,
-		Update:    NewAgentMessageChunk("Error: " + err.Error()),
-	})
 }

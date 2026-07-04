@@ -15,7 +15,7 @@ import (
 func TestWebFetch_StaticMarkdown(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<!DOCTYPE html>
+		_, _ = w.Write([]byte(`<!DOCTYPE html>
 <html><head><title>Test Page</title></head>
 <body>
   <h1>Hello World</h1>
@@ -78,11 +78,11 @@ func TestWebFetch_Truncation(t *testing.T) {
 	// Generate a page with lots of content
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<!DOCTYPE html><html><body><p>`))
+		_, _ = w.Write([]byte(`<!DOCTYPE html><html><body><p>`))
 		for i := 0; i < 5000; i++ {
-			w.Write([]byte("word "))
+			_, _ = w.Write([]byte("word "))
 		}
-		w.Write([]byte(`</p></body></html>`))
+		_, _ = w.Write([]byte(`</p></body></html>`))
 	}))
 	defer srv.Close()
 
@@ -100,7 +100,7 @@ func TestWebFetch_Truncation(t *testing.T) {
 func TestWebFetch_PlainText(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte("Hello plain world"))
+		_, _ = w.Write([]byte("Hello plain world"))
 	}))
 	defer srv.Close()
 

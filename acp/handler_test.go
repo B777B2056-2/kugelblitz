@@ -330,7 +330,7 @@ func TestHandler_Dispatch_SessionLoad(t *testing.T) {
 
 	// Create a session with messages so Load can replay them
 	s := sm.Create("/proj", newMockAgent())
-	sm.AppendMessage(s.ID, core.NewUserMessage(core.TextContent{Text: "hello"}))
+	_ = sm.AppendMessage(s.ID, core.NewUserMessage(core.TextContent{Text: "hello"}))
 
 	params := SessionLoadParams{SessionID: s.ID}
 	paramsBytes, _ := json.Marshal(params)
@@ -422,91 +422,10 @@ func TestHandler_Dispatch_NonRequest(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// ---- acpEventHandler tests ----
-
-func TestACPEventHandler_OnReplyChunk(t *testing.T) {
-	rw := &testReadWriter{readBuf: new(bytes.Buffer), writeBuf: new(bytes.Buffer)}
-	tr := NewTransport(rw)
-
-	handler := &acpEventHandler{transport: tr, sessionID: "s1"}
-	handler.OnReplyChunk("hello world")
-
-	output := rw.writeBuf.String()
-	assert.Contains(t, output, `"session/update"`)
-	assert.Contains(t, output, `"s1"`)
-	assert.Contains(t, output, `"sessionUpdate":"agent_message_chunk"`)
-	assert.Contains(t, output, "hello world")
-}
-
-func TestACPEventHandler_OnFunctionCall(t *testing.T) {
-	rw := &testReadWriter{readBuf: new(bytes.Buffer), writeBuf: new(bytes.Buffer)}
-	tr := NewTransport(rw)
-
-	handler := &acpEventHandler{transport: tr, sessionID: "s2"}
-	handler.OnFunctionCall(core.ToolCallDetail{
-		ID:       "tc_1",
-		ToolName: "read_file",
-		Args:     map[string]any{"path": "/tmp/test.txt"},
-	})
-
-	output := rw.writeBuf.String()
-	assert.Contains(t, output, `"sessionUpdate":"tool_call"`)
-	assert.Contains(t, output, `"read_file"`)
-	assert.Contains(t, output, `"tc_1"`)
-}
-
-func TestACPEventHandler_OnError(t *testing.T) {
-	rw := &testReadWriter{readBuf: new(bytes.Buffer), writeBuf: new(bytes.Buffer)}
-	tr := NewTransport(rw)
-
-	handler := &acpEventHandler{transport: tr, sessionID: "s3"}
-	handler.OnError(assert.AnError)
-
-	output := rw.writeBuf.String()
-	assert.Contains(t, output, `"session/update"`)
-	assert.Contains(t, output, "assert.AnError")
-}
-
-func TestACPEventHandler_OnThinkingChunk(t *testing.T) {
-	rw := &testReadWriter{readBuf: new(bytes.Buffer), writeBuf: new(bytes.Buffer)}
-	tr := NewTransport(rw)
-
-	handler := &acpEventHandler{transport: tr, sessionID: "s4"}
-	// OnThinkingChunk should not send anything (internal only)
-	handler.OnThinkingChunk("internal thought")
-
-	output := rw.writeBuf.String()
-	assert.Empty(t, output)
-}
-
-func TestACPEventHandler_OnFinished(t *testing.T) {
-	rw := &testReadWriter{readBuf: new(bytes.Buffer), writeBuf: new(bytes.Buffer)}
-	tr := NewTransport(rw)
-
-	handler := &acpEventHandler{transport: tr, sessionID: "s5"}
-	handler.OnFinished("stop")
-
-	output := rw.writeBuf.String()
-	// OnFinished does not send a notification (handled by prompt response)
-	assert.Empty(t, output)
-}
-
-func TestACPEventHandler_OnUsageUpdated(t *testing.T) {
-	rw := &testReadWriter{readBuf: new(bytes.Buffer), writeBuf: new(bytes.Buffer)}
-	tr := NewTransport(rw)
-
-	handler := &acpEventHandler{transport: tr, sessionID: "s6"}
-	handler.OnUsageUpdated(core.Usage{InputTokens: 100, OutputTokens: 50})
-
-	output := rw.writeBuf.String()
-	// OnUsageUpdated doesn't send a notification currently
-	assert.Empty(t, output)
-}
-
 // ---- Shared test helpers ----
 
 type mockAgent struct {
-	executeFn  func(ctx context.Context, systemMsg core.Message, userMsgs []core.Message) ([]core.Message, error)
+	executeFn   func(ctx context.Context, systemMsg core.Message, userMsgs []core.Message) ([]core.Message, error)
 	interruptFn func(ctx context.Context) error
 }
 
@@ -524,7 +443,7 @@ func (m *mockAgent) Interrupt(ctx context.Context) error {
 	return nil
 }
 func (m *mockAgent) ResumeWithHumanResponse(ctx context.Context, response string) error { return nil }
-func (m *mockAgent) HumanLoopWaiting() bool                                            { return false }
+func (m *mockAgent) HumanLoopWaiting() bool                                             { return false }
 
 var _ core.IAgent = (*mockAgent)(nil)
 

@@ -19,6 +19,7 @@ task orchestration that keep LLM agents predictable, auditable, and controllable
 - **Observability** — Observer interface + built-in Langfuse adapter, full trace/span/generation hierarchy
 - **Unified Usage Callback** — single callback for all LLM token consumption, tagged by source identity
 - **ACP (Agent Client Protocol)** — JSON-RPC 2.0 over stdio, compatible with Zed / JetBrains / VS Code / Neovim
+- **MCP (Model Context Protocol)** — connect external MCP servers as subprocesses, auto-discover and register their tools with `mcp_<server>_<tool>` naming
 
 ## Architecture
 
@@ -387,7 +388,7 @@ srv.Run(context.Background())
 ```
 
 ```bash
-go run examples/acp_server/main.go -apikey sk-xxx
+go run cmd/acp_server/main.go -apikey sk-xxx
 ```
 
 Editor configuration example:
@@ -396,13 +397,72 @@ Editor configuration example:
 {
   "agent": {
     "command": "go",
-    "args": ["run", "examples/acp_server", "-apikey", "sk-xxx"],
+    "args": ["run", "cmd/acp_server", "-apikey", "sk-xxx"],
     "work_dir": "/path/to/kugelblitz"
   }
 }
 ```
 
-Full example at [examples/acp_server/](examples/acp_server/).
+Full example at [cmd/acp_server/](cmd/acp_server/).
+
+## MCP — Model Context Protocol
+
+Kugelblitz can connect to external MCP servers, discover their tools, and expose
+them to the LLM — all without writing any glue code.
+
+### How It Works
+
+```
+MCP Server (subprocess)          Kugelblitz (client)
+     │                                │
+     ├─ initialize ──────────────────>│  stdio CommandTransport
+     ├─ tools/list ──────────────────>│  discover tools
+     │<─ [toolA, toolB, ...] ────────┤
+     │                                ├─ register as "mcp_<server>_<tool>"
+     │                                │  in global ToolRegistry
+     │                                │
+     │                         Agent calls tool
+     │                                │
+     │<─ tools/call(toolA, args) ─────┤  forward via session.CallTool
+     ├─ result ──────────────────────>│  text / image / error
+```
+
+### Configuration
+
+Add MCP servers in `kugelblitz.yaml` under the `mcp_servers` key:
+
+```yaml
+mcp_servers:
+  github:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env:
+      GITHUB_TOKEN: "ghp_xxx"
+  custom:
+    command: python3
+    args: ["path/to/your/server.py"]
+```
+
+Each server definition:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `command` | string | Executable to launch (required) |
+| `args` | []string | Command arguments |
+| `env` | map[string]string | Environment variables |
+
+### Tool Naming
+
+Discovered tools are registered with a `mcp_<server>_<tool>` prefix to avoid
+collisions with built-in tools:
+
+| Server | Native Tool | Registered Name |
+|--------|-------------|-----------------|
+| `github` | `search_repositories` | `mcp_github_search_repositories` |
+| `custom` | `echo` | `mcp_custom_echo` |
+
+> **Note**: Tool names use underscores (`_`) as separators — colons (`:`) are
+> not allowed by DeepSeek and other LLM APIs (`^[a-zA-Z0-9_-]+$`).
 
 ## Human-in-the-Loop
 
@@ -757,17 +817,39 @@ kugelblitz/
 ├── prompts/           # System prompt templates
 ├── observability/     # Observer interface + Langfuse adapter, PlannerInstrument
 ├── acp/               # ACP adapter (JSON-RPC 2.0 stdio transport, session mgmt)
-├── mcp/               # MCP server integration
 ├── tools/
+│   ├── mcp/           # MCP server integration (client, manager, tool registry)
 │   └── internals/     # Built-in tools (plan_*, task_*, memory_*, web, file, shell)
 ├── skills/            # Skill loader + registry
 ├── provider/
 │   └── chat_completions/  # OpenAI-compatible Format (Block + Stream)
 ├── persist/           # Format-level stores: MarkdownPersist, JSONLPersist, VectorPersist
 ├── utils/             # UUID generation, session IDs
-└── examples/
-    ├── simple/            # Quick start example
-    └── acp_server/        # ACP server (editor-compatible agent)
+└── cmd/
+    ├── common/        #   Shared YAML config helpers
+    ├── kugelblitz-ui/ #   Web UI server (HTTP + SSE streaming)
+    └── acp_server/    #   ACP editor agent
+```
+
+### Building Binaries
+
+```bash
+# Build all cmd binaries → bin/
+make build
+
+# Build a specific binary
+make build build-cmds=kugelblitz-ui
+
+# Build and install to $GOPATH/bin
+make install
+make install build-cmds=kugelblitz-ui PREFIX=/usr/local
+
+# Start the Web UI (default :8088)
+./bin/kugelblitz-ui
+./bin/kugelblitz-ui -addr :9090
+
+# Start the ACP server
+./bin/acp_server -v
 ```
 
 ### Workspace Layout (`~/.kugelblitz/`)
@@ -780,7 +862,7 @@ kugelblitz/
 ├── IDENTITY.md                        # Agent identity (read-only)
 ├── SOUL.md                            # Agent personality (read-only)
 ├── USER.md                            # User profile (read-only)
-├── mcp.yaml                           # MCP server configuration (read-only)
+├── kugelblitz.yaml                    # Main config (includes mcp_servers)
 ├── skills/
 │   └── {name}/SKILL.md                # Skill definitions (read-only)
 │

@@ -3,3 +3,5 @@
 *.exe
 .mcp.json
 .kugelblitz
+*.sqllite
+bin

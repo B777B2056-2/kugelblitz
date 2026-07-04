@@ -30,7 +30,7 @@ func TestDAGTaskExecutor_ExecuteBatch_NoReadyTasks(t *testing.T) {
 	plan := &working.Plan{ID: "p1", SubTasks: []working.Task{
 		{ID: "t1", Status: working.TaskStatusDone},
 	}}
-	r := dag.ExecuteBatch(plan, context.Background(), nil)
+	r := dag.ExecuteBatch(context.Background(), plan, nil)
 	assert.False(t, r.Batched)
 	assert.False(t, r.HasFailed)
 	assert.True(t, r.AllDone)
@@ -51,7 +51,7 @@ func TestDAGTaskExecutor_ExecuteBatch_SingleTask(t *testing.T) {
 	plan := &working.Plan{ID: "p1", SubTasks: []working.Task{
 		{ID: "t1", Status: working.TaskStatusPending, Goal: "test", Action: "echo hi"},
 	}}
-	r := dag.ExecuteBatch(plan, context.Background(), nil)
+	r := dag.ExecuteBatch(context.Background(), plan, nil)
 	assert.True(t, r.Batched)
 	assert.False(t, r.HasFailed)
 	assert.True(t, r.AllDone)
@@ -69,7 +69,7 @@ func TestDAGTaskExecutor_ExecuteBatch_TaskFailed(t *testing.T) {
 	plan := &working.Plan{ID: "p1", SubTasks: []working.Task{
 		{ID: "t1", Status: working.TaskStatusPending, Goal: "test", Action: "bad cmd"},
 	}}
-	r := dag.ExecuteBatch(plan, context.Background(), nil)
+	r := dag.ExecuteBatch(context.Background(), plan, nil)
 	assert.True(t, r.Batched)
 	assert.True(t, r.HasFailed)
 	assert.True(t, r.AllDone)
@@ -92,7 +92,7 @@ func TestDAGTaskExecutor_ExecuteBatch_DAGOrder(t *testing.T) {
 		{ID: "D", Status: working.TaskStatusPending, Goal: "D", ParentTaskID: "A,B"},
 	}}
 
-	r := dag.ExecuteBatch(plan, context.Background(), nil)
+	r := dag.ExecuteBatch(context.Background(), plan, nil)
 	assert.True(t, r.Batched)
 	assert.False(t, r.HasFailed)
 	assert.True(t, r.AllDone)
@@ -124,7 +124,7 @@ func TestDAGTaskExecutor_ExecuteBatch_MultiBatchAutoLoop(t *testing.T) {
 		{ID: "D", Status: working.TaskStatusPending, Goal: "D", Action: "D-action", ParentTaskID: "A,B"},
 	}}
 
-	r := dag.ExecuteBatch(plan, context.Background(), nil)
+	r := dag.ExecuteBatch(context.Background(), plan, nil)
 	assert.True(t, r.AllDone)
 	assert.False(t, r.HasFailed)
 	assert.Len(t, batchOrder, 4)
@@ -144,7 +144,7 @@ func TestDAGTaskExecutor_Cancel(t *testing.T) {
 	plan := &working.Plan{ID: "p1", SubTasks: []working.Task{
 		{ID: "t1", Status: working.TaskStatusPending, Goal: "test", Action: "echo hi"},
 	}}
-	r := dag.ExecuteBatch(plan, ctx, nil)
+	r := dag.ExecuteBatch(ctx, plan, nil)
 	assert.True(t, r.HasFailed)
 	assert.Equal(t, working.TaskStatusFailed, plan.SubTasks[0].Status)
 }
@@ -186,6 +186,6 @@ func TestDAGTaskExecutor_ContextCancelledDuringExecution(t *testing.T) {
 	go func() {
 		cancel()
 	}()
-	dag.ExecuteBatch(plan, ctx, nil)
+	dag.ExecuteBatch(ctx, plan, nil)
 	close(blocker)
 }

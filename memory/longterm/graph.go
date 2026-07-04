@@ -47,7 +47,7 @@ type RelCandidate struct {
 // Entities and relationships are extracted from conversations and
 // stored under {workspace}/memory/longterm/.
 type GraphStore struct {
-	entities      map[string]*Entity      // ID → Entity
+	entities      map[string]*Entity // ID → Entity
 	relationships []*Relationship
 	adjOut        map[string][]*Relationship // entity ID → outgoing edges
 	adjIn         map[string][]*Relationship // entity ID → incoming edges
@@ -167,7 +167,7 @@ func (g *GraphStore) writeMermaid(ctx context.Context) error {
 
 	// Style definitions
 	for t, c := range colorByType {
-		sb.WriteString(fmt.Sprintf("    classDef %s fill:%s,stroke:#333,color:#fff\n", t, c))
+		fmt.Fprintf(&sb, "    classDef %s fill:%s,stroke:#333,color:#fff\n", t, c)
 	}
 
 	// Nodes: entity ID → [display label]
@@ -179,8 +179,8 @@ func (g *GraphStore) writeMermaid(ctx context.Context) error {
 		if labels != "" {
 			labels = "<br/>" + labels
 		}
-		sb.WriteString(fmt.Sprintf("    %s[%s<br/>%s%s]\n", sid, e.Name, e.Type, labels))
-		sb.WriteString(fmt.Sprintf("    class %s %s\n", sid, e.Type))
+		fmt.Fprintf(&sb, "    %s[%s<br/>%s%s]\n", sid, e.Name, e.Type, labels)
+		fmt.Fprintf(&sb, "    class %s %s\n", sid, e.Type)
 	}
 
 	// Edges
@@ -194,7 +194,7 @@ func (g *GraphStore) writeMermaid(ctx context.Context) error {
 		if r.Weight < 1.0 {
 			weight = fmt.Sprintf(" (w=%.1f)", r.Weight)
 		}
-		sb.WriteString(fmt.Sprintf("    %s -->|%s%s| %s\n", from, r.Type, weight, to))
+		fmt.Fprintf(&sb, "    %s -->|%s%s| %s\n", from, r.Type, weight, to)
 	}
 
 	sb.WriteString("```\n\n")
@@ -204,7 +204,7 @@ func (g *GraphStore) writeMermaid(ctx context.Context) error {
 	sb.WriteString("| Entity | Type | Labels |\n")
 	sb.WriteString("|--------|------|--------|\n")
 	for _, e := range g.entities {
-		sb.WriteString(fmt.Sprintf("| %s | %s | %s |\n", e.Name, e.Type, strings.Join(e.Labels, ", ")))
+		fmt.Fprintf(&sb, "| %s | %s | %s |\n", e.Name, e.Type, strings.Join(e.Labels, ", "))
 	}
 	sb.WriteString("\n")
 
@@ -213,7 +213,7 @@ func (g *GraphStore) writeMermaid(ctx context.Context) error {
 	for _, r := range g.relationships {
 		from := g.entityNameLocked(r.From)
 		to := g.entityNameLocked(r.To)
-		sb.WriteString(fmt.Sprintf("- **%s** → _%s_ → **%s**  `w=%.1f`\n", from, r.Type, to, r.Weight))
+		fmt.Fprintf(&sb, "- **%s** → _%s_ → **%s**  `w=%.1f`\n", from, r.Type, to, r.Weight)
 	}
 
 	return g.backend.Store(ctx, g.mermaidPath(), []byte(sb.String()))
@@ -318,7 +318,7 @@ func (g *GraphStore) UpsertRelationships(ctx context.Context, entities []EntityC
 	for _, r := range rels {
 		g.AddRelationship(r)
 	}
-	g.persist(ctx)
+	_ = g.persist(ctx)
 }
 
 // ---- Query ----

@@ -37,10 +37,10 @@ func setupDreamer(t *testing.T) (*LongTermMemory, *Dreamer) {
 	ltm.SetGraph(graph)
 
 	// Populate some memories
-	ltm.Store("user_preferences", "language", "Go")
-	ltm.Store("project_facts", "deploy", "production")
-	ltm.Store("episodic", "debug_nil_pointer", "Fixed nil pointer in plan_mode.go")
-	ltm.Store("lessons", "tdd_workflow", "Always write tests first")
+	_, _, _ = ltm.Store("user_preferences", "language", "Go")
+	_, _, _ = ltm.Store("project_facts", "deploy", "production")
+	_, _, _ = ltm.Store("episodic", "debug_nil_pointer", "Fixed nil pointer in plan_mode.go")
+	_, _, _ = ltm.Store("lessons", "tdd_workflow", "Always write tests first")
 
 	// Add graph data
 	graph.UpsertEntity(EntityCandidate{Name: "Go", Type: "language"})
@@ -194,9 +194,9 @@ func TestDreamReport_ToMarkdown(t *testing.T) {
 		Insights: []MemoryItem{
 			{Section: "insights", Key: "pattern", Value: "Go agent framework with TDD"},
 		},
-		Summary: "Focused on Go agent development.",
-		LLMCalls:   2,
-		Duration:   time.Second * 15,
+		Summary:  "Focused on Go agent development.",
+		LLMCalls: 2,
+		Duration: time.Second * 15,
 	}
 
 	md := report.ToMarkdown()

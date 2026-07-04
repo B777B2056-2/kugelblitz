@@ -9,8 +9,8 @@ import (
 
 	"sync"
 
-	"github.com/B777B2056-2/kugelblitz/prompts"
 	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/prompts"
 )
 
 // DreamReport captures the result of a dream cycle.
@@ -30,10 +30,10 @@ type DreamReport struct {
 // ToMarkdown renders a human-readable dream diary entry.
 func (r *DreamReport) ToMarkdown() string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("# Dream Report — %s\n\n", r.Timestamp.Format("2006-01-02 15:04")))
-	sb.WriteString(fmt.Sprintf("> Candidates: %d | Consolidated: %d | High-score: %d | Low-score: %d | Deprecated: %d\n",
-		r.Candidates, r.Consolidated, r.ScoredHigh, r.ScoredLow, r.Deprecated))
-	sb.WriteString(fmt.Sprintf("> LLM calls: %d | Duration: %v\n\n", r.LLMCalls, r.Duration.Round(time.Millisecond)))
+	fmt.Fprintf(&sb, "# Dream Report — %s\n\n", r.Timestamp.Format("2006-01-02 15:04"))
+	fmt.Fprintf(&sb, "> Candidates: %d | Consolidated: %d | High-score: %d | Low-score: %d | Deprecated: %d\n",
+		r.Candidates, r.Consolidated, r.ScoredHigh, r.ScoredLow, r.Deprecated)
+	fmt.Fprintf(&sb, "> LLM calls: %d | Duration: %v\n\n", r.LLMCalls, r.Duration.Round(time.Millisecond))
 
 	if r.Summary != "" {
 		sb.WriteString("## Summary\n\n")
@@ -44,7 +44,7 @@ func (r *DreamReport) ToMarkdown() string {
 	if len(r.Insights) > 0 {
 		sb.WriteString("## Insights\n\n")
 		for _, ins := range r.Insights {
-			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", ins.Key, ins.Value))
+			fmt.Fprintf(&sb, "- **%s**: %s\n", ins.Key, ins.Value)
 		}
 		sb.WriteString("\n")
 	}
@@ -251,9 +251,9 @@ func (d *Dreamer) deepSleep(ctx context.Context, candidates []dreamCandidate) ([
 	// Build scoring prompt
 	var itemsDesc strings.Builder
 	for i, c := range candidates {
-		itemsDesc.WriteString(fmt.Sprintf("%d. [%s] %s: %s (c%.2f, v%d, graph_degree=%d)\n",
+		fmt.Fprintf(&itemsDesc, "%d. [%s] %s: %s (c%.2f, v%d, graph_degree=%d)\n",
 			i+1, c.Item.Section, c.Item.Key, truncate(c.Item.Value, 100),
-			c.Item.Confidence, c.Item.Version, c.GraphDegree))
+			c.Item.Confidence, c.Item.Version, c.GraphDegree)
 	}
 
 	prompt := prompts.BuildMemoryScorePrompt(itemsDesc.String())
@@ -294,7 +294,7 @@ func (d *Dreamer) deepSleep(ctx context.Context, candidates []dreamCandidate) ([
 						existing.Confidence = 1.0
 					}
 					existing.Version++
-					d.ltm.Store(s.Section, s.Key, existing.Value)
+					_, _, _ = d.ltm.Store(s.Section, s.Key, existing.Value)
 				}
 				break
 			}
@@ -307,8 +307,8 @@ func (d *Dreamer) deepSleep(ctx context.Context, candidates []dreamCandidate) ([
 func (d *Dreamer) rem(ctx context.Context, highItems []MemoryItem) ([]MemoryItem, string, error) {
 	var itemsDesc strings.Builder
 	for i, item := range highItems {
-		itemsDesc.WriteString(fmt.Sprintf("%d. [%s] %s: %s (c%.2f)\n",
-			i+1, item.Section, item.Key, truncate(item.Value, 200), item.Confidence))
+		fmt.Fprintf(&itemsDesc, "%d. [%s] %s: %s (c%.2f)\n",
+			i+1, item.Section, item.Key, truncate(item.Value, 200), item.Confidence)
 	}
 
 	prompt := prompts.BuildMemoryReflectionPrompt(itemsDesc.String())

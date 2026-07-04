@@ -19,6 +19,7 @@
 - **可观测性** — Observer 接口 + 预置 Langfuse Adapter，完整 trace/span/generation 层级
 - **统一 Usage 回调** — 所有 LLM token 消耗通过单一回调上报，按来源标识
 - **ACP 协议** — JSON-RPC 2.0 over stdio，接入 Zed / JetBrains / VS Code / Neovim
+- **MCP 协议** — 连接外部 MCP 服务器作为子进程，自动发现工具并以 `mcp_<server>_<tool>` 命名注册
 
 ## 架构概览
 
@@ -368,7 +369,7 @@ srv.Run(context.Background())
 ```
 
 ```bash
-go run examples/acp_server/main.go -apikey sk-xxx
+go run cmd/acp_server/main.go -apikey sk-xxx
 ```
 
 编辑器配置示例：
@@ -377,13 +378,70 @@ go run examples/acp_server/main.go -apikey sk-xxx
 {
   "agent": {
     "command": "go",
-    "args": ["run", "examples/acp_server", "-apikey", "sk-xxx"],
+    "args": ["run", "cmd/acp_server", "-apikey", "sk-xxx"],
     "work_dir": "/path/to/kugelblitz"
   }
 }
 ```
 
-完整示例见 [examples/acp_server/](examples/acp_server/)。
+完整示例见 [cmd/acp_server/](cmd/acp_server/)。
+
+## MCP — Model Context Protocol
+
+Kugelblitz 可连接外部 MCP 服务器，自动发现工具并暴露给 LLM——无需编写任何胶水代码。
+
+### 工作原理
+
+```
+MCP 服务器 (子进程)               Kugelblitz (客户端)
+     │                                │
+     ├─ initialize ──────────────────>│  stdio CommandTransport
+     ├─ tools/list ──────────────────>│  发现工具
+     │<─ [toolA, toolB, ...] ────────┤
+     │                                ├─ 注册为 "mcp_<server>_<tool>"
+     │                                │  加入全局 ToolRegistry
+     │                                │
+     │                         Agent 调用工具
+     │                                │
+     │<─ tools/call(toolA, args) ─────┤  转发 via session.CallTool
+     ├─ result ──────────────────────>│  text / image / error
+```
+
+### 配置
+
+在 `kugelblitz.yaml` 的 `mcp_servers` 中添加 MCP 服务器：
+
+```yaml
+mcp_servers:
+  github:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env:
+      GITHUB_TOKEN: "ghp_xxx"
+  custom:
+    command: python3
+    args: ["path/to/your/server.py"]
+```
+
+各字段说明：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `command` | string | 启动可执行文件（必填） |
+| `args` | []string | 命令行参数 |
+| `env` | map[string]string | 环境变量 |
+
+### 工具命名
+
+发现的工具以 `mcp_<server>_<tool>` 前缀注册，避免与内置工具冲突：
+
+| 服务器 | 原生工具 | 注册名称 |
+|--------|---------|---------|
+| `github` | `search_repositories` | `mcp_github_search_repositories` |
+| `custom` | `echo` | `mcp_custom_echo` |
+
+> **注意**：工具名使用下划线（`_`）作为分隔符——冒号（`:`）不在 DeepSeek 等 LLM
+> API 允许的字符集中（`^[a-zA-Z0-9_-]+$`）。
 
 ## 人在回路 (Human-in-the-Loop)
 
@@ -728,17 +786,39 @@ kugelblitz/
 ├── prompts/           # 系统提示词模板
 ├── observability/     # Observer 接口 + Langfuse Adapter, PlannerInstrument
 ├── acp/               # ACP 适配器（JSON-RPC 2.0 stdio 传输、会话管理）
-├── mcp/               # MCP 服务集成
 ├── tools/
+│   ├── mcp/           # MCP 服务集成（客户端、管理器、工具注册）
 │   └── internals/     # 内置工具（plan_*, task_*, memory_*, web, file, shell）
 ├── skills/            # Skill 加载与注册
 ├── provider/
 │   └── chat_completions/  # OpenAI 兼容 Format（Block + Stream）
 ├── persist/           # 格式级存储：MarkdownPersist, JSONLPersist, VectorPersist
 ├── utils/             # UUID 生成, session ID
-└── examples/
-    ├── simple/            # 快速开始示例
-    └── acp_server/        # ACP 服务端（编辑器兼容 Agent）
+└── cmd/
+    ├── common/        #   共享 YAML 配置工具
+    ├── kugelblitz-ui/ #   Web UI 服务器（HTTP + SSE 流式）
+    └── acp_server/    #   ACP 服务端（编辑器兼容 Agent）
+```
+
+### 构建二进制文件
+
+```bash
+# 构建所有 cmd 二进制 → bin/
+make build
+
+# 构建指定二进制
+make build build-cmds=kugelblitz-ui
+
+# 构建并安装到 $GOPATH/bin
+make install
+make install build-cmds=kugelblitz-ui PREFIX=/usr/local
+
+# 启动 Web UI（默认 :8088）
+./bin/kugelblitz-ui
+./bin/kugelblitz-ui -addr :9090
+
+# 启动 ACP 服务端
+./bin/acp_server -v
 ```
 
 ### 工作目录布局（`~/.kugelblitz/`）
@@ -751,7 +831,7 @@ kugelblitz/
 ├── IDENTITY.md                        # Agent 身份（只读）
 ├── SOUL.md                            # Agent 个性（只读）
 ├── USER.md                            # 用户画像（只读）
-├── mcp.yaml                           # MCP 服务配置（只读）
+├── kugelblitz.yaml                    # 主配置（包含 mcp_servers）
 ├── skills/
 │   └── {name}/SKILL.md                # 技能定义（只读）
 │

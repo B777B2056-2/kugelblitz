@@ -18,7 +18,7 @@ func (t *SetWorkMode) Definition() core.ToolDefinition {
 		Description: "Set the execution mode. Use 'plan' for complex multi-step tasks " +
 			"that require planning and task decomposition. Use 'simple' for " +
 			"straightforward single-step tasks that can be done directly.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"mode": map[string]any{

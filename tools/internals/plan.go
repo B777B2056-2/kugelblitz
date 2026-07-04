@@ -21,7 +21,7 @@ func (t *PlanCreate) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "plan_create",
 		Description: "Create a new empty plan. Use task_insert afterwards to add subtasks.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"name": map[string]any{
@@ -66,7 +66,7 @@ func (t *PlanQuery) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "plan_query",
 		Description: "Query a plan by ID to get all subtasks with status, or omit plan_id to list all plans.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"plan_id": map[string]any{
@@ -97,7 +97,7 @@ func (t *PlanQuery) Execute(ctx context.Context, detail core.ToolCallDetail) cor
 	plans := working.ListPlans()
 	plansJSON, _ := json.Marshal(working.PlansToMaps(plans))
 	var plansList []any
-	json.Unmarshal(plansJSON, &plansList)
+	_ = json.Unmarshal(plansJSON, &plansList)
 	return tools.SuccessResult(detail.ID, "plan_query", map[string]any{
 		"plans": plansList, "count": len(plans),
 	})
@@ -112,7 +112,7 @@ func (t *ConfirmPlan) Definition() core.ToolDefinition {
 		Name: "confirm_plan",
 		Description: "Confirm the plan after user review. Call after ask_human to finalize. " +
 			"Set status to 'doing' (approved), 'rejected', or 'update' (needs changes).",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"plan_id": map[string]any{
@@ -182,7 +182,7 @@ func (t *TaskInsert) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "task_insert",
 		Description: "Insert a new subtask into a plan. Use parent_task_id to define execution order — independent tasks run concurrently.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"plan_id": map[string]any{
@@ -256,7 +256,7 @@ func (t *TaskDelete) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "task_delete",
 		Description: "Delete a task from its plan. Use to remove failed or unnecessary tasks during replanning.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"task_id": map[string]any{
@@ -302,7 +302,7 @@ func (t *TaskQuery) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "task_query",
 		Description: "Query a task by ID to get full details, or list all tasks in a plan by plan_id. Provide exactly one of task_id or plan_id.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"task_id": map[string]any{
@@ -365,7 +365,7 @@ func (t *TaskStatusUpdate) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "task_status_update",
 		Description: "Update a task's status manually. Use during execution to mark tasks as done or failed after reviewing their output.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"task_id": map[string]any{
@@ -435,7 +435,7 @@ func (t *PlanRollback) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "plan_rollback",
 		Description: "Rollback a plan to a previous checkpoint. Use when execution has drifted or produced incorrect results. A new checkpoint is created on rollback.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"plan_id": map[string]any{

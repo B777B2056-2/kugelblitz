@@ -47,11 +47,11 @@ func NewChromaStoreOrNil() *ChromaStore {
 func (c *ChromaStore) ensureCollection() error {
 	resp, err := c.client.Get(c.baseURL + "/api/v2/collections/" + c.collection)
 	if err == nil && resp.StatusCode == 200 {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil
 	}
 	if resp != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 
 	body := map[string]any{"name": c.collection}
@@ -60,7 +60,7 @@ func (c *ChromaStore) ensureCollection() error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("create collection %d: %s", resp.StatusCode, string(b))
@@ -92,7 +92,7 @@ func (c *ChromaStore) Add(documents []string, metadatas []map[string]any) error 
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("chroma add %d: %s", resp.StatusCode, string(b))
@@ -116,7 +116,7 @@ func (c *ChromaStore) Search(query string, mode SearchMode, limit int) ([]Search
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("chroma query %d: %s", resp.StatusCode, string(b))
@@ -178,7 +178,7 @@ func (c *ChromaStore) UpsertMany(entries []VectorEntry) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("chroma upsert %d: %s", resp.StatusCode, string(b))
@@ -232,7 +232,7 @@ func (c *ChromaStore) DeleteDocument(docID string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("chroma delete %d: %s", resp.StatusCode, string(b))

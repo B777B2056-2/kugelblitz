@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kugelblitz UI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+
+<!-- ═══ Navigation ═══ -->
+<nav id="nav">
+    <div class="brand">
+        <div class="logo">✦</div>
+        Kugelblitz
+        <span>UI</span>
+    </div>
+    <div class="tabs">
+        <button id="tab-chat" class="active" onclick="switchTab('chat')">对话</button>
+        <button id="tab-settings" onclick="switchTab('settings')">配置</button>
+    </div>
+</nav>
+
+<!-- ═══ Session Bar ═══ -->
+<div id="session-bar">
+    <button class="btn-new" onclick="newSession()">+ 新会话</button>
+    <select id="session-select" onchange="switchSession(this.value)">
+        <option value="">— 历史会话 —</option>
+    </select>
+    <span class="session-id" id="current-session"></span>
+</div>
+
+<!-- ═══ Main Content ═══ -->
+<div id="main">
+
+    <!-- Chat Panel -->
+    <div id="chat-panel">
+        <div id="messages"></div>
+
+        <!-- Welcome -->
+        <div id="welcome">
+            <div class="welcome-icon">✦</div>
+            <h2>Kugelblitz Agent</h2>
+            <p>在下方输入目标，Agent 将自动规划并执行任务。<br>支持 Plan 模式、工具调用、人在回路等能力。</p>
+        </div>
+
+        <!-- HITL Dialog -->
+        <div id="hitl-dialog">
+            <div class="hitl-header">
+                <div class="hitl-icon">❓</div>
+                <div class="hitl-title">需要您的确认</div>
+            </div>
+            <div class="hitl-reason" id="hitl-reason"></div>
+            <div class="hitl-question" id="hitl-question"></div>
+            <div class="hitl-buttons" id="hitl-buttons"></div>
+        </div>
+
+        <!-- Input Area -->
+        <div id="input-area">
+            <div class="input-wrapper">
+                <input type="text" id="goal-input" placeholder="输入任务目标，Agent 将自动规划并执行…"
+                       onkeydown="if(event.key==='Enter')sendMessage()">
+                <button id="send-btn" onclick="sendMessage()" title="发送">→</button>
+                <button id="stop-btn" onclick="stopSession()" title="停止" style="display:none">⏹</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Panel (Plan + Token Usage) -->
+    <div id="right-panel">
+        <div class="right-tabs">
+            <button class="right-tab active" onclick="switchRightTab('plan')">📋 计划</button>
+            <button class="right-tab" onclick="switchRightTab('usage')">📊 用量</button>
+        </div>
+
+        <!-- Plan Tab -->
+        <div id="right-plan" class="right-content active">
+            <div class="plan-header">
+                <div class="plan-name" id="plan-name">暂无计划</div>
+                <span class="plan-status init" id="plan-status" style="display:none">
+                    <span class="status-dot"></span>
+                    <span class="status-label"></span>
+                </span>
+                <div class="plan-info" id="plan-info"></div>
+            </div>
+            <div class="task-list" id="task-list">
+                <div class="no-plan">
+                    <div class="empty-icon">📋</div>
+                    <div>Agent 尚未创建计划</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Usage Tab -->
+        <div id="right-usage" class="right-content">
+            <div class="usage-summary">
+                <div class="usage-card">
+                    <div class="usage-label">输入</div>
+                    <div class="usage-value" id="usage-input">0</div>
+                </div>
+                <div class="usage-card">
+                    <div class="usage-label">输出</div>
+                    <div class="usage-value" id="usage-output">0</div>
+                </div>
+                <div class="usage-card">
+                    <div class="usage-label">推理</div>
+                    <div class="usage-value" id="usage-reasoning">0</div>
+                </div>
+                <div class="usage-card total">
+                    <div class="usage-label">总计</div>
+                    <div class="usage-value" id="usage-total">0</div>
+                </div>
+            </div>
+            <div class="usage-bar-wrap">
+                <div class="usage-bar" id="usage-bar">
+                    <div class="usage-bar-seg input" id="bar-input" style="width:0%"></div>
+                    <div class="usage-bar-seg output" id="bar-output" style="width:0%"></div>
+                    <div class="usage-bar-seg reasoning" id="bar-reasoning" style="width:0%"></div>
+                </div>
+            </div>
+            <div class="usage-legend">
+                <span><i class="dot input"></i>输入</span>
+                <span><i class="dot output"></i>输出</span>
+                <span><i class="dot reasoning"></i>推理</span>
+            </div>
+            <div class="usage-by-source" id="usage-by-source">
+                <div class="usage-empty">等待用量数据…</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Panel -->
+    <div id="settings-panel">
+        <div id="settings-layout">
+            <div id="settings-sidebar">
+                <!-- Provider Config -->
+                <div class="config-section">
+                    <div class="config-title">⚡ 模型配置</div>
+                    <div class="config-form">
+                        <label>提供商</label>
+                        <select id="cfg-provider" onchange="onProviderChange()">
+                            <option value="deepseek">DeepSeek</option>
+                            <option value="openai">OpenAI</option>
+                        </select>
+
+                        <label>模型</label>
+                        <input type="text" id="cfg-model" placeholder="deepseek-v4-flash">
+
+                        <label>Base URL</label>
+                        <input type="text" id="cfg-baseurl" placeholder="https://api.deepseek.com">
+
+                        <label>API Key</label>
+                        <div class="apikey-row">
+                            <input type="password" id="cfg-apikey" placeholder="sk-…">
+                            <button class="btn-toggle-key" onclick="toggleApiKey()" title="显示/隐藏">👁</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Model Runtime -->
+                <div class="config-section">
+                    <div class="config-title">🧠 推理设置</div>
+                    <div class="config-form">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="cfg-stream" checked> Stream 模式
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="cfg-thinking" checked> 深度思考
+                        </label>
+                        <label>推理强度</label>
+                        <select id="cfg-reasoning-effort">
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high" selected>High</option>
+                            <option value="xhigh">X-High</option>
+                            <option value="max">Max</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Runtime -->
+                <div class="config-section">
+                    <div class="config-title">⚙️ 运行时</div>
+                    <div class="config-form">
+                        <label>最大状态机循环</label>
+                        <input type="number" id="cfg-max-cycles" min="5" max="200" value="30">
+                    </div>
+                </div>
+
+                <!-- Context Compress -->
+                <div class="config-section">
+                    <div class="config-title">📦 上下文压缩</div>
+                    <div class="config-form">
+                        <label>最大压缩尝试次数</label>
+                        <input type="number" id="cfg-compress-attempts" min="1" max="10" value="1">
+
+                        <label>工具结果压缩阈值 (字符)</label>
+                        <input type="number" id="cfg-compress-chars" min="0" max="100000" value="4000" step="500">
+
+                        <label>保留最近消息数 (不压缩)</label>
+                        <input type="number" id="cfg-keep-last-n" min="5" max="100" value="20">
+
+                        <label>最少旧消息数 (触发压缩)</label>
+                        <input type="number" id="cfg-min-msgs" min="5" max="50" value="10">
+                    </div>
+                </div>
+
+                <!-- Target Drift -->
+                <div class="config-section">
+                    <div class="config-title">🎯 目标漂移检测</div>
+                    <div class="config-form">
+                        <label>审查间隔 (步数)</label>
+                        <input type="number" id="cfg-review-interval" min="1" max="100" value="12">
+
+                        <label>失败阈值 (触发审查)</label>
+                        <input type="number" id="cfg-max-failures" min="1" max="50" value="5">
+                    </div>
+                </div>
+
+                <!-- MCP Servers -->
+                <div class="config-section">
+                    <div class="config-title">🔌 MCP 服务器</div>
+                    <div class="config-form">
+                        <div id="mcp-servers"></div>
+                        <button class="btn-add-server" onclick="addMCPServer()">+ 添加服务器</button>
+                    </div>
+                </div>
+
+                <!-- Save -->
+                <button class="btn-save-config" onclick="saveConfig()">保存配置</button>
+                <span class="config-status" id="config-status"></span>
+
+                <!-- File List -->
+                <div id="settings-files">
+                    <div class="files-header">📁 可编辑文件</div>
+                </div>
+            </div>
+
+            <div id="settings-editor">
+                <div class="editor-header">
+                    <div>
+                        <span class="filename" id="editor-filename">选择文件</span>
+                        <span class="modified-dot" id="modified-dot" title="未保存的更改"></span>
+                    </div>
+                    <button class="btn-save" id="btn-save-settings" onclick="saveSettings()" disabled>保存</button>
+                </div>
+                <textarea id="editor-content" placeholder="在左侧选择文件进行编辑…" spellcheck="false"></textarea>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ Status Bar ═══ -->
+<div id="status-bar">
+    <span class="dot" id="status-dot" title="连接状态"></span>
+    <span id="status-text">就绪</span>
+    <span id="session-info"></span>
+    <span class="token-counter" id="token-counter"></span>
+</div>
+
+<script src="/chat.js"></script>
+<script src="/settings.js"></script>
+</body>
+</html>

@@ -102,5 +102,5 @@ func TestAskHumanTool_Definition_HasCorrectName(t *testing.T) {
 	def := tool.Definition()
 	assert.Equal(t, "ask_human", def.Name)
 	assert.NotEmpty(t, def.Description)
-	assert.Contains(t, def.JsonSchema["required"], "question")
+	assert.Contains(t, def.JSONSchema["required"], "question")
 }

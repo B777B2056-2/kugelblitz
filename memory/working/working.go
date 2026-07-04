@@ -5,6 +5,8 @@ package working
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -111,7 +113,7 @@ func saveCheckpoint(p *Plan, reason string) {
 	planStore[p.ID] = p
 	planStoreMu.Unlock()
 
-	p.Persist()
+	_ = p.Persist()
 	_ = persist.SaveCheckpointJSON(p.ID, cp.Version, cp)
 }
 
@@ -240,75 +242,64 @@ func (p *Plan) IsIncomplete() bool {
 	return p.State == constants.PlanStateConfirmed || p.State == constants.PlanStateDoing || p.State == constants.PlanStateUpdating
 }
 
-// IsValid returns true if the plan has at least one subtask and all
+// Validate returns true if the plan has at least one subtask and all
 // parent_task_id dependencies form a valid directed acyclic graph.
 // Empty subtasks, self-loops, dangling references, and cycles all return false.
-func (p *Plan) IsValid() bool {
+// Validate checks that the plan is well-formed: non-empty tasks, no dangling
+// references, no self-loops, and a valid DAG. Returns nil on success.
+func (p *Plan) Validate() error {
 	if len(p.SubTasks) == 0 {
-		core.Warn("plan validation failed: empty subtasks", "plan_json", p.json())
-		return false
+		return errors.New("plan has no tasks")
 	}
 
-	// Build task ID set
 	taskIDs := make(map[string]bool, len(p.SubTasks))
 	for _, t := range p.SubTasks {
 		taskIDs[t.ID] = true
 	}
 
-	// Build adjacency graph: taskID → list of IDs it depends on
 	graph := make(map[string][]string, len(p.SubTasks))
 	for _, t := range p.SubTasks {
 		for _, parentID := range SplitParentIDs(t.ParentTaskID) {
 			if !taskIDs[parentID] {
-				core.Warn("plan validation failed: dangling reference",
-					"task", t.ID, "parent", parentID, "plan_json", p.json())
-				return false
+				return fmt.Errorf("task %q depends on non-existent parent %q", t.ID, parentID)
 			}
 			if parentID == t.ID {
-				core.Warn("plan validation failed: self-loop",
-					"task", t.ID, "plan_json", p.json())
-				return false
+				return fmt.Errorf("task %q depends on itself", t.ID)
 			}
 			graph[t.ID] = append(graph[t.ID], parentID)
 		}
 	}
 
-	// DFS cycle detection
 	const (
 		white, gray, black = 0, 1, 2
 	)
 	color := make(map[string]int, len(taskIDs))
 
-	var dfs func(id string) bool
-	dfs = func(id string) bool {
+	var dfs func(id string) error
+	dfs = func(id string) error {
 		color[id] = gray
 		for _, parent := range graph[id] {
 			switch color[parent] {
 			case gray:
-				core.Warn("plan validation failed: cycle detected",
-					"task", id, "parent_in_cycle", parent, "plan_json", p.json())
-				return false
+				return fmt.Errorf("plan contains a dependency cycle involving %q", parent)
 			case white:
-				if !dfs(parent) {
-					return false
+				if err := dfs(parent); err != nil {
+					return err
 				}
 			}
 		}
 		color[id] = black
-		return true
+		return nil
 	}
 
 	for id := range taskIDs {
-		if color[id] == white && !dfs(id) {
-			return false
+		if color[id] == white {
+			if err := dfs(id); err != nil {
+				return err
+			}
 		}
 	}
-	return true
-}
-
-func (p *Plan) json() string {
-	b, _ := json.Marshal(p)
-	return string(b)
+	return nil
 }
 
 // Persist saves the plan to disk via the persist package.
@@ -350,7 +341,7 @@ func GetWorkerFactory() WorkerFactory { return workerFactory }
 func PlanToMap(p *Plan) map[string]any {
 	data, _ := json.Marshal(p)
 	var m map[string]any
-	json.Unmarshal(data, &m)
+	_ = json.Unmarshal(data, &m)
 	return m
 }
 
@@ -367,7 +358,7 @@ func PlansToMaps(plans []*Plan) []map[string]any {
 func TaskToMap(t *Task) map[string]any {
 	data, _ := json.Marshal(t)
 	var m map[string]any
-	json.Unmarshal(data, &m)
+	_ = json.Unmarshal(data, &m)
 	return m
 }
 

@@ -2,19 +2,20 @@ package runtime
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/B777B2056-2/kugelblitz/config"
+	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/memory"
 	"github.com/B777B2056-2/kugelblitz/memory/longterm"
 	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/persist"
-	"github.com/B777B2056-2/kugelblitz/runtime/engine"
 	"github.com/B777B2056-2/kugelblitz/prompts"
+	"github.com/B777B2056-2/kugelblitz/runtime/engine"
 	"github.com/B777B2056-2/kugelblitz/skills"
 	"github.com/B777B2056-2/kugelblitz/tools/internals"
+	"github.com/B777B2056-2/kugelblitz/tools/mcp"
 	"github.com/B777B2056-2/kugelblitz/utils"
 )
 
@@ -82,6 +83,8 @@ func NewAgentLoop(cfg config.Config, opts ...AgentLoopOption) *AgentLoop {
 
 	// Skills (registers globally)
 	initSkills()
+	// MCP (idempotent — only connects once per process)
+	mcp.Init(context.Background(), cfg.MCP)
 
 	initSemanticJudge(cfg.Model.Provider)
 
@@ -90,7 +93,7 @@ func NewAgentLoop(cfg config.Config, opts ...AgentLoopOption) *AgentLoop {
 		al.sessionMem = memory.GetSessionMemoryManager().CreateSessionMemory(utils.GenerateSessionID())
 	}
 	if al.indexMgr != nil && al.indexMgr.IsAvailable() {
-		al.indexMgr.RebuildIfStale(context.Background())
+		_ = al.indexMgr.RebuildIfStale(context.Background())
 	}
 
 	al.planner = engine.NewKernel(al.sessionMem, cfg)
@@ -110,7 +113,7 @@ func initLTM(provider core.ILMProvider, al *AgentLoop) {
 	internals.RegisterMemoryTools(ltm, al.indexMgr, al.writePipeline)
 
 	graphStore := longterm.NewGraphStore(mgr.JSONL(), "memory/longterm/memory_graph.jsonl")
-	graphStore.Load(context.Background())
+	_ = graphStore.Load(context.Background())
 	ltm.SetGraph(graphStore)
 
 	dreamer := &longterm.Dreamer{}
@@ -171,7 +174,7 @@ func (a *AgentLoop) Run(ctx context.Context, goal string) {
 	go func() {
 		defer close(a.done)
 		defer a.Cancel()
-		a.execute(ctx, goal)
+		_, _ = a.execute(ctx, goal)
 	}()
 }
 
@@ -196,6 +199,9 @@ func (a *AgentLoop) Done() <-chan struct{} { return a.done }
 func (a *AgentLoop) HumanLoopWaiting() bool {
 	return a.planner.HumanLoopWaiting()
 }
+
+// Agent returns the underlying IAgent for external consumers (e.g. ACP server).
+func (a *AgentLoop) Agent() core.IAgent { return a.planner.Agent() }
 
 // ---- Execution ----
 
@@ -238,52 +244,50 @@ func (a *AgentLoop) execute(ctx context.Context, goal string) ([]core.Message, e
 // rewriteEventHooks merges AgentLoop internal callbacks with user hooks.
 // AgentLoop callbacks fire first, then user callbacks.
 func (a *AgentLoop) rewriteEventHooks(userHooks core.AgentEventHooks) core.AgentEventHooks {
-	merged := userHooks
-
-	// OnToolCallEnd: AgentLoop compression + usage, then user
-	userOnToolCallEnd := merged.OnToolCallEnd
-	merged.OnToolCallEnd = func(result core.ToolCallResult) {
-		a.sessionMem.CompressToolResult(context.Background(),
-			a.planner.Compressor(), a.cfg.ContextCompress.MaxToolResultChars, &result)
-		if task, ok := result.Outputs["task"].(map[string]any); ok {
-			if um, ok := task["usage"].(map[string]any); ok {
-				if merged.OnLLMUsage != nil {
-					merged.OnLLMUsage(core.LLMUsageReport{
-						Identity: fmt.Sprintf("worker.%v", task["id"]),
-						Usage: core.Usage{
-							InputTokens:  utils.StrToInt64(um["input"]),
-							OutputTokens: utils.StrToInt64(um["output"]),
-							TotalTokens:  utils.StrToInt64(um["total"]),
-						},
-					})
-				}
-			}
-		}
-		if userOnToolCallEnd != nil {
-			userOnToolCallEnd(result)
-		}
+	// AgentLoop system wrappers: compress + extract + then user.
+	sysHooks := core.AgentEventHooks{
+		OnToolCallEnd: func(id constants.AgentIdentity, result core.ToolCallResult) {
+			a.sessionMem.CompressToolResult(context.Background(),
+				a.planner.Compressor(), a.cfg.ContextCompress.MaxToolResultChars, &result)
+		},
+		OnBeforeCompress: func(id constants.AgentIdentity) {
+			a.extractMemories()
+		},
 	}
 
-	// OnBeforeCompress: AgentLoop LTM extraction, then user
-	userOnBeforeCompress := merged.OnBeforeCompress
-	merged.OnBeforeCompress = func() {
-		a.extractMemories()
-		if userOnBeforeCompress != nil {
-			userOnBeforeCompress()
-		}
-	}
-
-	// ModelEventHandler: combine instrumentation + user
+	// Instrumentation: wrap user callbacks so the observer receives events first.
 	if a.instr != nil {
-		merged.ModelEventHandler = core.CombineModelEventHandlers(
-			a.instr.EventHandler(), merged.ModelEventHandler,
-		)
+		instrH := a.instr.EventHandler()
+		sysHooks.OnReplyChunk = func(id constants.AgentIdentity, chunk string) {
+			instrH.OnReplyChunk(chunk)
+		}
+		sysHooks.OnThinkingChunk = func(id constants.AgentIdentity, chunk string) {
+			instrH.OnThinkingChunk(chunk)
+		}
+		sysHooks.OnBlockReply = func(id constants.AgentIdentity, text string) {
+			instrH.OnBlockReply(text)
+		}
+		sysHooks.OnBlockThinking = func(id constants.AgentIdentity, reasoning string) {
+			instrH.OnBlockThinking(reasoning)
+		}
+		sysHooks.OnFunctionCall = func(id constants.AgentIdentity, detail core.ToolCallDetail) {
+			instrH.OnFunctionCall(detail)
+		}
+		sysHooks.OnModelFinished = func(id constants.AgentIdentity, reason string) {
+			instrH.OnFinished(reason)
+		}
+		sysHooks.OnUsageUpdated = func(id constants.AgentIdentity, usage core.Usage) {
+			instrH.OnUsageUpdated(usage)
+		}
+		sysHooks.OnError = func(id constants.AgentIdentity, err error) {
+			instrH.OnError(err)
+		}
 	}
 
-	return merged
+	return core.Chain(userHooks, sysHooks)
 }
 
-// extractMemories runs the LTM write pipeline before SM compresses session memory.
+// extractMemories runs the LTM write pipeline before compresses session memory.
 func (a *AgentLoop) extractMemories() {
 	input := longterm.ExtractionInput{
 		Conversation:   a.sessionMem.GetHistoryMessages(),
@@ -297,6 +301,5 @@ func (a *AgentLoop) extractMemories() {
 			"needs_human":  result.NeedsHuman,
 		})
 		span.End()
-		}
 	}
-
+}

@@ -17,7 +17,7 @@ func (t *FileCopy) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "file_copy",
 		Description: "Copy or move a file from source to destination. Set 'move' to true to move instead of copy. Overwrites destination if it exists.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"source":      map[string]any{"type": "string", "description": "Source file path"},
@@ -65,7 +65,7 @@ func (t *FileCopy) Execute(ctx context.Context, detail core.ToolCallDetail) core
 			if err := copyFile(src, dst); err != nil {
 				return tools.ErrorResult(detail.ID, "file_copy", err)
 			}
-			os.Remove(src)
+			_ = os.Remove(src)
 		}
 	} else {
 		if err := copyFile(src, dst); err != nil {
@@ -85,7 +85,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	info, err := s.Stat()
 	if err != nil {
@@ -99,7 +99,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	if _, err := io.Copy(d, s); err != nil {
 		return err

@@ -84,7 +84,6 @@ func NewServer(agent core.IAgent, provider core.ILMProvider, opts ...Option) *Se
 				Stream: true,
 			},
 		},
-	
 	}
 
 	// Apply defaults

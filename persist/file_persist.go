@@ -75,10 +75,7 @@ func (fp *FilePersist) List(_ context.Context, prefix string) ([]string, error) 
 			keys = append(keys, filepath.Join(prefix, e.Name()))
 		} else {
 			// Strip extension for flat files
-			name := e.Name()
-			if strings.HasSuffix(name, ".jsonl") {
-				name = name[:len(name)-6]
-			}
+			name := strings.TrimSuffix(e.Name(), ".jsonl")
 			keys = append(keys, filepath.Join(prefix, name))
 		}
 	}

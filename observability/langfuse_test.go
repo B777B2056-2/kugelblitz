@@ -62,7 +62,7 @@ func TestLangfuseObserver_BatchFormat(t *testing.T) {
 		if e.Type == "span-create" {
 			foundSpan = true
 			var body map[string]any
-			json.Unmarshal(e.Body, &body)
+			_ = json.Unmarshal(e.Body, &body)
 			assert.NotEmpty(t, body["parentObservationId"], "span should have parentObservationId")
 			assert.NotEmpty(t, body["startTime"], "span should have startTime")
 			break
@@ -75,7 +75,7 @@ func TestLangfuseObserver_BatchFormat(t *testing.T) {
 	for _, e := range batch {
 		if e.Type == "span-update" {
 			var body map[string]any
-			json.Unmarshal(e.Body, &body)
+			_ = json.Unmarshal(e.Body, &body)
 			if _, ok := body["endTime"]; ok {
 				foundEnd = true
 				break
@@ -90,7 +90,7 @@ func TestLangfuseObserver_HTTPPayload(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		var payload map[string]any
-		json.Unmarshal(body, &payload)
+		_ = json.Unmarshal(body, &payload)
 		for _, e := range payload["batch"].([]any) {
 			allEvents = append(allEvents, e.(map[string]any))
 		}
@@ -106,7 +106,7 @@ func TestLangfuseObserver_HTTPPayload(t *testing.T) {
 	child := span.StartSpan("react.step", map[string]any{"step": 1})
 	child.End()
 	span.End()
-	obs.Flush(context.Background())
+	_ = obs.Flush(context.Background())
 
 	require.GreaterOrEqual(t, len(allEvents), 3) // trace-create, span-create, span-update, trace-update
 
@@ -128,7 +128,7 @@ func TestLangfuseObserver_HTTPPayload(t *testing.T) {
 	for _, e := range allEvents {
 		if e["type"] == "span-create" {
 			b, _ := json.Marshal(e["body"])
-			json.Unmarshal(b, &spanCreateBody)
+			_ = json.Unmarshal(b, &spanCreateBody)
 			break
 		}
 	}
@@ -141,7 +141,7 @@ func TestLangfuseObserver_HTTPPayload(t *testing.T) {
 		if e["type"] == "span-update" {
 			var b map[string]any
 			raw, _ := json.Marshal(e["body"])
-			json.Unmarshal(raw, &b)
+			_ = json.Unmarshal(raw, &b)
 			if _, ok := b["endTime"]; ok {
 				foundEndTime = true
 				break
@@ -192,7 +192,7 @@ func TestLangfuseObserver_NestedHierarchy(t *testing.T) {
 	eventsByType := make(map[string][]map[string]any)
 	for _, e := range batch {
 		var body map[string]any
-		json.Unmarshal(e.Body, &body)
+		_ = json.Unmarshal(e.Body, &body)
 		eventsByType[e.Type] = append(eventsByType[e.Type], body)
 	}
 
@@ -222,7 +222,7 @@ func TestLangfuseObserver_EndSendsUpdate(t *testing.T) {
 	for _, e := range batch {
 		if e.Type == "trace-update" {
 			var body map[string]any
-			json.Unmarshal(e.Body, &body)
+			_ = json.Unmarshal(e.Body, &body)
 			if _, ok := body["endTime"]; ok {
 				foundTraceEnd = true
 			}
@@ -284,12 +284,9 @@ func TestLangfuseObserver_RecordError(t *testing.T) {
 	for _, e := range batch {
 		if e.Type == "span-update" {
 			var body map[string]any
-			json.Unmarshal(e.Body, &body)
+			_ = json.Unmarshal(e.Body, &body)
 			if msg, ok := body["statusMessage"]; ok && msg == assert.AnError.Error() {
 				foundErrorUpdate = true
-			}
-			if lvl, ok := body["level"]; ok && lvl == "ERROR" {
-				// also confirmed
 			}
 		}
 	}
@@ -309,5 +306,5 @@ func TestLangfuseObserver_Generations(t *testing.T) {
 	gen := span.StartGeneration(map[string]any{"name": "test-gen", "output": "test"})
 	gen.End()
 	span.End()
-	obs.Flush(context.Background())
+	_ = obs.Flush(context.Background())
 }

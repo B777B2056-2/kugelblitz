@@ -1,3 +1,4 @@
+//nolint:staticcheck
 package chat_completions
 
 import (
@@ -16,13 +17,13 @@ func TestWrapContextError_ContextLengthExceeded(t *testing.T) {
 }
 
 func TestWrapContextError_MaximumContextLength(t *testing.T) {
-	err := errors.New("This model's maximum context length is 128000 tokens. However, your messages resulted in 150000 tokens. Please reduce the length of the messages.")
+	err := errors.New("this model's maximum context length is 128000 tokens. However, your messages resulted in 150000 tokens. Please reduce the length of the messages")
 	wrapped := wrapContextError(err)
 	assert.True(t, errors.Is(wrapped, core.ErrContextLengthExceeded))
 }
 
 func TestWrapContextError_ReduceLength(t *testing.T) {
-	err := errors.New("Request too large. Please reduce the length of the messages and try again.")
+	err := errors.New("request too large. Please reduce the length of the messages and try again")
 	wrapped := wrapContextError(err)
 	assert.True(t, errors.Is(wrapped, core.ErrContextLengthExceeded))
 }

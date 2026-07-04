@@ -24,7 +24,7 @@ type LangfuseConfig struct {
 // LangfuseObserver implements core.Observer by sending traces to Langfuse.
 // Events are batched and flushed via Flush() or periodically.
 type LangfuseObserver struct {
-	name string
+	name   string
 	config LangfuseConfig
 	client *http.Client
 	batch  []ingestionEvent
@@ -144,7 +144,7 @@ func (o *LangfuseObserver) send(ctx context.Context, batch []ingestionEvent) err
 		core.Warn("flush error", "observer", o.Name(), "err", err)
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
 		core.Warn("flush failed", "observer", o.Name(), "status", resp.StatusCode, "body", string(body))
@@ -186,11 +186,11 @@ func (s *langfuseSpan) StartGeneration(attrs map[string]any) core.Span {
 	}
 
 	body := map[string]any{
-		"id":                   id,
-		"name":                 name,
-		"traceId":              s.traceID,
-		"parentObservationId":  s.parentObservationID(),
-		"startTime":            ts,
+		"id":                  id,
+		"name":                name,
+		"traceId":             s.traceID,
+		"parentObservationId": s.parentObservationID(),
+		"startTime":           ts,
 	}
 
 	meta := map[string]any{}
@@ -344,7 +344,7 @@ func (s *langfuseSpan) End() {
 type noopTraceSpan struct{}
 
 func (n *noopTraceSpan) StartSpan(_ string, _ map[string]any) core.Span { return n }
-func (n *noopTraceSpan) StartGeneration(_ map[string]any) core.Span      { return n }
-func (n *noopTraceSpan) SetAttributes(_ map[string]any)                  {}
-func (n *noopTraceSpan) RecordError(_ error)                             {}
-func (n *noopTraceSpan) End()                                            {}
+func (n *noopTraceSpan) StartGeneration(_ map[string]any) core.Span     { return n }
+func (n *noopTraceSpan) SetAttributes(_ map[string]any)                 {}
+func (n *noopTraceSpan) RecordError(_ error)                            {}
+func (n *noopTraceSpan) End()                                           {}

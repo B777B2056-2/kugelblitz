@@ -1,3 +1,4 @@
+//nolint:staticcheck
 package chat_completions
 
 import (
@@ -11,6 +12,7 @@ import (
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/shared"
 )
 
@@ -122,9 +124,8 @@ func (f *Format) Block(ctx context.Context, req openai.ChatCompletionNewParams, 
 		if msg.FinishReason != "" {
 			handler.OnFinished(msg.FinishReason)
 		}
-		if msg.Usage != nil {
-			handler.OnUsageUpdated(*msg.Usage)
-		}
+		// OnUsageUpdated is dispatched by the caller (ReactAgent) from the
+		// returned message's Usage field to avoid duplicate callbacks.
 	}
 
 	return msg, nil
@@ -219,9 +220,6 @@ func (f *Format) Stream(ctx context.Context, req openai.ChatCompletionNewParams,
 		}
 		if chunk.Usage != nil {
 			aggregated.Usage = chunk.Usage
-			if handler != nil {
-				handler.OnUsageUpdated(*chunk.Usage)
-			}
 		}
 	}
 
@@ -282,9 +280,9 @@ func (f *Format) Stream(ctx context.Context, req openai.ChatCompletionNewParams,
 // Streaming APIs (DeepSeek, OpenAI) send tool calls across multiple chunks:
 // first chunk has id+name, subsequent chunks have arguments fragments.
 type toolCallEntry struct {
-	Detail     core.ToolCallDetail
-	rawArgs    strings.Builder // concatenated raw JSON arguments (no reallocation per fragment)
-	notified   bool            // OnFunctionCall already fired
+	Detail   core.ToolCallDetail
+	rawArgs  strings.Builder // concatenated raw JSON arguments (no reallocation per fragment)
+	notified bool            // OnFunctionCall already fired
 }
 
 // rawToolCall represents a single tool call delta from a raw chunk JSON.
@@ -360,7 +358,15 @@ func (f *Format) buildRequest(params core.GenerateParams) (openai.ChatCompletion
 
 	req := openai.ChatCompletionNewParams{
 		Messages: messages,
-		Model:    openai.ChatModel(f.model),
+		Model:    f.model,
+	}
+
+	// Request usage data in streaming mode (needed for token tracking).
+	// Without this, the API omits usage from streaming chunks.
+	if params.Stream {
+		req.StreamOptions = openai.ChatCompletionStreamOptionsParam{
+			IncludeUsage: param.NewOpt(true),
+		}
 	}
 
 	if len(params.Tools) > 0 {

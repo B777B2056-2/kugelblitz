@@ -15,7 +15,7 @@ func (t *FileRead) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "file_read",
 		Description: "Read the contents of a file at the given path.",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"path": map[string]any{

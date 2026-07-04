@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/prompts"
 )
@@ -32,9 +33,9 @@ var workerTools = []string{
 type WorkerAgent struct {
 	provider   core.ILMProvider
 	streamMode bool
-	maxSteps   int                  // safety limit on ReAct loop iterations
-	hooks      core.AgentEventHooks // set by DAG executor; relayed to worker's ReactAgent
-	pauseGate  *sync.RWMutex        // shared DAG pause gate; nil = no pausing
+	maxSteps   int                                            // safety limit on ReAct loop iterations
+	hooks      core.AgentEventHooks                           // set by DAG executor; relayed to worker's ReactAgent
+	pauseGate  *sync.RWMutex                                  // shared DAG pause gate; nil = no pausing
 	onHITL     func(agent *ReactAgent, reason, prompt string) // fire on worker HITL
 }
 
@@ -101,8 +102,6 @@ func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (str
 		Text: fmt.Sprintf("Execute the task: %s", goal),
 	})
 
-	handler := &workerEventHandler{result: result}
-
 	agent := NewReactAgent(w.provider, w.streamMode)
 	agent.WithTools(append(workerTools, core.GetToolRegistry().CustomToolNames()...)...)
 	agent.EnableHumanInTheLoop()
@@ -110,32 +109,37 @@ func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (str
 		agent.WithPauseGate(w.pauseGate)
 	}
 
-	// Compose hooks: start from parent, overlay local handler, OnToolCallEnd, OnWaitForHumanAction.
-	hooks := w.hooks
-	hooks.ModelEventHandler = handler
-	prevOnToolCallEnd := hooks.OnToolCallEnd
-	hooks.OnToolCallEnd = func(r core.ToolCallResult) {
-		if errMsg, ok := r.Outputs["error"]; ok {
-			result.write(fmt.Sprintf("[tool error: %s → %v]", r.ToolName, errMsg))
-		}
-		if prevOnToolCallEnd != nil {
-			prevOnToolCallEnd(r)
-		}
-	}
-	prevOnWaitForHuman := hooks.OnWaitForHumanAction
-	hooks.OnWaitForHumanAction = func(reason, prompt string) {
-		if w.onHITL != nil {
-			w.onHITL(agent, reason, prompt)
-		}
-		if prevOnWaitForHuman != nil {
-			prevOnWaitForHuman(reason, prompt)
-		}
-	}
+	// Compose hooks: Chain preserves user callbacks.
+	hooks := core.Chain(w.hooks, core.AgentEventHooks{
+		OnReplyChunk: func(id constants.AgentIdentity, chunk string) {
+			result.write(chunk)
+		},
+		OnBlockReply: func(id constants.AgentIdentity, text string) {
+			result.write(text)
+		},
+		OnUsageUpdated: func(id constants.AgentIdentity, usage core.Usage) {
+			result.addUsage(usage)
+		},
+		OnError: func(id constants.AgentIdentity, err error) {
+			result.setErr(err)
+		},
+		OnToolCallEnd: func(id constants.AgentIdentity, r core.ToolCallResult) {
+			if errMsg, ok := r.Outputs["error"]; ok {
+				result.write(fmt.Sprintf("[tool error: %s → %v]", r.ToolName, errMsg))
+			}
+		},
+		OnWaitForHumanAction: func(id constants.AgentIdentity, reason, prompt string) {
+			if w.onHITL != nil {
+				w.onHITL(agent, reason, prompt)
+			}
+		},
+	})
+	agent.SetAgentIdentity(constants.AgentWorker)
 	agent.RegisterEventHooks(hooks)
 
 	go func() {
 		<-ctx.Done()
-		agent.Interrupt(context.Background())
+		_ = agent.Interrupt(context.Background())
 	}()
 
 	messages, err := agent.Execute(ctx, systemMsg, []core.Message{userMsg})
@@ -146,9 +150,6 @@ func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (str
 	for _, msg := range messages {
 		if tc, ok := msg.Content.(core.TextContent); ok {
 			result.write(tc.Text)
-		}
-		if msg.Usage != nil {
-			result.addUsage(*msg.Usage)
 		}
 	}
 
@@ -164,15 +165,3 @@ func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (str
 	}
 	return result.output.String(), usage, nil
 }
-
-// workerEventHandler collects output from streaming chunks.
-type workerEventHandler struct {
-	result *workerResult
-}
-
-func (h *workerEventHandler) OnThinkingChunk(chunk string)              {}
-func (h *workerEventHandler) OnReplyChunk(chunk string)                 { h.result.write(chunk) }
-func (h *workerEventHandler) OnFunctionCall(detail core.ToolCallDetail) {}
-func (h *workerEventHandler) OnFinished(reason string)                  {}
-func (h *workerEventHandler) OnUsageUpdated(usage core.Usage)           { h.result.addUsage(usage) }
-func (h *workerEventHandler) OnError(err error)                         { h.result.setErr(err) }

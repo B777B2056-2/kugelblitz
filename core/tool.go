@@ -13,7 +13,7 @@ type ToolCallFunc func(context.Context, ToolCallDetail) ToolCallResult
 type ToolDefinition struct {
 	Name         string
 	Description  string
-	JsonSchema   map[string]any // input parameter schema (JSON Schema format)
+	JSONSchema   map[string]any // input parameter schema (JSON Schema format)
 	OutputSchema map[string]any // output/return value schema (optional; nil = no schema)
 	Terminating  bool           // if true, ReAct loop stops immediately after calling this tool
 }
@@ -92,7 +92,6 @@ func (tr *ToolRegistry) IsTerminating(name string) bool {
 	entry, ok := tr.tools[name]
 	return ok && entry.def.Terminating
 }
-
 
 // MarkAsInternal marks the given tool names as framework-internal.
 func (tr *ToolRegistry) MarkAsInternal(names ...string) {

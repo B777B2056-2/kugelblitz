@@ -96,6 +96,6 @@ func (j *JSONLPersist) WriteAll(ctx context.Context, path string, events []JSONL
 			return fmt.Errorf("jsonl write: %w", err)
 		}
 	}
-	bw.Flush()
+	_ = bw.Flush()
 	return j.backend.Store(ctx, path, buf.Bytes())
 }

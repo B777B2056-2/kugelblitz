@@ -59,7 +59,7 @@ func handleContextExceeded(ctx *Context, sysMsg core.Message, tools []string) ([
 	sessionCtx := core.WithSessionID(ctx.Ctx, deps.Session.SessionID())
 
 	for i := 0; i < deps.Config.CompressMaxAttempts; i++ {
-		deps.Session.Compress(ctx.Ctx, deps.Compressor, 4, 1)
+		_, _ = deps.Session.Compress(ctx.Ctx, deps.Compressor, 4, 1)
 
 		history := deps.Session.GetHistoryMessages()
 		result, err := deps.React.ExecuteWithTools(sessionCtx, sysMsg, history, tools)
@@ -78,7 +78,7 @@ type DAGAction struct {
 func (a *DAGAction) Execute(ctx *Context) (*ActionResult, error) {
 	deps := ctx.Deps
 
-	r := deps.DAG.ExecuteBatch(a.Plan, ctx.Ctx, func(taskID, goal, reason string) {
+	r := deps.DAG.ExecuteBatch(ctx.Ctx, a.Plan, func(taskID, goal, reason string) {
 		ctx.TaskFails++
 		if shouldReview(ctx) {
 			plan, _ := working.GetPlan(ctx.PlanID)

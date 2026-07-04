@@ -25,11 +25,11 @@ type PlannerInstrument struct {
 	currentStepSpan core.Span // the react.step span for the current step
 	stepNum         int
 
-	thinkBuf       strings.Builder
-	replyBuf       strings.Builder
-	toolNames      []string
-	pendingTools   []core.ToolCallDetail // tool calls awaiting execution results
-	usage          core.Usage
+	thinkBuf     strings.Builder
+	replyBuf     strings.Builder
+	toolNames    []string
+	pendingTools []core.ToolCallDetail // tool calls awaiting execution results
+	usage        core.Usage
 }
 
 func NewPlannerInstrument(trace core.TraceSpan) *PlannerInstrument {
@@ -149,9 +149,11 @@ type plannerHandler struct {
 	pi *PlannerInstrument
 }
 
-func (h *plannerHandler) OnThinkingChunk(chunk string) { h.pi.thinkBuf.WriteString(chunk) }
-func (h *plannerHandler) OnReplyChunk(chunk string)    { h.pi.replyBuf.WriteString(chunk) }
-func (h *plannerHandler) OnError(err error)            {}
+func (h *plannerHandler) OnThinkingChunk(chunk string)     { h.pi.thinkBuf.WriteString(chunk) }
+func (h *plannerHandler) OnReplyChunk(chunk string)        { h.pi.replyBuf.WriteString(chunk) }
+func (h *plannerHandler) OnBlockThinking(reasoning string) { h.pi.thinkBuf.WriteString(reasoning) }
+func (h *plannerHandler) OnBlockReply(text string)         { h.pi.replyBuf.WriteString(text) }
+func (h *plannerHandler) OnError(err error)                {}
 
 func (h *plannerHandler) OnFunctionCall(detail core.ToolCallDetail) {
 	h.pi.toolNames = append(h.pi.toolNames, detail.ToolName)

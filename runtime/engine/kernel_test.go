@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/config"
+	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/memory"
 
@@ -48,13 +49,12 @@ func TestKernel_RegisterEventHooks(t *testing.T) {
 	k := newTestKernel()
 
 	hooks := core.AgentEventHooks{
-		OnToolCallEnd: func(result core.ToolCallResult) {},
+		OnToolCallEnd: func(id constants.AgentIdentity, result core.ToolCallResult) {},
 	}
 	k.RegisterEventHooks(hooks)
 
 	// Verify hooks were forwarded
 	assert.NotNil(t, k.mainReact.EventHooks.OnToolCallEnd)
-	assert.NotNil(t, k.dagExec.Hooks.OnToolCallEnd)
 }
 
 func TestKernel_HumanLoopWaiting_InitiallyFalse(t *testing.T) {

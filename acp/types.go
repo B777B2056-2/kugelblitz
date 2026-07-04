@@ -117,8 +117,8 @@ const (
 
 // ContentBlock is an ACP message content block (text, image, resource_link, resource).
 type ContentBlock struct {
-	Type     ContentBlockType `json:"type"`
-	Text     string           `json:"text,omitempty"`
+	Type ContentBlockType `json:"type"`
+	Text string           `json:"text,omitempty"`
 
 	// Image fields
 	Data     string `json:"data,omitempty"`
@@ -194,8 +194,8 @@ func (f FlexibleFlag) MarshalJSON() ([]byte, error) {
 
 // InitializeResult is the agent's response to initialize.
 type InitializeResult struct {
-	ProtocolVersion int              `json:"protocolVersion"`
-	ServerInfo      ServerInfo       `json:"serverInfo"`
+	ProtocolVersion int               `json:"protocolVersion"`
+	ServerInfo      ServerInfo        `json:"serverInfo"`
 	Capabilities    AgentCapabilities `json:"capabilities"`
 }
 
@@ -207,8 +207,8 @@ type ServerInfo struct {
 
 // AgentCapabilities describes what the agent supports.
 type AgentCapabilities struct {
-	PromptCapabilities   PromptCapabilities   `json:"promptCapabilities"`
-	MCPCapabilities      *MCPCapabilities     `json:"mcpCapabilities,omitempty"`
+	PromptCapabilities   PromptCapabilities    `json:"promptCapabilities"`
+	MCPCapabilities      *MCPCapabilities      `json:"mcpCapabilities,omitempty"`
 	TerminalCapabilities *TerminalCapabilities `json:"terminalCapabilities,omitempty"`
 }
 
@@ -372,7 +372,7 @@ func NewToolCallUpdateNotification(id, status string, outputs map[string]any) To
 const (
 	ToolCallStatusRunning   = "running"
 	ToolCallStatusCompleted = "completed"
-	ToolCallStatusError    = "error"
+	ToolCallStatusError     = "error"
 )
 
 // PlanNotification notifies the client about the agent's plan.
@@ -385,9 +385,9 @@ type PlanNotification struct {
 
 // PermissionRequest represents an agent asking for user permission.
 type PermissionRequest struct {
-	SessionID string `json:"sessionId"`
-	ToolName  string `json:"toolName"`
-	ToolID    string `json:"toolId"`
-	Reason    string `json:"reason"`
+	SessionID string         `json:"sessionId"`
+	ToolName  string         `json:"toolName"`
+	ToolID    string         `json:"toolId"`
+	Reason    string         `json:"reason"`
 	Args      map[string]any `json:"args"`
 }

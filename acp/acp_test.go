@@ -192,8 +192,8 @@ func TestServer_NewServer_WithCapabilities(t *testing.T) {
 	agent := newMockAgent()
 	prov := &mockProvider{}
 	caps := AgentCapabilities{
-		PromptCapabilities:   PromptCapabilities{Image: false, Stream: true},
-		MCPCapabilities:      &MCPCapabilities{Proxy: true},
+		PromptCapabilities: PromptCapabilities{Image: false, Stream: true},
+		MCPCapabilities:    &MCPCapabilities{Proxy: true},
 	}
 	srv := NewServer(agent, prov, WithCapabilities(caps))
 	assert.False(t, srv.capabilities.PromptCapabilities.Image)
@@ -307,10 +307,10 @@ func TestServer_FullFlow(t *testing.T) {
 	tr := NewTransport(&testReadWriter{readBuf: readBuf, writeBuf: writeBuf})
 
 	handler := &Handler{
-		transport: tr,
-		sessions:  NewSessionManager(),
-		agent:     mockAgent,
-		provider:  &mockProvider{},
+		transport:  tr,
+		sessions:   NewSessionManager(),
+		agent:      mockAgent,
+		provider:   &mockProvider{},
 		serverInfo: ServerInfo{Name: "kugelblitz", Version: "0.1.0"},
 	}
 
@@ -338,7 +338,7 @@ func TestServer_FullFlow(t *testing.T) {
 	var sessionResp struct {
 		Result SessionNewResult `json:"result"`
 	}
-	json.Unmarshal([]byte(output2), &sessionResp)
+	_ = json.Unmarshal([]byte(output2), &sessionResp)
 	sessionID := sessionResp.Result.SessionID
 	require.NotEmpty(t, sessionID)
 
@@ -363,10 +363,6 @@ func initializeMsg(id string) string {
 
 func sessionNewMsg(id, cwd string) string {
 	return fmt.Sprintf(`{"jsonrpc":"2.0","id":"%s","method":"session/new","params":{"cwd":"%s"}}`+"\n", id, cwd)
-}
-
-func sessionPromptMsg(id, sessionID, text string) string {
-	return fmt.Sprintf(`{"jsonrpc":"2.0","id":"%s","method":"session/prompt","params":{"sessionId":"%s","prompt":[{"type":"text","text":"%s"}]}}`+"\n", id, sessionID, text)
 }
 
 func buildACPInput(messages ...string) string {

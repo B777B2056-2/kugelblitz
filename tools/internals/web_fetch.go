@@ -31,7 +31,7 @@ func (t *WebFetch) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name:        "web_fetch",
 		Description: "Fetch a web page and convert it to Markdown. Use render_js: true for JavaScript-rendered pages (requires Chrome/Chromium installed).",
-		JsonSchema: map[string]any{
+		JSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"url": map[string]any{
@@ -121,7 +121,7 @@ func fetchStatic(ctx context.Context, urlStr string) (title, html string, err er
 	if err != nil {
 		return "", "", fmt.Errorf("fetch: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		return "", "", fmt.Errorf("http status %d", resp.StatusCode)

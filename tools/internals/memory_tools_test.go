@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestLTM_memtools(t *testing.T) *longterm.LongTermMemory {
+func newTestLTMMemtools(t *testing.T) *longterm.LongTermMemory {
 	t.Helper()
 	ltm, err := longterm.NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
 	require.NoError(t, err)
@@ -20,7 +20,7 @@ func newTestLTM_memtools(t *testing.T) *longterm.LongTermMemory {
 }
 
 func TestMemoryStore_StoresFact(t *testing.T) {
-	ltm := newTestLTM_memtools(t)
+	ltm := newTestLTMMemtools(t)
 
 	tool := &MemoryStore{ltm: ltm}
 	result := tool.Execute(context.Background(), core.ToolCallDetail{
@@ -34,8 +34,8 @@ func TestMemoryStore_StoresFact(t *testing.T) {
 }
 
 func TestMemoryStore_Conflict(t *testing.T) {
-	ltm := newTestLTM_memtools(t)
-	ltm.Store("prefs", "lang", "Python")
+	ltm := newTestLTMMemtools(t)
+	_, _, _ = ltm.Store("prefs", "lang", "Python")
 
 	tool := &MemoryStore{ltm: ltm}
 	result := tool.Execute(context.Background(), core.ToolCallDetail{
@@ -51,9 +51,9 @@ func TestMemoryStore_Conflict(t *testing.T) {
 }
 
 func TestMemorySearch_FindsResults(t *testing.T) {
-	ltm := newTestLTM_memtools(t)
-	ltm.Store("prefs", "lang", "Go")
-	ltm.Store("prefs", "editor", "VSCode")
+	ltm := newTestLTMMemtools(t)
+	_, _, _ = ltm.Store("prefs", "lang", "Go")
+	_, _, _ = ltm.Store("prefs", "editor", "VSCode")
 
 	tool := &MemorySearch{ltm: ltm}
 	result := tool.Execute(context.Background(), core.ToolCallDetail{
@@ -73,9 +73,9 @@ func TestMemorySearch_FindsResults(t *testing.T) {
 }
 
 func TestMemoryGetSection_ReturnsAll(t *testing.T) {
-	ltm := newTestLTM_memtools(t)
-	ltm.Store("prefs", "a", "1")
-	ltm.Store("prefs", "b", "2")
+	ltm := newTestLTMMemtools(t)
+	_, _, _ = ltm.Store("prefs", "a", "1")
+	_, _, _ = ltm.Store("prefs", "b", "2")
 
 	tool := &MemoryGetSection{ltm: ltm}
 	result := tool.Execute(context.Background(), core.ToolCallDetail{

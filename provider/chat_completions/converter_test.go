@@ -1,3 +1,4 @@
+//nolint:staticcheck
 package chat_completions
 
 import (
@@ -91,7 +92,7 @@ func TestConvertMessages_UnknownRole(t *testing.T) {
 func TestConvertTools_SingleTool(t *testing.T) {
 	c := newConverter()
 	tools := []core.ToolDefinition{
-		{Name: "search", Description: "Search", JsonSchema: map[string]any{"type": "object"}},
+		{Name: "search", Description: "Search", JSONSchema: map[string]any{"type": "object"}},
 	}
 	result, err := c.ConvertTools(tools)
 	require.NoError(t, err)

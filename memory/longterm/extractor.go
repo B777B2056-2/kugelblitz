@@ -15,7 +15,7 @@ type ExtractionContext struct {
 	UserMessage     string         // Original user goal/request
 	Conversation    []core.Message // Full conversation including tool calls and results
 	SessionSummary  string         // Current session summary (from SessionMemory)
-	ExistingItems   []MemoryItem         // Existing LTM items for dedup/conflict awareness
+	ExistingItems   []MemoryItem   // Existing LTM items for dedup/conflict awareness
 	CheckpointGoals []string       // Active plan goals from checkpoints
 }
 
@@ -105,7 +105,7 @@ Rules:
 	if len(ec.ExistingItems) > 0 {
 		sb.WriteString("\n## Existing Memories (avoid duplicates)\n")
 		for _, f := range ec.ExistingItems {
-			sb.WriteString(fmt.Sprintf("- [%s] %s: %s (c%.2f)\n", f.Section, f.Key, f.Value, f.Confidence))
+			fmt.Fprintf(&sb, "- [%s] %s: %s (c%.2f)\n", f.Section, f.Key, f.Value, f.Confidence)
 		}
 	}
 
@@ -113,7 +113,7 @@ Rules:
 	if len(ec.CheckpointGoals) > 0 {
 		sb.WriteString("\n## Active Plan Goals\n")
 		for _, g := range ec.CheckpointGoals {
-			sb.WriteString(fmt.Sprintf("- %s\n", g))
+			fmt.Fprintf(&sb, "- %s\n", g)
 		}
 	}
 
