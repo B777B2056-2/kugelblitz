@@ -85,7 +85,7 @@ func TestHandler_Dispatch_SessionPrompt(t *testing.T) {
 	mockAgent := newMockAgent()
 	mockAgent.executeFn = func(ctx context.Context, sys core.Message, userMsgs []core.Message) ([]core.Message, error) {
 		return []core.Message{
-			core.NewAssistantMessage("root", core.TextContent{Text: "Hello from agent!"}),
+			core.NewAssistantMessage(core.TextContent{Text: "Hello from agent!"}),
 		}, nil
 	}
 
@@ -233,7 +233,7 @@ func TestHandler_Prompt_StreamingNotifications(t *testing.T) {
 			}, nil
 		}
 		return []core.Message{
-			core.NewAssistantMessage("m1", core.TextContent{Text: "File contents: hello"}),
+			core.NewAssistantMessage(core.TextContent{Text: "File contents: hello"}),
 		}, nil
 	}
 
@@ -330,7 +330,7 @@ func TestHandler_Dispatch_SessionLoad(t *testing.T) {
 
 	// Create a session with messages so Load can replay them
 	s := sm.Create("/proj", newMockAgent())
-	sm.AppendMessage(s.ID, core.NewUserMessage("root", core.TextContent{Text: "hello"}))
+	sm.AppendMessage(s.ID, core.NewUserMessage(core.TextContent{Text: "hello"}))
 
 	params := SessionLoadParams{SessionID: s.ID}
 	paramsBytes, _ := json.Marshal(params)

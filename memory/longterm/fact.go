@@ -12,7 +12,6 @@ package longterm
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"os"
 	"strings"
@@ -43,9 +42,8 @@ const confidenceDecayPerDay = 0.95
 // pure declarative items (user preferences, project items, lessons learned).
 // For non-fact memories (episodic, patterns), use EpisodicMemory backed by ChromaDB.
 type LongTermMemory struct {
-	items            []MemoryItem
-	pendingConflicts []PendingConflict
-	mu               sync.RWMutex
+	items []MemoryItem
+	mu    sync.RWMutex
 
 	mdStore *persist.MarkdownPersist
 	path    string // filesystem path to MEMORY.md
@@ -359,75 +357,3 @@ func (ltm *LongTermMemory) normalize(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }
 
-// ---- Pending Conflicts ----
-
-// AddPendingConflict adds a conflict that needs human review.
-func (ltm *LongTermMemory) AddPendingConflict(pc PendingConflict) {
-	ltm.mu.Lock()
-	defer ltm.mu.Unlock()
-	ltm.pendingConflicts = append(ltm.pendingConflicts, pc)
-}
-
-// PendingConflicts returns all unresolved conflicts awaiting human review.
-func (ltm *LongTermMemory) PendingConflicts() []PendingConflict {
-	ltm.mu.RLock()
-	defer ltm.mu.RUnlock()
-	result := make([]PendingConflict, len(ltm.pendingConflicts))
-	copy(result, ltm.pendingConflicts)
-	return result
-}
-
-// ResolveConflict applies a human decision to a pending conflict.
-func (ltm *LongTermMemory) ResolveConflict(section, key, decision string) error {
-	ltm.mu.Lock()
-	defer ltm.mu.Unlock()
-
-	idx := -1
-	for i, pc := range ltm.pendingConflicts {
-		if pc.Section == section && pc.Key == key {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
-		return nil
-	}
-
-	pc := ltm.pendingConflicts[idx]
-	ltm.pendingConflicts = append(ltm.pendingConflicts[:idx], ltm.pendingConflicts[idx+1:]...)
-
-	switch decision {
-	case "keep_new":
-		return ltm.forceStore(pc.Section, pc.Key, pc.NewValue, pc.NewConfidence)
-	case "keep_old":
-		return nil
-	case "merge":
-		return nil
-	}
-	return nil
-}
-
-func (ltm *LongTermMemory) forceStore(section, key, value string, confidence float64) error {
-	section = ltm.normalize(section)
-	for i := range ltm.items {
-		if ltm.normalize(ltm.items[i].Section) == section && ltm.items[i].Key == key {
-			ltm.items[i].Value = value
-			ltm.items[i].Confidence = confidence
-			ltm.items[i].Version++
-			ltm.items[i].UpdatedAt = time.Now()
-			return ltm.write()
-		}
-	}
-	ltm.items = append(ltm.items, MemoryItem{
-		Section:    section,
-		Key:        key,
-		Value:      value,
-		Version:    1,
-		Confidence: confidence,
-		UpdatedAt:  time.Now(),
-	})
-	return ltm.write()
-}
-
-// Ensure LongTermMemory satisfies necessary type constraints
-var _ = fmt.Sprintf // keep fmt import used

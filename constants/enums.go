@@ -22,18 +22,18 @@ const (
 	RoleAssistant RoleType = "assistant"
 )
 
-// PlanStatus represents the lifecycle state of a plan.
-type PlanStatus string
+// PlanState represents the lifecycle state of a plan.
+type PlanState string
 
 const (
-	PlanStatusNone     PlanStatus = "none"     // empty status
-	PlanStatusIntent   PlanStatus = "intent"   // intent recognition (phase 1)
-	PlanStatusInit     PlanStatus = "init"     // no plan exists yet
-	PlanStatusDirect   PlanStatus = "direct"   // simple task, execute directly
-	PlanStatusConfirmed PlanStatus = "confirmed" // user approved, about to execute
-	PlanStatusRejected PlanStatus = "rejected"  // user rejected
-	PlanStatusDoing    PlanStatus = "doing"     // executing tasks
-	PlanStatusUpdating PlanStatus = "update"    // adapting after failure
-	PlanStatusDone     PlanStatus = "done"      // all tasks completed
-	PlanStatusFailed   PlanStatus = "failed"    // unrecoverable
+	PlanStateNone      PlanState = "none"      // empty status
+	PlanStateIntent    PlanState = "intent"    // intent recognition (phase 1)
+	PlanStateInit      PlanState = "init"      // no plan exists yet
+	PlanStateDirect    PlanState = "direct"    // simple task, execute directly
+	PlanStateConfirmed PlanState = "confirmed" // user approved, about to execute
+	PlanStateRejected  PlanState = "rejected"  // user rejected
+	PlanStateDoing     PlanState = "doing"     // executing tasks
+	PlanStateUpdating  PlanState = "update"    // adapting after failure
+	PlanStateDone      PlanState = "done"      // all tasks completed
+	PlanStateFailed    PlanState = "failed"    // unrecoverable
 )

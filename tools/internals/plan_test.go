@@ -28,7 +28,7 @@ func TestPlanCreate(t *testing.T) {
 	})
 	assert.Nil(t, result.Outputs["error"])
 	assert.Equal(t, "Test Plan", result.Outputs["name"])
-	assert.Equal(t, string(constants.PlanStatusInit), result.Outputs["status"])
+	assert.Equal(t, string(constants.PlanStateInit), result.Outputs["status"])
 	assert.NotEmpty(t, result.Outputs["id"])
 }
 

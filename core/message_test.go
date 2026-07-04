@@ -59,9 +59,8 @@ func TestCompositeContent_SatisfiesContentInterface(t *testing.T) {
 }
 
 func TestNewUserMessage_CreatesWithCorrectRole(t *testing.T) {
-	msg := NewUserMessage("parent-1", TextContent{Text: "hello"})
+	msg := NewUserMessage(TextContent{Text: "hello"})
 	assert.NotEmpty(t, msg.ID)
-	assert.Equal(t, "parent-1", msg.ParentID)
 	assert.Equal(t, constants.RoleUser, msg.Role)
 	assert.Equal(t, "hello", msg.Content.(TextContent).Text)
 	assert.Empty(t, msg.FinishReason)
@@ -69,7 +68,7 @@ func TestNewUserMessage_CreatesWithCorrectRole(t *testing.T) {
 }
 
 func TestNewAssistantMessage_CreatesWithCorrectRole(t *testing.T) {
-	msg := NewAssistantMessage("parent-2", TextContent{Text: "response"})
+	msg := NewAssistantMessage(TextContent{Text: "response"})
 	assert.NotEmpty(t, msg.ID)
 	assert.Equal(t, constants.RoleAssistant, msg.Role)
 	assert.Equal(t, "response", msg.Content.(TextContent).Text)
@@ -79,7 +78,7 @@ func TestNewToolMessage_CreatesWithToolResultContent(t *testing.T) {
 	results := []ToolCallResult{
 		{ToolCallID: "tc-1", ToolName: "search", Outputs: map[string]any{"result": "found"}},
 	}
-	msg := NewToolMessage("parent-3", results)
+	msg := NewToolMessage(results)
 	assert.NotEmpty(t, msg.ID)
 	assert.Equal(t, constants.RoleTool, msg.Role)
 	toolResult, ok := msg.Content.(ToolResultContent)
@@ -89,12 +88,12 @@ func TestNewToolMessage_CreatesWithToolResultContent(t *testing.T) {
 }
 
 func TestMessage_FinishReasonDefaultEmpty(t *testing.T) {
-	msg := NewAssistantMessage("parent", TextContent{Text: "ok"})
+	msg := NewAssistantMessage(TextContent{Text: "ok"})
 	assert.Empty(t, msg.FinishReason)
 }
 
 func TestMessage_UsageIsNilByDefault(t *testing.T) {
-	msg := NewAssistantMessage("parent", TextContent{Text: "ok"})
+	msg := NewAssistantMessage(TextContent{Text: "ok"})
 	assert.Nil(t, msg.Usage)
 }
 
@@ -108,7 +107,7 @@ func TestContent_SealedInterface(t *testing.T) {
 }
 
 func TestMessage_JSONRoundTrip_TextContent(t *testing.T) {
-	original := NewUserMessage("p1", TextContent{Text: "hello world"})
+	original := NewUserMessage(TextContent{Text: "hello world"})
 	original.ID = "msg-fixed"
 	data, err := json.Marshal(original)
 	require.NoError(t, err)
@@ -124,7 +123,7 @@ func TestMessage_JSONRoundTrip_TextContent(t *testing.T) {
 }
 
 func TestMessage_JSONRoundTrip_ToolCall(t *testing.T) {
-	original := NewAssistantMessage("p1", nil)
+	original := NewAssistantMessage(nil)
 	original.Content = ToolCallContent{
 		Details: []ToolCallDetail{
 			{ID: "tc-1", ToolName: "search", Args: map[string]any{"q": "test"}},
@@ -147,7 +146,7 @@ func TestMessage_JSONRoundTrip_ToolCall(t *testing.T) {
 }
 
 func TestMessage_JSONRoundTrip_Composite(t *testing.T) {
-	original := NewAssistantMessage("p1", CompositeContent{
+	original := NewAssistantMessage(CompositeContent{
 		Parts: []Content{
 			ReasoningContent{Reasoning: "let me think"},
 			TextContent{Text: "answer is 42"},
@@ -170,7 +169,7 @@ func TestMessage_JSONRoundTrip_Composite(t *testing.T) {
 }
 
 func TestMessage_JSONRoundTrip_MultiModal(t *testing.T) {
-	original := NewUserMessage("p1", MultiModalContent{
+	original := NewUserMessage(MultiModalContent{
 		Detail: MultiModalDetail{ID: "img-1", Type: constants.MultiModalTypeImage, Path: "/tmp/a.png"},
 	})
 
@@ -186,7 +185,7 @@ func TestMessage_JSONRoundTrip_MultiModal(t *testing.T) {
 }
 
 func TestMessage_JSONRoundTrip_EmptyContent(t *testing.T) {
-	original := NewAssistantMessage("p1", nil)
+	original := NewAssistantMessage(nil)
 	data, err := json.Marshal(original)
 	require.NoError(t, err)
 

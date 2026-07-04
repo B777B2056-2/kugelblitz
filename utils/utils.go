@@ -12,6 +12,19 @@ func ConvertJSONStringToMap(jsonString string) map[string]any {
 	return result
 }
 
+// StrToInt64 converts an interface{} numeric value to int64.
+func StrToInt64(v any) int64 {
+	switch n := v.(type) {
+	case float64:
+		return int64(n)
+	case int:
+		return int64(n)
+	case int64:
+		return n
+	}
+	return 0
+}
+
 // ConvertMapToJSONString serializes a map to a JSON string.
 func ConvertMapToJSONString(m map[string]any) string {
 	data, err := json.Marshal(m)

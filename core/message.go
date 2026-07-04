@@ -88,7 +88,6 @@ func (CompositeContent) contentType() {}
 // Message represents a single message in a conversation.
 type Message struct {
 	ID           string
-	ParentID     string
 	Role         constants.RoleType
 	Content      Content
 	FinishReason string `json:"finish_reason,omitempty"`
@@ -112,7 +111,6 @@ type contentWrapper struct {
 // messageJSON is the full JSON representation of a Message.
 type messageJSON struct {
 	ID           string         `json:"id"`
-	ParentID     string         `json:"parent_id"`
 	Role         string         `json:"role"`
 	Content      contentWrapper `json:"content"`
 	FinishReason string         `json:"finish_reason,omitempty"`
@@ -123,7 +121,6 @@ type messageJSON struct {
 func (m Message) MarshalJSON() ([]byte, error) {
 	mj := messageJSON{
 		ID:           m.ID,
-		ParentID:     m.ParentID,
 		Role:         string(m.Role),
 		FinishReason: m.FinishReason,
 		Usage:        m.Usage,
@@ -139,7 +136,6 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	m.ID = mj.ID
-	m.ParentID = mj.ParentID
 	m.Role = constants.RoleType(mj.Role)
 	m.FinishReason = mj.FinishReason
 	m.Usage = mj.Usage
@@ -203,42 +199,70 @@ func unmarshalContent(w contentWrapper) Content {
 	}
 }
 
+// ToolResults returns all ToolCallResults from the message content.
+func (m Message) ToolResults() []ToolCallResult {
+	switch ct := m.Content.(type) {
+	case ToolResultContent:
+		return ct.Results
+	case CompositeContent:
+		var results []ToolCallResult
+		for _, part := range ct.Parts {
+			if tr, ok := part.(ToolResultContent); ok {
+				results = append(results, tr.Results...)
+			}
+		}
+		return results
+	}
+	return nil
+}
+
+// ExtractToolResult extracts a typed value from the first tool result matching toolName.
+func ExtractToolResult[T any](messages []Message, toolName, key string) (T, bool) {
+	for _, msg := range messages {
+		for _, r := range msg.ToolResults() {
+			if r.ToolName == toolName {
+				if v, ok := r.Outputs[key].(T); ok {
+					return v, true
+				}
+			}
+		}
+	}
+	var zero T
+	return zero, false
+}
+
 // NewSystemMessage creates a new system message with the given content.
-func NewSystemMessage(parentID string, content Content) Message {
+func NewSystemMessage(content Content) Message {
 	return Message{
-		ID:       utils.GenerateMessageID(),
-		ParentID: parentID,
-		Role:     constants.RoleSystem,
-		Content:  content,
+		ID:      utils.GenerateMessageID(),
+		Role:    constants.RoleSystem,
+		Content: content,
 	}
 }
 
 // NewUserMessage creates a new user message with the given content.
-func NewUserMessage(parentID string, content Content) Message {
+func NewUserMessage(content Content) Message {
 	return Message{
-		ID:       utils.GenerateMessageID(),
-		ParentID: parentID,
-		Role:     constants.RoleUser,
-		Content:  content,
+		ID:      utils.GenerateMessageID(),
+		Role:    constants.RoleUser,
+		Content: content,
 	}
 }
 
 // NewAssistantMessage creates a new assistant message with the given content.
-func NewAssistantMessage(parentID string, content Content) Message {
+func NewAssistantMessage(content Content) Message {
 	return Message{
-		ID:       utils.GenerateMessageID(),
-		ParentID: parentID,
-		Role:     constants.RoleAssistant,
-		Content:  content,
+		ID:      utils.GenerateMessageID(),
+		Role:    constants.RoleAssistant,
+		Content: content,
 	}
 }
 
 // NewToolMessage creates a tool message containing tool call results.
-func NewToolMessage(parentID string, results []ToolCallResult) Message {
+func NewToolMessage(results []ToolCallResult) Message {
 	return Message{
-		ID:       utils.GenerateMessageID(),
-		ParentID: parentID,
-		Role:     constants.RoleTool,
+		ID:   utils.GenerateMessageID(),
+		Role: constants.RoleTool,
 		Content: ToolResultContent{
 			Results: results,
 		},

@@ -9,6 +9,7 @@ import (
 
 	"sync"
 
+	"github.com/B777B2056-2/kugelblitz/prompts"
 	"github.com/B777B2056-2/kugelblitz/core"
 )
 
@@ -255,21 +256,9 @@ func (d *Dreamer) deepSleep(ctx context.Context, candidates []dreamCandidate) ([
 			c.Item.Confidence, c.Item.Version, c.GraphDegree))
 	}
 
-	prompt := fmt.Sprintf(
-		`You are a memory scoring system. Rate each memory item from 1-10:
-- 1-3: low value (one-time event, outdated, already well-known)
-- 4-6: moderate (useful but not critical)
-- 7-10: high value (recurring theme, important preference, actionable insight)
+	prompt := prompts.BuildMemoryScorePrompt(itemsDesc.String())
 
-Consider: recency (high confidence = recent), frequency (high version = updated often), graph connections (high degree = well-connected entity).
-
-Output ONLY valid JSON:
-{"scores": [{"section":"...","key":"...","score":N,"reason":"brief justification"}]}
-
-Items:
-%s`, itemsDesc.String())
-
-	msg := core.NewUserMessage("dreamer-deep", core.TextContent{Text: prompt})
+	msg := core.NewUserMessage(core.TextContent{Text: prompt})
 	resp, err := d.provider.Generate(ctx, core.GenerateParams{
 		Messages: []core.Message{msg}, Stream: false,
 	})
@@ -322,16 +311,9 @@ func (d *Dreamer) rem(ctx context.Context, highItems []MemoryItem) ([]MemoryItem
 			i+1, item.Section, item.Key, truncate(item.Value, 200), item.Confidence))
 	}
 
-	prompt := fmt.Sprintf(
-		`You are a memory reflection system. Analyze these high-value memories and extract cross-cutting insights.
+	prompt := prompts.BuildMemoryReflectionPrompt(itemsDesc.String())
 
-Output ONLY valid JSON:
-{"insights": [{"section":"insights","key":"short_label","value":"detailed insight"}], "summary":"one-sentence summary of what the user is focused on"}
-
-High-value memories:
-%s`, itemsDesc.String())
-
-	msg := core.NewUserMessage("dreamer-rem", core.TextContent{Text: prompt})
+	msg := core.NewUserMessage(core.TextContent{Text: prompt})
 	resp, err := d.provider.Generate(ctx, core.GenerateParams{
 		Messages: []core.Message{msg}, Stream: false,
 	})

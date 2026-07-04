@@ -1,6 +1,9 @@
 package internals
 
-import "github.com/B777B2056-2/kugelblitz/tools"
+import (
+	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/tools"
+)
 
 // RegisterWebTools registers web_search and web_fetch into the global tool registry.
 //
@@ -11,6 +14,11 @@ import "github.com/B777B2056-2/kugelblitz/tools"
 //
 //	internals.RegisterWebTools(nil) // default DuckDuckGo
 func RegisterWebTools(cfg *WebSearchConfig) {
-	tools.Register(&WebFetch{})
-	tools.Register(newWebSearch(cfg))
+	wf := &WebFetch{}
+	tools.Register(wf)
+	core.GetToolRegistry().MarkAsInternal(wf.Definition().Name)
+
+	ws := newWebSearch(cfg)
+	tools.Register(ws)
+	core.GetToolRegistry().MarkAsInternal(ws.Definition().Name)
 }

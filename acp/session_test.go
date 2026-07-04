@@ -54,7 +54,7 @@ func TestSessionManager_Delete_NotFound(t *testing.T) {
 func TestSessionManager_AppendMessage(t *testing.T) {
 	sm := NewSessionManager()
 	s := sm.Create("/tmp", nil)
-	msg := core.NewUserMessage("user", core.TextContent{Text: "hello"})
+	msg := core.NewUserMessage(core.TextContent{Text: "hello"})
 	require.NoError(t, sm.AppendMessage(s.ID, msg))
 	assert.Len(t, s.Messages, 1)
 	assert.Equal(t, "hello", s.Messages[0].Content.(core.TextContent).Text)

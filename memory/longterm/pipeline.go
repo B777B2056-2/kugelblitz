@@ -70,14 +70,7 @@ func (p *WritePipeline) Run(ctx context.Context, ec *ExtractionContext) (*Pipeli
 	result.ItemsExtracted = len(fullResult.Items)
 
 	// Stage 2: Conflict Resolution
-	resolvedFacts, pendingConflicts := p.resolver.Resolve(fullResult.Items)
-	result.ItemsConflicts = len(pendingConflicts)
-	for _, pc := range pendingConflicts {
-		p.ltm.AddPendingConflict(pc)
-	}
-	if len(pendingConflicts) > 0 {
-		result.NeedsHuman = len(pendingConflicts)
-	}
+	resolvedFacts := p.resolver.Resolve(fullResult.Items)
 
 	// Stage 3: Dedup
 	dedupResult := p.dedup.DedupItems(resolvedFacts)
@@ -103,4 +96,25 @@ func (p *WritePipeline) Run(ctx context.Context, ec *ExtractionContext) (*Pipeli
 
 	result.Duration = time.Since(start)
 	return result, nil
+}
+
+// ExtractionInput carries session data needed by ExtractFromSession.
+type ExtractionInput struct {
+	Conversation   []core.Message
+	SessionSummary string
+	Goal           string
+}
+
+// ExtractFromSession builds an ExtractionContext from session data and runs the pipeline.
+func (p *WritePipeline) ExtractFromSession(ctx context.Context, input ExtractionInput) (*PipelineResult, error) {
+	if p.ltm == nil {
+		return nil, nil
+	}
+	ec := &ExtractionContext{
+		Conversation:   input.Conversation,
+		SessionSummary: input.SessionSummary,
+		ExistingItems:  p.ltm.All(),
+		UserMessage:    input.Goal,
+	}
+	return p.Run(ctx, ec)
 }

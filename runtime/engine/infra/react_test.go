@@ -1,4 +1,4 @@
-package runtime
+package infra
 
 import (
 	"context"
@@ -13,22 +13,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockProvider implements core.ILMProvider for testing ReactAgent.
-type mockProvider struct {
-	generateFn func(ctx context.Context, params core.GenerateParams) (*core.Message, error)
+// MockProvider implements core.ILMProvider for testing ReactAgent.
+type MockProvider struct {
+	GenerateFn func(ctx context.Context, params core.GenerateParams) (*core.Message, error)
 }
 
-func (m *mockProvider) Generate(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-	if m.generateFn != nil {
-		return m.generateFn(ctx, params)
+func (m *MockProvider) Generate(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+	if m.GenerateFn != nil {
+		return m.GenerateFn(ctx, params)
 	}
 	return nil, nil
 }
 
 func TestReactAgent_Execute_SimpleTextResponse(t *testing.T) {
-	provider := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage("msg-1", core.TextContent{Text: "hello world"})
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			msg := core.NewAssistantMessage(core.TextContent{Text: "hello world"})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -37,8 +37,8 @@ func TestReactAgent_Execute_SimpleTextResponse(t *testing.T) {
 	agent := NewReactAgent(provider, false)
 	messages, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage("root", core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage("root", core.TextContent{Text: "hi"})},
+		core.NewUserMessage(core.TextContent{Text: "system"}),
+		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
 	)
 
 	require.NoError(t, err)
@@ -63,11 +63,11 @@ func TestReactAgent_Execute_SingleToolCall(t *testing.T) {
 	)
 
 	callCount := 0
-	provider := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
 			callCount++
 			if callCount == 1 {
-				msg := core.NewAssistantMessage("msg-1", nil)
+				msg := core.NewAssistantMessage(nil)
 				msg.Content = core.ToolCallContent{
 					Details: []core.ToolCallDetail{
 						{ID: "tc-1", ToolName: "get_weather", Args: map[string]any{"city": "NYC"}},
@@ -75,7 +75,7 @@ func TestReactAgent_Execute_SingleToolCall(t *testing.T) {
 				}
 				return &msg, nil
 			}
-			msg := core.NewAssistantMessage("msg-2", core.TextContent{Text: "The weather is 72°F"})
+			msg := core.NewAssistantMessage(core.TextContent{Text: "The weather is 72°F"})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -84,19 +84,19 @@ func TestReactAgent_Execute_SingleToolCall(t *testing.T) {
 	agent := NewReactAgent(provider, false)
 	messages, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage("root", core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage("root", core.TextContent{Text: "what's the weather?"})},
+		core.NewUserMessage(core.TextContent{Text: "system"}),
+		[]core.Message{core.NewUserMessage(core.TextContent{Text: "what's the weather?"})},
 	)
 
 	require.NoError(t, err)
-	require.Len(t, messages, 2)
+	require.Len(t, messages, 3)
 	assert.Equal(t, 2, callCount)
 
 	toolCallContent, ok := messages[0].Content.(core.ToolCallContent)
 	require.True(t, ok)
 	assert.Equal(t, "get_weather", toolCallContent.Details[0].ToolName)
 
-	textContent, ok := messages[1].Content.(core.TextContent)
+	textContent, ok := messages[2].Content.(core.TextContent)
 	require.True(t, ok)
 	assert.Equal(t, "The weather is 72°F", textContent.Text)
 }
@@ -117,24 +117,24 @@ func TestReactAgent_Execute_MultiTurnToolCalls(t *testing.T) {
 	)
 
 	callCount := 0
-	provider := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
 			callCount++
 			switch callCount {
 			case 1:
-				msg := core.NewAssistantMessage("m1", nil)
+				msg := core.NewAssistantMessage(nil)
 				msg.Content = core.ToolCallContent{
 					Details: []core.ToolCallDetail{{ID: "tc-1", ToolName: "step1", Args: nil}},
 				}
 				return &msg, nil
 			case 2:
-				msg := core.NewAssistantMessage("m2", nil)
+				msg := core.NewAssistantMessage(nil)
 				msg.Content = core.ToolCallContent{
 					Details: []core.ToolCallDetail{{ID: "tc-2", ToolName: "step2", Args: nil}},
 				}
 				return &msg, nil
 			default:
-				msg := core.NewAssistantMessage("m3", core.TextContent{Text: "done"})
+				msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
 				return &msg, nil
 			}
 		},
@@ -143,18 +143,18 @@ func TestReactAgent_Execute_MultiTurnToolCalls(t *testing.T) {
 	agent := NewReactAgent(provider, false)
 	messages, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage("root", core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage("root", core.TextContent{Text: "go"})},
+		core.NewUserMessage(core.TextContent{Text: "system"}),
+		[]core.Message{core.NewUserMessage(core.TextContent{Text: "go"})},
 	)
 
 	require.NoError(t, err)
-	require.Len(t, messages, 3)
+	require.Len(t, messages, 5)
 	assert.Equal(t, 3, callCount)
 }
 
 func TestReactAgent_Execute_ProviderError(t *testing.T) {
-	provider := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
 			return nil, errors.New("api error")
 		},
 	}
@@ -162,8 +162,8 @@ func TestReactAgent_Execute_ProviderError(t *testing.T) {
 	agent := NewReactAgent(provider, false)
 	_, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage("root", core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage("root", core.TextContent{Text: "hi"})},
+		core.NewUserMessage(core.TextContent{Text: "system"}),
+		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
 	)
 
 	assert.Error(t, err)
@@ -172,14 +172,13 @@ func TestReactAgent_Execute_ProviderError(t *testing.T) {
 
 func TestReactAgent_Execute_ToolNotFound(t *testing.T) {
 	core.GetToolRegistry().Reset()
-	// Don't register any tools
 
 	callCount := 0
-	provider := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
 			callCount++
 			if callCount == 1 {
-				msg := core.NewAssistantMessage("msg-1", nil)
+				msg := core.NewAssistantMessage(nil)
 				msg.Content = core.ToolCallContent{
 					Details: []core.ToolCallDetail{
 						{ID: "tc-1", ToolName: "nonexistent", Args: nil},
@@ -187,7 +186,7 @@ func TestReactAgent_Execute_ToolNotFound(t *testing.T) {
 				}
 				return &msg, nil
 			}
-			msg := core.NewAssistantMessage("msg-2", core.TextContent{Text: "I couldn't find that tool"})
+			msg := core.NewAssistantMessage(core.TextContent{Text: "I couldn't find that tool"})
 			return &msg, nil
 		},
 	}
@@ -195,23 +194,22 @@ func TestReactAgent_Execute_ToolNotFound(t *testing.T) {
 	agent := NewReactAgent(provider, false)
 	messages, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage("root", core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage("root", core.TextContent{Text: "hi"})},
+		core.NewUserMessage(core.TextContent{Text: "system"}),
+		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
 	)
 
 	require.NoError(t, err)
-	require.Len(t, messages, 2)
+	require.Len(t, messages, 3)
 }
 
 func TestReactAgent_Execute_BlockMode_CallsEventHandler(t *testing.T) {
-	provider := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			// Simulate block mode: only non-chunk callbacks fire
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
 			if params.EventHandler != nil {
 				params.EventHandler.OnFinished("stop")
 				params.EventHandler.OnUsageUpdated(core.Usage{TotalTokens: 42})
 			}
-			msg := core.NewAssistantMessage("parent", core.TextContent{Text: "response"})
+			msg := core.NewAssistantMessage(core.TextContent{Text: "response"})
 			msg.FinishReason = "stop"
 			msg.Usage = &core.Usage{TotalTokens: 42}
 			return &msg, nil
@@ -226,29 +224,27 @@ func TestReactAgent_Execute_BlockMode_CallsEventHandler(t *testing.T) {
 
 	messages, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage("root", core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage("root", core.TextContent{Text: "hi"})},
+		core.NewUserMessage(core.TextContent{Text: "system"}),
+		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
 	)
 
 	require.NoError(t, err)
 	require.Len(t, messages, 1)
-	// Block mode: chunk callbacks NOT called
 	assert.Empty(t, handler.replyChunks)
 	assert.Empty(t, handler.thinkingChunks)
-	// Block mode: these ARE called
 	assert.Equal(t, []string{"stop"}, handler.finishReasons)
 	assert.Equal(t, int64(42), handler.usages[0].TotalTokens)
 }
 
 func TestReactAgent_Execute_StreamMode_CallsEventHandler(t *testing.T) {
-	provider := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
 			if params.EventHandler != nil {
 				params.EventHandler.OnReplyChunk("Hello")
 				params.EventHandler.OnReplyChunk(" World")
 				params.EventHandler.OnFinished("stop")
 			}
-			msg := core.NewAssistantMessage("parent", core.TextContent{Text: "Hello World"})
+			msg := core.NewAssistantMessage(core.TextContent{Text: "Hello World"})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -262,8 +258,8 @@ func TestReactAgent_Execute_StreamMode_CallsEventHandler(t *testing.T) {
 
 	messages, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage("root", core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage("root", core.TextContent{Text: "hi"})},
+		core.NewUserMessage(core.TextContent{Text: "system"}),
+		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
 	)
 
 	require.NoError(t, err)
@@ -278,7 +274,7 @@ func TestReactAgent_RegisterEventHooks_StoresCorrectly(t *testing.T) {
 		OnToolCallEnd: func(result core.ToolCallResult) {},
 	}
 	agent.RegisterEventHooks(hooks)
-	assert.NotNil(t, agent.eventHooks.OnToolCallEnd)
+	assert.NotNil(t, agent.EventHooks.OnToolCallEnd)
 }
 
 func TestReactAgent_Interrupt_SendsSignal(t *testing.T) {
@@ -288,7 +284,6 @@ func TestReactAgent_Interrupt_SendsSignal(t *testing.T) {
 
 	select {
 	case <-agent.abortSignal:
-		// Expected
 	default:
 		t.Error("expected abort signal to be sent")
 	}
@@ -300,9 +295,8 @@ func TestReactAgent_WithTools_FiltersVisibleTools(t *testing.T) {
 	core.RegisterTool(core.ToolDefinition{Name: "tool_b", Description: "B"}, nil)
 	core.RegisterTool(core.ToolDefinition{Name: "tool_c", Description: "C"}, nil)
 
-	provider := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			// Verify only whitelisted tools are passed
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
 			assert.Len(t, params.Tools, 2)
 			names := make(map[string]bool)
 			for _, d := range params.Tools {
@@ -312,7 +306,7 @@ func TestReactAgent_WithTools_FiltersVisibleTools(t *testing.T) {
 			assert.True(t, names["tool_c"])
 			assert.False(t, names["tool_b"])
 
-			msg := core.NewAssistantMessage("m", core.TextContent{Text: "done"})
+			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
 			return &msg, nil
 		},
 	}
@@ -322,8 +316,8 @@ func TestReactAgent_WithTools_FiltersVisibleTools(t *testing.T) {
 
 	_, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage("r", core.TextContent{Text: "sys"}),
-		[]core.Message{core.NewUserMessage("r", core.TextContent{Text: "hi"})},
+		core.NewUserMessage(core.TextContent{Text: "sys"}),
+		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
 	)
 	require.NoError(t, err)
 }
@@ -332,20 +326,20 @@ func TestReactAgent_WithTools_EmptyResetsToAll(t *testing.T) {
 	core.GetToolRegistry().Reset()
 	core.RegisterTool(core.ToolDefinition{Name: "tool_x", Description: "X"}, nil)
 
-	provider := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			assert.Len(t, params.Tools, 1) // sees all after reset
-			msg := core.NewAssistantMessage("m", core.TextContent{Text: "ok"})
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			assert.Len(t, params.Tools, 1)
+			msg := core.NewAssistantMessage(core.TextContent{Text: "ok"})
 			return &msg, nil
 		},
 	}
 
 	agent := NewReactAgent(provider, false)
-	agent.WithTools("some_other").WithTools() // clear filter
+	agent.WithTools("some_other").WithTools()
 	_, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage("r", core.TextContent{Text: "sys"}),
-		[]core.Message{core.NewUserMessage("r", core.TextContent{Text: "hi"})},
+		core.NewUserMessage(core.TextContent{Text: "sys"}),
+		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
 	)
 	require.NoError(t, err)
 }
@@ -362,19 +356,19 @@ func TestReactAgent_DefaultSeesAllTools(t *testing.T) {
 	core.RegisterTool(core.ToolDefinition{Name: "t1", Description: "T1"}, nil)
 	core.RegisterTool(core.ToolDefinition{Name: "t2", Description: "T2"}, nil)
 
-	provider := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			assert.Len(t, params.Tools, 2) // sees all
-			msg := core.NewAssistantMessage("m", core.TextContent{Text: "ok"})
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			assert.Len(t, params.Tools, 2)
+			msg := core.NewAssistantMessage(core.TextContent{Text: "ok"})
 			return &msg, nil
 		},
 	}
 
-	agent := NewReactAgent(provider, false) // no WithTools call
+	agent := NewReactAgent(provider, false)
 	_, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage("r", core.TextContent{Text: "sys"}),
-		[]core.Message{core.NewUserMessage("r", core.TextContent{Text: "hi"})},
+		core.NewUserMessage(core.TextContent{Text: "sys"}),
+		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
 	)
 	require.NoError(t, err)
 }
@@ -389,12 +383,18 @@ type testEventHandler struct {
 	errors         []error
 }
 
-func (h *testEventHandler) OnThinkingChunk(chunk string)           { h.thinkingChunks = append(h.thinkingChunks, chunk) }
-func (h *testEventHandler) OnReplyChunk(chunk string)              { h.replyChunks = append(h.replyChunks, chunk) }
-func (h *testEventHandler) OnFunctionCall(detail core.ToolCallDetail) { h.toolCalls = append(h.toolCalls, detail) }
-func (h *testEventHandler) OnFinished(reason string)               { h.finishReasons = append(h.finishReasons, reason) }
-func (h *testEventHandler) OnUsageUpdated(usage core.Usage)        { h.usages = append(h.usages, usage) }
-func (h *testEventHandler) OnError(err error)                      { h.errors = append(h.errors, err) }
+func (h *testEventHandler) OnThinkingChunk(chunk string) {
+	h.thinkingChunks = append(h.thinkingChunks, chunk)
+}
+func (h *testEventHandler) OnReplyChunk(chunk string) { h.replyChunks = append(h.replyChunks, chunk) }
+func (h *testEventHandler) OnFunctionCall(detail core.ToolCallDetail) {
+	h.toolCalls = append(h.toolCalls, detail)
+}
+func (h *testEventHandler) OnFinished(reason string) {
+	h.finishReasons = append(h.finishReasons, reason)
+}
+func (h *testEventHandler) OnUsageUpdated(usage core.Usage) { h.usages = append(h.usages, usage) }
+func (h *testEventHandler) OnError(err error)               { h.errors = append(h.errors, err) }
 
 func TestEnableHumanInTheLoop_SetsUpLocalTool(t *testing.T) {
 	agent := NewReactAgent(nil, false)
@@ -432,7 +432,6 @@ func TestVisibleTools_IncludesLocalToolAfterEnable(t *testing.T) {
 
 func TestCallTool_LocalToolOverridesGlobal(t *testing.T) {
 	core.GetToolRegistry().Reset()
-	// Register a global "ask_human" that returns a different result
 	core.RegisterTool(
 		core.ToolDefinition{Name: "ask_human", Description: "global fake"},
 		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
@@ -447,8 +446,6 @@ func TestCallTool_LocalToolOverridesGlobal(t *testing.T) {
 	agent := NewReactAgent(nil, false)
 	agent.EnableHumanInTheLoop()
 
-	// The local tool should call WaitForHuman, which blocks.
-	// We verify the local tool is used by checking it's registered.
 	_, hasLocal := agent.humanLoop.localTools["ask_human"]
 	assert.True(t, hasLocal, "local ask_human should take precedence over global")
 }
@@ -476,7 +473,6 @@ func TestWaitForHuman_FiresCallback(t *testing.T) {
 		agent.WaitForHuman(ctx, "need_approval", "proceed?")
 	}()
 
-	// Wait for callback to fire
 	cbWg.Wait()
 
 	assert.Equal(t, "need_approval", cbReason)
@@ -498,7 +494,6 @@ func TestResumeWithHumanResponse_UnblocksWaitForHuman(t *testing.T) {
 		result, resultErr = agent.WaitForHuman(context.Background(), "r", "p")
 	}()
 
-	// Give the goroutine time to start waiting
 	time.Sleep(50 * time.Millisecond)
 	assert.True(t, agent.humanLoop.isWaiting.Load())
 
@@ -542,7 +537,6 @@ func TestWaitForHuman_ContextCanceled(t *testing.T) {
 		_, resultErr = agent.WaitForHuman(ctx, "r", "p")
 	}()
 
-	// Wait for goroutine to start, then cancel
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 
@@ -561,7 +555,6 @@ func TestWaitForHuman_ErrorWhenNotEnabled(t *testing.T) {
 func TestWaitForHuman_OnWaitForHumanActionCanBeNil(t *testing.T) {
 	agent := NewReactAgent(nil, false)
 	agent.EnableHumanInTheLoop()
-	// Don't register any hooks — OnWaitForHumanAction is nil
 
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
@@ -574,20 +567,18 @@ func TestWaitForHuman_OnWaitForHumanActionCanBeNil(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 	wg.Wait()
-	// should not panic
 }
 
 func TestReactAgent_Execute_MultipleSequentialAskHuman(t *testing.T) {
 	core.GetToolRegistry().Reset()
 
 	callCount := 0
-	mockProv := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+	mockProv := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
 			callCount++
 			switch callCount {
 			case 1:
-				// First: ask first question
-				msg := core.NewAssistantMessage("m1", nil)
+				msg := core.NewAssistantMessage(nil)
 				msg.Content = core.ToolCallContent{
 					Details: []core.ToolCallDetail{
 						{ID: "tc-1", ToolName: "ask_human", Args: map[string]any{
@@ -598,8 +589,7 @@ func TestReactAgent_Execute_MultipleSequentialAskHuman(t *testing.T) {
 				}
 				return &msg, nil
 			case 2:
-				// Second: ask second question
-				msg := core.NewAssistantMessage("m2", nil)
+				msg := core.NewAssistantMessage(nil)
 				msg.Content = core.ToolCallContent{
 					Details: []core.ToolCallDetail{
 						{ID: "tc-2", ToolName: "ask_human", Args: map[string]any{
@@ -610,7 +600,7 @@ func TestReactAgent_Execute_MultipleSequentialAskHuman(t *testing.T) {
 				}
 				return &msg, nil
 			default:
-				msg := core.NewAssistantMessage("m3", core.TextContent{Text: "Done."})
+				msg := core.NewAssistantMessage(core.TextContent{Text: "Done."})
 				msg.FinishReason = "stop"
 				return &msg, nil
 			}
@@ -639,12 +629,11 @@ func TestReactAgent_Execute_MultipleSequentialAskHuman(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		messages, execErr = agent.Execute(ctx,
-			core.NewUserMessage("root", core.TextContent{Text: "system"}),
-			[]core.Message{core.NewUserMessage("root", core.TextContent{Text: "multi-step"})},
+			core.NewUserMessage(core.TextContent{Text: "system"}),
+			[]core.Message{core.NewUserMessage(core.TextContent{Text: "multi-step"})},
 		)
 	}()
 
-	// First pause
 	time.Sleep(200 * time.Millisecond)
 	for i := 0; i < 20; i++ {
 		if agent.humanLoop.isWaiting.Load() {
@@ -655,7 +644,6 @@ func TestReactAgent_Execute_MultipleSequentialAskHuman(t *testing.T) {
 	require.True(t, agent.humanLoop.isWaiting.Load(), "should be waiting for first input")
 	require.NoError(t, agent.ResumeWithHumanResponse(ctx, "yes, go ahead"))
 
-	// Second pause
 	time.Sleep(200 * time.Millisecond)
 	for i := 0; i < 20; i++ {
 		if agent.humanLoop.isWaiting.Load() {
@@ -669,7 +657,7 @@ func TestReactAgent_Execute_MultipleSequentialAskHuman(t *testing.T) {
 	wg.Wait()
 	require.NoError(t, execErr)
 	assert.Equal(t, 3, callCount)
-	assert.Len(t, messages, 3)
+	assert.Len(t, messages, 5)
 
 	assert.Equal(t, []string{"first check", "need choice"}, waitReasons)
 	assert.Equal(t, []string{"Proceed with step 1?", "Which method, A or B?"}, waitPrompts)
@@ -679,11 +667,11 @@ func TestReactAgent_OnToolCallEndFiresForAskHuman(t *testing.T) {
 	core.GetToolRegistry().Reset()
 
 	callCount := 0
-	mockProv := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+	mockProv := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
 			callCount++
 			if callCount == 1 {
-				msg := core.NewAssistantMessage("m1", nil)
+				msg := core.NewAssistantMessage(nil)
 				msg.Content = core.ToolCallContent{
 					Details: []core.ToolCallDetail{
 						{ID: "tc-1", ToolName: "ask_human", Args: map[string]any{
@@ -693,7 +681,7 @@ func TestReactAgent_OnToolCallEndFiresForAskHuman(t *testing.T) {
 				}
 				return &msg, nil
 			}
-			msg := core.NewAssistantMessage("m2", core.TextContent{Text: "done"})
+			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -717,12 +705,11 @@ func TestReactAgent_OnToolCallEndFiresForAskHuman(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		agent.Execute(ctx,
-			core.NewUserMessage("root", core.TextContent{Text: "system"}),
-			[]core.Message{core.NewUserMessage("root", core.TextContent{Text: "check"})},
+			core.NewUserMessage(core.TextContent{Text: "system"}),
+			[]core.Message{core.NewUserMessage(core.TextContent{Text: "check"})},
 		)
 	}()
 
-	// Wait for pause
 	time.Sleep(200 * time.Millisecond)
 	for i := 0; i < 20; i++ {
 		if agent.humanLoop.isWaiting.Load() {
@@ -741,8 +728,6 @@ func TestReactAgent_OnToolCallEndFiresForAskHuman(t *testing.T) {
 }
 
 func TestReactAgent_ParallelToolsWithAskHuman(t *testing.T) {
-	// LLM calls ask_human + a global tool in the same step.
-	// The global tool completes; ask_human blocks until resume.
 	core.GetToolRegistry().Reset()
 	core.RegisterTool(
 		core.ToolDefinition{Name: "side_effect", Description: "A side effect tool"},
@@ -756,11 +741,11 @@ func TestReactAgent_ParallelToolsWithAskHuman(t *testing.T) {
 	)
 
 	callCount := 0
-	mockProv := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+	mockProv := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
 			callCount++
 			if callCount == 1 {
-				msg := core.NewAssistantMessage("m1", nil)
+				msg := core.NewAssistantMessage(nil)
 				msg.Content = core.ToolCallContent{
 					Details: []core.ToolCallDetail{
 						{ID: "tc-1", ToolName: "side_effect", Args: map[string]any{}},
@@ -771,7 +756,7 @@ func TestReactAgent_ParallelToolsWithAskHuman(t *testing.T) {
 				}
 				return &msg, nil
 			}
-			msg := core.NewAssistantMessage("m2", core.TextContent{Text: "done"})
+			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -790,12 +775,11 @@ func TestReactAgent_ParallelToolsWithAskHuman(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		messages, _ = agent.Execute(ctx,
-			core.NewUserMessage("root", core.TextContent{Text: "system"}),
-			[]core.Message{core.NewUserMessage("root", core.TextContent{Text: "go"})},
+			core.NewUserMessage(core.TextContent{Text: "system"}),
+			[]core.Message{core.NewUserMessage(core.TextContent{Text: "go"})},
 		)
 	}()
 
-	// Wait for ask_human to block
 	time.Sleep(200 * time.Millisecond)
 	for i := 0; i < 20; i++ {
 		if agent.humanLoop.isWaiting.Load() {
@@ -808,23 +792,21 @@ func TestReactAgent_ParallelToolsWithAskHuman(t *testing.T) {
 	agent.ResumeWithHumanResponse(ctx, "yes")
 
 	wg.Wait()
-	require.Len(t, messages, 2)
-	// First assistant message contains both tool calls.
+	require.Len(t, messages, 3)
 	tcc, ok := messages[0].Content.(core.ToolCallContent)
 	require.True(t, ok)
 	assert.Len(t, tcc.Details, 2)
-	// Second assistant message is the text response
-	txt, ok := messages[1].Content.(core.TextContent)
+	txt, ok := messages[2].Content.(core.TextContent)
 	require.True(t, ok)
 	assert.Equal(t, "done", txt.Text)
 }
 
 func TestHumanLoopWaiting_ReturnsTrueWhileWaiting(t *testing.T) {
 	agent := NewReactAgent(nil, false)
-	assert.False(t, agent.HumanLoopWaiting()) // not enabled
+	assert.False(t, agent.HumanLoopWaiting())
 
 	agent.EnableHumanInTheLoop()
-	assert.False(t, agent.HumanLoopWaiting()) // enabled but not waiting
+	assert.False(t, agent.HumanLoopWaiting())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -837,21 +819,20 @@ func TestHumanLoopWaiting_ReturnsTrueWhileWaiting(t *testing.T) {
 	}()
 
 	time.Sleep(50 * time.Millisecond)
-	assert.True(t, agent.HumanLoopWaiting()) // should be waiting
+	assert.True(t, agent.HumanLoopWaiting())
 
 	cancel()
 	wg.Wait()
-	assert.False(t, agent.HumanLoopWaiting()) // should have stopped
+	assert.False(t, agent.HumanLoopWaiting())
 }
 
 func TestReactAgent_WithTools_FiltersLocalTool(t *testing.T) {
-	// If ask_human is not in the whitelist, it should not be visible.
 	core.GetToolRegistry().Reset()
 	core.RegisterTool(core.ToolDefinition{Name: "tool_a", Description: "A"}, nil)
 
 	agent := NewReactAgent(nil, false)
 	agent.EnableHumanInTheLoop()
-	agent.WithTools("tool_a") // NOT ask_human
+	agent.WithTools("tool_a")
 
 	defs := agent.visibleTools()
 	names := make(map[string]bool)
@@ -863,16 +844,14 @@ func TestReactAgent_WithTools_FiltersLocalTool(t *testing.T) {
 }
 
 func TestReactAgent_Execute_WithAskHumanIntegration(t *testing.T) {
-	// Integration test: LLM calls ask_human, loop pauses, human responds, loop continues.
 	core.GetToolRegistry().Reset()
 
 	callCount := 0
-	mockProv := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+	mockProv := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
 			callCount++
 			if callCount == 1 {
-				// First call: LLM wants to ask human
-				msg := core.NewAssistantMessage("m1", nil)
+				msg := core.NewAssistantMessage(nil)
 				msg.Content = core.ToolCallContent{
 					Details: []core.ToolCallDetail{
 						{ID: "tc-1", ToolName: "ask_human", Args: map[string]any{
@@ -883,8 +862,7 @@ func TestReactAgent_Execute_WithAskHumanIntegration(t *testing.T) {
 				}
 				return &msg, nil
 			}
-			// Second call: after human response
-			msg := core.NewAssistantMessage("m2", core.TextContent{Text: "Got it, won't delete."})
+			msg := core.NewAssistantMessage(core.TextContent{Text: "Got it, won't delete."})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -903,7 +881,6 @@ func TestReactAgent_Execute_WithAskHumanIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	// Run Execute in a goroutine — it will block on ask_human
 	var messages []core.Message
 	var execErr error
 	var wg sync.WaitGroup
@@ -911,12 +888,11 @@ func TestReactAgent_Execute_WithAskHumanIntegration(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		messages, execErr = agent.Execute(ctx,
-			core.NewUserMessage("root", core.TextContent{Text: "system"}),
-			[]core.Message{core.NewUserMessage("root", core.TextContent{Text: "do it"})},
+			core.NewUserMessage(core.TextContent{Text: "system"}),
+			[]core.Message{core.NewUserMessage(core.TextContent{Text: "do it"})},
 		)
 	}()
 
-	// Wait for the agent to call ask_human (poll)
 	time.Sleep(200 * time.Millisecond)
 	for i := 0; i < 20; i++ {
 		if agent.humanLoop.isWaiting.Load() {
@@ -928,18 +904,15 @@ func TestReactAgent_Execute_WithAskHumanIntegration(t *testing.T) {
 	require.True(t, onWaitCalled, "OnWaitForHumanAction should have been called")
 	require.True(t, agent.humanLoop.isWaiting.Load(), "agent should be waiting")
 
-	// Human responds
 	err := agent.ResumeWithHumanResponse(ctx, "No, do not delete.")
 	require.NoError(t, err)
 
-	// Wait for Execute to finish
 	wg.Wait()
 	require.NoError(t, execErr)
-	require.Len(t, messages, 2) // tool call + final text response
+	require.Len(t, messages, 3)
 	assert.Equal(t, 2, callCount)
 
-	// Verify the tool result message contains the human response
-	textContent, ok := messages[1].Content.(core.TextContent)
+	textContent, ok := messages[2].Content.(core.TextContent)
 	require.True(t, ok)
 	assert.Equal(t, "Got it, won't delete.", textContent.Text)
 }

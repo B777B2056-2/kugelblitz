@@ -44,7 +44,7 @@ func NewExtractor(provider core.ILMProvider) *Extractor {
 func (e *Extractor) Extract(ctx context.Context, ec *ExtractionContext) ([]MemoryItemCandidate, *core.Usage, error) {
 	prompt := e.buildPrompt(ec)
 
-	msg := core.NewUserMessage("ltm-extractor", core.TextContent{Text: prompt})
+	msg := core.NewUserMessage(core.TextContent{Text: prompt})
 	resp, err := e.provider.Generate(ctx, core.GenerateParams{
 		Messages: []core.Message{msg},
 		Stream:   false,
@@ -223,7 +223,7 @@ type ExtractionFullResult struct {
 // ExtractFull runs the LLM extraction and returns the full result including entities and relationships.
 func (e *Extractor) ExtractFull(ctx context.Context, ec *ExtractionContext) (*ExtractionFullResult, *core.Usage, error) {
 	prompt := e.buildPrompt(ec)
-	msg := core.NewUserMessage("ltm-extractor", core.TextContent{Text: prompt})
+	msg := core.NewUserMessage(core.TextContent{Text: prompt})
 	resp, err := e.provider.Generate(ctx, core.GenerateParams{
 		Messages: []core.Message{msg},
 		Stream:   false,

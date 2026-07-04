@@ -28,7 +28,7 @@ func TestConvertMessages_SystemMessage(t *testing.T) {
 
 func TestConvertMessages_UserTextMessage(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{core.NewUserMessage("p1", core.TextContent{Text: "hello"})}
+	msgs := []core.Message{core.NewUserMessage(core.TextContent{Text: "hello"})}
 	result, err := c.ConvertMessages(msgs)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
@@ -36,7 +36,7 @@ func TestConvertMessages_UserTextMessage(t *testing.T) {
 
 func TestConvertMessages_AssistantTextMessage(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{core.NewAssistantMessage("p1", core.TextContent{Text: "response"})}
+	msgs := []core.Message{core.NewAssistantMessage(core.TextContent{Text: "response"})}
 	result, err := c.ConvertMessages(msgs)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
@@ -64,7 +64,7 @@ func TestConvertMessages_ToolCallWithReasoning(t *testing.T) {
 func TestConvertMessages_ToolResultMessage(t *testing.T) {
 	c := newConverter()
 	msgs := []core.Message{
-		core.NewToolMessage("a1", []core.ToolCallResult{
+		core.NewToolMessage([]core.ToolCallResult{
 			{ToolCallID: "tc-1", ToolName: "search", Outputs: map[string]any{"result": "found"}},
 		}),
 	}

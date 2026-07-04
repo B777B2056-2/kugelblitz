@@ -85,7 +85,7 @@ func TestContentBlocksToMessages_UnknownType(t *testing.T) {
 
 func TestMessagesToContentBlocks_TextContent(t *testing.T) {
 	msgs := []core.Message{
-		core.NewAssistantMessage("parent", core.TextContent{Text: "I can help!"}),
+		core.NewAssistantMessage(core.TextContent{Text: "I can help!"}),
 	}
 	blocks := MessagesToContentBlocks(msgs)
 	require.Len(t, blocks, 1)

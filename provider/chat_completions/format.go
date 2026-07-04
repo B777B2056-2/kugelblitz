@@ -136,7 +136,7 @@ func (f *Format) Stream(ctx context.Context, req openai.ChatCompletionNewParams,
 
 	streamResp := f.client.Chat.Completions.NewStreaming(ctx, req)
 	parentID := params.Messages[len(params.Messages)-1].ID
-	aggregated := core.NewAssistantMessage(parentID, nil)
+	aggregated := core.NewAssistantMessage(nil)
 
 	var textBuilder, reasoningBuilder strings.Builder
 	toolCallAccum := make(map[string]*toolCallEntry) // ID → accumulated entry

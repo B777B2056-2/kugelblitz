@@ -52,7 +52,7 @@ func (t *PlanCreate) Execute(ctx context.Context, detail core.ToolCallDetail) co
 		ID:        utils.GeneratePlanID(),
 		SessionID: core.SessionIDFromContext(ctx),
 		Name:      name,
-		Status:    constants.PlanStatusInit,
+		State:     constants.PlanStateInit,
 	}
 	working.PutPlan(plan)
 	return tools.SuccessResult(detail.ID, "plan_create", working.PlanToMap(plan))
@@ -162,15 +162,15 @@ func (t *ConfirmPlan) Execute(ctx context.Context, detail core.ToolCallDetail) c
 		return tools.ErrorResult(detail.ID, "confirm_plan", fmt.Errorf("plan not found: %s", planID))
 	}
 
-	newStatus := constants.PlanStatus(statusStr)
-	plan.Status = newStatus
+	newStatus := constants.PlanState(statusStr)
+	plan.State = newStatus
 	if reason != "" {
 		plan.FinishedReson = reason
 	}
 	working.PutPlan(plan)
 
 	return tools.SuccessResult(detail.ID, "confirm_plan", map[string]any{
-		"id": plan.ID, "status": string(plan.Status),
+		"id": plan.ID, "status": string(plan.State),
 	})
 }
 
@@ -492,7 +492,7 @@ func (t *PlanRollback) Execute(ctx context.Context, detail core.ToolCallDetail) 
 	plan.Name = cp.Plan.Name
 	plan.SubTasks = cp.Plan.SubTasks
 	plan.CurrentActivateSubTaskIDs = cp.Plan.CurrentActivateSubTaskIDs
-	plan.Status = cp.Plan.Status
+	plan.State = cp.Plan.State
 	plan.FinishedReson = cp.Plan.FinishedReson
 	working.PutPlan(plan)
 

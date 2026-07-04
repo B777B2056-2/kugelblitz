@@ -1,12 +1,14 @@
-package runtime
+package dag
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
+	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -14,23 +16,45 @@ import (
 // ExecuteBatch runs all batches automatically until the DAG reaches a terminal
 // state (all done, any failed, or context cancelled).
 type DAGTaskExecutor struct {
-	provider    core.ILMProvider
-	streamMode  bool
-	customTools []string
-	cancel      context.CancelFunc
-	hooks       core.AgentEventHooks // set by Planner.RegisterEventHooks
-	pauseMu     sync.RWMutex                       // shared pause gate for all workers
-	hitlAgents  map[string]*ReactAgent             // taskID → waiting worker (HITL)
+	provider   core.ILMProvider
+	streamMode bool
+	cancel     context.CancelFunc
+	Hooks      core.AgentEventHooks          // set by Planner.RegisterEventHooks
+	PauseMu    sync.RWMutex                  // shared pause gate for all workers
+	hitlAgents map[string]*infra.ReactAgent // taskID → waiting worker (HITL)
 }
 
 // NewDAGTaskExecutor creates an executor that spawns WorkerAgents internally.
-func NewDAGTaskExecutor(provider core.ILMProvider, streamMode bool, customTools ...string) *DAGTaskExecutor {
+func NewDAGTaskExecutor(provider core.ILMProvider, streamMode bool) *DAGTaskExecutor {
 	return &DAGTaskExecutor{
-		provider:    provider,
-		streamMode:  streamMode,
-		customTools: customTools,
-		hitlAgents:  make(map[string]*ReactAgent),
+		provider:   provider,
+		streamMode: streamMode,
+		hitlAgents: make(map[string]*infra.ReactAgent),
 	}
+}
+
+// AnyWorkerInHumanLoopWaiting returns true if any worker is waiting for human input.
+func (d *DAGTaskExecutor) AnyWorkerInHumanLoopWaiting() bool {
+	for _, gate := range d.hitlAgents {
+		if gate.HumanLoopWaiting() {
+			return true
+		}
+	}
+	return false
+}
+
+// ResumeAnyWorkerWithHumanResponse delivers a human response to the first waiting worker.
+func (d *DAGTaskExecutor) ResumeAnyWorkerWithHumanResponse(ctx context.Context, response string) error {
+	for id, gate := range d.hitlAgents {
+		if gate.HumanLoopWaiting() {
+			defer func() {
+				delete(d.hitlAgents, id)
+				d.Resume()
+			}()
+			return gate.ResumeWithHumanResponse(ctx, response)
+		}
+	}
+	return fmt.Errorf("no worker waiting for human input")
 }
 
 // Cancel stops all pending worker tasks. Already-running workers complete normally.
@@ -50,10 +74,10 @@ type BatchResult struct {
 
 // Pause blocks all worker tool calls until Resume is called. Used when a
 // worker enters HITL — other workers must wait for the human response.
-func (d *DAGTaskExecutor) Pause() { d.pauseMu.Lock() }
+func (d *DAGTaskExecutor) Pause() { d.PauseMu.Lock() }
 
 // Resume unblocks all worker tool calls previously paused by Pause.
-func (d *DAGTaskExecutor) Resume() { d.pauseMu.Unlock() }
+func (d *DAGTaskExecutor) Resume() { d.PauseMu.Unlock() }
 
 // ExecuteBatch finds all pending tasks whose parents are done, marks them doing,
 // and spawns them concurrently. It repeats batch-by-batch until the DAG reaches
@@ -114,13 +138,13 @@ func (d *DAGTaskExecutor) ExecuteBatch(plan *working.Plan, ctx context.Context,
 					}
 					return nil
 				}
-				worker := NewWorkerAgent(d.provider, d.streamMode, d.customTools...)
-				worker.hooks = d.hooks
-				worker.pauseGate = &d.pauseMu
-				worker.onHITL = func(agent *ReactAgent, reason, prompt string) {
+				worker := infra.NewWorkerAgent(d.provider, d.streamMode)
+				worker.SetHooks(d.Hooks)
+				worker.SetPauseGate(&d.PauseMu)
+				worker.SetOnHITL(func(agent *infra.ReactAgent, reason, prompt string) {
 					d.hitlAgents[task.ID] = agent
 					d.Pause()
-				}
+				})
 				output, usage, err := worker.ExecuteTask(gctx, task.Goal, task.Action)
 				planMu, _ := working.GetPlan(plan.ID)
 				if planMu == nil {
@@ -144,8 +168,8 @@ func (d *DAGTaskExecutor) ExecuteBatch(plan *working.Plan, ctx context.Context,
 				taskMu.Usage = usage
 				working.PutPlan(planMu)
 
-				if d.hooks.OnTaskUpdated != nil {
-					d.hooks.OnTaskUpdated(task.ID, task.Goal, string(taskMu.Status), output)
+				if d.Hooks.OnTaskUpdated != nil {
+					d.Hooks.OnTaskUpdated(task.ID, task.Goal, string(taskMu.Status), output)
 				}
 				return nil
 			})

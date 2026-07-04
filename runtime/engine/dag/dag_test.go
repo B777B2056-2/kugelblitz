@@ -1,4 +1,4 @@
-package runtime
+package dag
 
 import (
 	"context"
@@ -12,6 +12,18 @@ import (
 
 	"github.com/stretchr/testify/assert"
 )
+
+// mockProvider implements core.ILMProvider for testing.
+type mockProvider struct {
+	GenerateFn func(ctx context.Context, params core.GenerateParams) (*core.Message, error)
+}
+
+func (m *mockProvider) Generate(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+	if m.GenerateFn != nil {
+		return m.GenerateFn(ctx, params)
+	}
+	return nil, nil
+}
 
 func TestDAGTaskExecutor_ExecuteBatch_NoReadyTasks(t *testing.T) {
 	dag := NewDAGTaskExecutor(nil, false)
@@ -27,9 +39,9 @@ func TestDAGTaskExecutor_ExecuteBatch_NoReadyTasks(t *testing.T) {
 func TestDAGTaskExecutor_ExecuteBatch_SingleTask(t *testing.T) {
 	callCount := int32(0)
 	prov := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
 			atomic.AddInt32(&callCount, 1)
-			msg := core.NewAssistantMessage("m", core.TextContent{Text: "done"})
+			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
 			msg.Usage = &core.Usage{TotalTokens: 10}
 			return &msg, nil
 		},
@@ -48,7 +60,7 @@ func TestDAGTaskExecutor_ExecuteBatch_SingleTask(t *testing.T) {
 
 func TestDAGTaskExecutor_ExecuteBatch_TaskFailed(t *testing.T) {
 	prov := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
 			return nil, errors.New("cmd not found")
 		},
 	}
@@ -66,8 +78,8 @@ func TestDAGTaskExecutor_ExecuteBatch_TaskFailed(t *testing.T) {
 
 func TestDAGTaskExecutor_ExecuteBatch_DAGOrder(t *testing.T) {
 	prov := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage("m", core.TextContent{Text: "ok"})
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			msg := core.NewAssistantMessage(core.TextContent{Text: "ok"})
 			return &msg, nil
 		},
 	}
@@ -80,7 +92,6 @@ func TestDAGTaskExecutor_ExecuteBatch_DAGOrder(t *testing.T) {
 		{ID: "D", Status: working.TaskStatusPending, Goal: "D", ParentTaskID: "A,B"},
 	}}
 
-	// Single call now auto-loops through all batches.
 	r := dag.ExecuteBatch(plan, context.Background(), nil)
 	assert.True(t, r.Batched)
 	assert.False(t, r.HasFailed)
@@ -92,18 +103,15 @@ func TestDAGTaskExecutor_ExecuteBatch_DAGOrder(t *testing.T) {
 }
 
 func TestDAGTaskExecutor_ExecuteBatch_MultiBatchAutoLoop(t *testing.T) {
-	// Verify that ExecuteBatch auto-loops through multiple batches:
-	// A,B (no deps) → C (depends on A) → D (depends on A,B and C).
-	// The key assertion: AllDone is true after a single call.
 	batchOrder := make([]string, 0)
 	var mu sync.Mutex
 
 	prov := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
 			mu.Lock()
 			batchOrder = append(batchOrder, params.Messages[0].Content.(core.TextContent).Text)
 			mu.Unlock()
-			msg := core.NewAssistantMessage("m", core.TextContent{Text: "ok"})
+			msg := core.NewAssistantMessage(core.TextContent{Text: "ok"})
 			return &msg, nil
 		},
 	}
@@ -119,14 +127,13 @@ func TestDAGTaskExecutor_ExecuteBatch_MultiBatchAutoLoop(t *testing.T) {
 	r := dag.ExecuteBatch(plan, context.Background(), nil)
 	assert.True(t, r.AllDone)
 	assert.False(t, r.HasFailed)
-	// Must have executed exactly 4 tasks: A,B in batch 1, C,D in batch 2.
 	assert.Len(t, batchOrder, 4)
 }
 
 func TestDAGTaskExecutor_Cancel(t *testing.T) {
 	prov := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage("m", core.TextContent{Text: "ok"})
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			msg := core.NewAssistantMessage(core.TextContent{Text: "ok"})
 			return &msg, nil
 		},
 	}
@@ -163,9 +170,9 @@ func TestDAGTaskExecutor_NotDone(t *testing.T) {
 func TestDAGTaskExecutor_ContextCancelledDuringExecution(t *testing.T) {
 	blocker := make(chan struct{})
 	prov := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
 			<-blocker
-			msg := core.NewAssistantMessage("m", core.TextContent{Text: "ok"})
+			msg := core.NewAssistantMessage(core.TextContent{Text: "ok"})
 			return &msg, nil
 		},
 	}

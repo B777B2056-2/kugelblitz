@@ -54,7 +54,7 @@ func TestGenerateParams_ZeroValue(t *testing.T) {
 func TestGenerateParams_WithBlockMode(t *testing.T) {
 	h := &testEventHandler{}
 	params := GenerateParams{
-		Messages:     []Message{NewUserMessage("p1", TextContent{Text: "hi"})},
+		Messages:     []Message{NewUserMessage(TextContent{Text: "hi"})},
 		Stream:       false,
 		EventHandler: h,
 	}
@@ -65,7 +65,7 @@ func TestGenerateParams_WithBlockMode(t *testing.T) {
 func TestGenerateParams_WithStreamMode(t *testing.T) {
 	h := &testEventHandler{}
 	params := GenerateParams{
-		Messages:     []Message{NewUserMessage("p1", TextContent{Text: "hi"})},
+		Messages:     []Message{NewUserMessage(TextContent{Text: "hi"})},
 		Tools:        []ToolDefinition{{Name: "tool1"}},
 		Stream:       true,
 		EventHandler: h,
@@ -78,7 +78,7 @@ func TestGenerateParams_WithStreamMode(t *testing.T) {
 func TestGenerateParams_WithThinkingEnabled(t *testing.T) {
 	enabled := true
 	params := GenerateParams{
-		Messages:        []Message{NewUserMessage("p1", TextContent{Text: "hi"})},
+		Messages:        []Message{NewUserMessage(TextContent{Text: "hi"})},
 		EnableThinking:  &enabled,
 		ReasoningEffort: ReasoningEffortHigh,
 	}
@@ -121,7 +121,7 @@ func TestILMProvider_InterfaceSatisfied(t *testing.T) {
 }
 
 func TestMockProvider_Generate_Delegates(t *testing.T) {
-	expected := NewAssistantMessage("p1", TextContent{Text: "response"})
+	expected := NewAssistantMessage(TextContent{Text: "response"})
 	p := &mockProvider{
 		generateFn: func(ctx context.Context, params GenerateParams) (*Message, error) {
 			return &expected, nil

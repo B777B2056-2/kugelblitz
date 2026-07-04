@@ -1,4 +1,4 @@
-package runtime
+package infra
 
 import (
 	"context"
@@ -10,9 +10,9 @@ import (
 )
 
 func TestReviewer_Review_NoDrift(t *testing.T) {
-	provider := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage("r", core.ToolCallContent{
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			msg := core.NewAssistantMessage(core.ToolCallContent{
 				Details: []core.ToolCallDetail{{
 					ID: "tc-1", ToolName: "reviewer_report",
 					Args: map[string]any{"drift": false, "reason": "All tasks aligned with goal"},
@@ -29,9 +29,9 @@ func TestReviewer_Review_NoDrift(t *testing.T) {
 }
 
 func TestReviewer_Review_Drift(t *testing.T) {
-	provider := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage("r", core.ToolCallContent{
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			msg := core.NewAssistantMessage(core.ToolCallContent{
 				Details: []core.ToolCallDetail{{
 					ID: "tc-1", ToolName: "reviewer_report",
 					Args: map[string]any{
@@ -53,8 +53,8 @@ func TestReviewer_Review_Drift(t *testing.T) {
 }
 
 func TestReviewer_Review_ProviderError(t *testing.T) {
-	provider := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
 			return nil, assert.AnError
 		},
 	}
@@ -65,10 +65,9 @@ func TestReviewer_Review_ProviderError(t *testing.T) {
 }
 
 func TestReviewer_Review_PlainTextFallback(t *testing.T) {
-	// LLM returns plain text instead of calling the tool
-	provider := &mockProvider{
-		generateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage("r", core.TextContent{Text: "Everything looks good"})
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			msg := core.NewAssistantMessage(core.TextContent{Text: "Everything looks good"})
 			return &msg, nil
 		},
 	}

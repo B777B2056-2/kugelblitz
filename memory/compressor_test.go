@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/prompts"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -12,10 +13,10 @@ import (
 
 func TestBuildSummarizePrompt_NoExistingSummary(t *testing.T) {
 	msgs := []core.Message{
-		core.NewUserMessage("r", core.TextContent{Text: "hello"}),
-		core.NewAssistantMessage("r", core.TextContent{Text: "world"}),
+		core.NewUserMessage(core.TextContent{Text: "hello"}),
+		core.NewAssistantMessage(core.TextContent{Text: "world"}),
 	}
-	prompt := buildSummarizePrompt(msgs, "")
+	prompt := prompts.BuildSummarizePrompt(msgs, "")
 	assert.Contains(t, prompt, "Summarize the following conversation")
 	assert.Contains(t, prompt, "hello")
 	assert.Contains(t, prompt, "world")
@@ -25,10 +26,10 @@ func TestBuildSummarizePrompt_NoExistingSummary(t *testing.T) {
 
 func TestBuildSummarizePrompt_WithExistingSummary(t *testing.T) {
 	msgs := []core.Message{
-		core.NewUserMessage("r", core.TextContent{Text: "new info"}),
+		core.NewUserMessage(core.TextContent{Text: "new info"}),
 	}
 	existing := "User likes Go programming."
-	prompt := buildSummarizePrompt(msgs, existing)
+	prompt := prompts.BuildSummarizePrompt(msgs, existing)
 	assert.Contains(t, prompt, "EXISTING SUMMARY")
 	assert.Contains(t, prompt, existing)
 	assert.Contains(t, prompt, "CONSOLIDATED")
@@ -48,7 +49,7 @@ func TestBuildSummarizePrompt_ToolCalls(t *testing.T) {
 			},
 		},
 	}
-	prompt := buildSummarizePrompt(msgs, "")
+	prompt := prompts.BuildSummarizePrompt(msgs, "")
 	assert.Contains(t, prompt, "[tool calls: search, calculate]")
 }
 
@@ -65,7 +66,7 @@ func TestBuildSummarizePrompt_ToolResults(t *testing.T) {
 			},
 		},
 	}
-	prompt := buildSummarizePrompt(msgs, "")
+	prompt := prompts.BuildSummarizePrompt(msgs, "")
 	assert.Contains(t, prompt, "[tool results: 3]")
 }
 
@@ -105,7 +106,7 @@ func TestCompressor_Summarize_ReturnsUsage(t *testing.T) {
 	}
 	c := NewCompressor(mp)
 	summary, gotUsage, err := c.Summarize(context.Background(), []core.Message{
-		core.NewUserMessage("u", core.TextContent{Text: "hello"}),
+		core.NewUserMessage(core.TextContent{Text: "hello"}),
 	}, "")
 	assert.NoError(t, err)
 	assert.Equal(t, "compressed summary", summary)
@@ -123,7 +124,7 @@ func TestCompressor_Summarize_NilUsageWhenError(t *testing.T) {
 	}
 	c := NewCompressor(mp)
 	_, gotUsage, err := c.Summarize(context.Background(), []core.Message{
-		core.NewUserMessage("u", core.TextContent{Text: "hello"}),
+		core.NewUserMessage(core.TextContent{Text: "hello"}),
 	}, "")
 	assert.Error(t, err)
 	assert.Nil(t, gotUsage)

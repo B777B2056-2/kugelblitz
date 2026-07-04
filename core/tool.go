@@ -26,8 +26,9 @@ type registryEntry struct {
 // ToolRegistry stores tool implementations and their definitions.
 // The global singleton is obtained via GetToolRegistry.
 type ToolRegistry struct {
-	tools map[string]registryEntry
-	mu    sync.RWMutex
+	tools         map[string]registryEntry
+	internalNames map[string]bool // framework-internal tool names (excluded from CustomToolNames)
+	mu            sync.RWMutex
 }
 
 var (
@@ -40,7 +41,8 @@ var (
 func GetToolRegistry() *ToolRegistry {
 	globalToolRegistryOnce.Do(func() {
 		globalToolRegistry = &ToolRegistry{
-			tools: make(map[string]registryEntry),
+			tools:         make(map[string]registryEntry),
+			internalNames: make(map[string]bool),
 		}
 	})
 	return globalToolRegistry
@@ -91,16 +93,58 @@ func (tr *ToolRegistry) IsTerminating(name string) bool {
 	return ok && entry.def.Terminating
 }
 
+
+// MarkAsInternal marks the given tool names as framework-internal.
+func (tr *ToolRegistry) MarkAsInternal(names ...string) {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	for _, name := range names {
+		tr.internalNames[name] = true
+	}
+}
+
+// RegisterCustomTool registers a user-defined tool with name-conflict detection.
+func (tr *ToolRegistry) RegisterCustomTool(def ToolDefinition, fn ToolCallFunc) error {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	if _, exists := tr.tools[def.Name]; exists {
+		return fmt.Errorf("tool %q already registered", def.Name)
+	}
+	tr.tools[def.Name] = registryEntry{fn: fn, def: def}
+	return nil
+}
+
+// CustomToolNames returns the names of all registered tools that are not internal.
+func (tr *ToolRegistry) CustomToolNames() []string {
+	tr.mu.RLock()
+	defer tr.mu.RUnlock()
+	var result []string
+	for name := range tr.tools {
+		if !tr.internalNames[name] {
+			result = append(result, name)
+		}
+	}
+	return result
+}
+
 // Reset clears all registered tools. Primarily intended for testing.
 func (tr *ToolRegistry) Reset() {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
 	tr.tools = make(map[string]registryEntry)
+	tr.internalNames = make(map[string]bool)
+	tr.internalNames = make(map[string]bool)
 }
 
 // RegisterTool registers a tool on the global ToolRegistry.
 func RegisterTool(def ToolDefinition, fn ToolCallFunc) {
 	GetToolRegistry().Register(def, fn)
+}
+
+// RegisterCustomTool registers a user-defined tool on the global ToolRegistry
+// with name-conflict detection. Returns an error if the name already exists.
+func RegisterCustomTool(def ToolDefinition, fn ToolCallFunc) error {
+	return GetToolRegistry().RegisterCustomTool(def, fn)
 }
 
 // CallTool calls a tool on the global ToolRegistry.

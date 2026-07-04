@@ -108,3 +108,23 @@ const semanticJudgeTmpl = `Are these two statements semantically equivalent (sam
 A: {{.OldVal}}
 B: {{.NewVal}}
 Answer ONLY "YES" or "NO".`
+
+const planConfirmTmpl = `## Plan to Confirm
+- Name: "{{.Name}}"
+- ID: {{.ID}}
+- Tasks: {{len .Tasks}}
+
+{{range .Tasks}}### Task {{.Index}}: {{.ID}}
+- Goal: {{.Goal}}{{if .Action}}
+- Action: {{.Action}}{{end}}
+- Depends on: {{.Deps}}
+
+{{end}}Present this plan to the user via ask_human. Wait for their response before calling confirm_plan.`
+
+const planStatusTmpl = `## Current Plan
+- "{{.Name}}" (status: {{.Status}}, {{.Done}}/{{.Total}} done, {{.Failed}} failed)
+{{if .FailedTasks}}
+### Failed Tasks
+{{range .FailedTasks}}- {{.ID}} (goal: {{.Goal}}): {{.Reason}}
+{{end}}{{end}}
+Continue from the current state above.`

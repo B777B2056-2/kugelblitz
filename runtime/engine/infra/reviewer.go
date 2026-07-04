@@ -1,15 +1,15 @@
-package runtime
+package infra
 
 import (
 	"context"
 
 	"github.com/B777B2056-2/kugelblitz/core"
-	"github.com/B777B2056-2/kugelblitz/runtime/prompts"
+	"github.com/B777B2056-2/kugelblitz/prompts"
 )
 
 // Reviewer checks for goal drift using a dedicated tool call.
 type Reviewer struct {
-	provider core.ILMProvider
+	Provider core.ILMProvider
 }
 
 type ReviewResult struct {
@@ -20,13 +20,13 @@ type ReviewResult struct {
 }
 
 func NewReviewer(provider core.ILMProvider) *Reviewer {
-	return &Reviewer{provider: provider}
+	return &Reviewer{Provider: provider}
 }
 
 // Review does a single Generate call with a reviewer_report tool to get
 // structured drift assessment via function calling.
 func (r *Reviewer) Review(ctx context.Context, originalGoal, planSummary, recentActivity string) ReviewResult {
-	userMsg := core.NewUserMessage("reviewer", core.TextContent{
+	userMsg := core.NewUserMessage(core.TextContent{
 		Text: prompts.DefaultFactory.MustRender(prompts.TypeReview, prompts.ReviewParams{
 			OriginalGoal: originalGoal, PlanSummary: planSummary, RecentActivity: recentActivity,
 		}),
@@ -49,7 +49,7 @@ func (r *Reviewer) Review(ctx context.Context, originalGoal, planSummary, recent
 		Stream: false,
 	}
 
-	result, err := r.provider.Generate(ctx, params)
+	result, err := r.Provider.Generate(ctx, params)
 	if err != nil {
 		var usage *core.Usage
 		if result != nil {

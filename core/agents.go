@@ -10,6 +10,8 @@ type AgentEventHooks struct {
 	OnWaitForHumanAction func(reason string, prompt string)
 	OnPlanRollback       func(planID string, targetVersion int, planName string)
 	OnTaskUpdated        func(taskID string, goal string, status string, output string)
+	OnBeforeCompress     func()              // fired before SM compresses session memory; AgentLoop extracts LTM
+	OnLLMUsage           func(LLMUsageReport) // fired for worker task LLM usage
 }
 
 // LLMUsageReport is sent to the Planner's usage callback for every LLM call

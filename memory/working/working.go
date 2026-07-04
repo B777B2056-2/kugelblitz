@@ -39,14 +39,14 @@ type Task struct {
 
 // Plan is a versioned plan with subtasks, persisted as JSONL.
 type Plan struct {
-	ID                        string               `json:"id"`
-	SessionID                 string               `json:"session_id,omitempty"`
-	Name                      string               `json:"name"`
-	SubTasks                  []Task               `json:"subtasks"`
-	CurrentActivateSubTaskIDs []string             `json:"current_active_subtask_ids"`
-	Status                    constants.PlanStatus `json:"status"`
-	FinishedReson             string               `json:"finished_reason,omitempty"`
-	Version                   int                  `json:"version"`
+	ID                        string              `json:"id"`
+	SessionID                 string              `json:"session_id,omitempty"`
+	Name                      string              `json:"name"`
+	SubTasks                  []Task              `json:"subtasks"`
+	CurrentActivateSubTaskIDs []string            `json:"current_active_subtask_ids"`
+	State                     constants.PlanState `json:"status"`
+	FinishedReson             string              `json:"finished_reason,omitempty"`
+	Version                   int                 `json:"version"`
 
 	mu sync.Mutex `json:"-"` // serializes saveCheckpoint calls for this plan
 }
@@ -96,7 +96,7 @@ func saveCheckpoint(p *Plan, reason string) {
 		Name:                      p.Name,
 		SubTasks:                  append([]Task{}, p.SubTasks...),
 		CurrentActivateSubTaskIDs: append([]string{}, p.CurrentActivateSubTaskIDs...),
-		Status:                    p.Status,
+		State:                     p.State,
 		FinishedReson:             p.FinishedReson,
 		Version:                   p.Version,
 	}
@@ -237,7 +237,78 @@ func ReadyTasks(plan *Plan) []*Task {
 
 // IsIncomplete returns true if the plan needs resuming.
 func (p *Plan) IsIncomplete() bool {
-	return p.Status == constants.PlanStatusConfirmed || p.Status == constants.PlanStatusDoing || p.Status == constants.PlanStatusUpdating
+	return p.State == constants.PlanStateConfirmed || p.State == constants.PlanStateDoing || p.State == constants.PlanStateUpdating
+}
+
+// IsValid returns true if the plan has at least one subtask and all
+// parent_task_id dependencies form a valid directed acyclic graph.
+// Empty subtasks, self-loops, dangling references, and cycles all return false.
+func (p *Plan) IsValid() bool {
+	if len(p.SubTasks) == 0 {
+		core.Warn("plan validation failed: empty subtasks", "plan_json", p.json())
+		return false
+	}
+
+	// Build task ID set
+	taskIDs := make(map[string]bool, len(p.SubTasks))
+	for _, t := range p.SubTasks {
+		taskIDs[t.ID] = true
+	}
+
+	// Build adjacency graph: taskID → list of IDs it depends on
+	graph := make(map[string][]string, len(p.SubTasks))
+	for _, t := range p.SubTasks {
+		for _, parentID := range SplitParentIDs(t.ParentTaskID) {
+			if !taskIDs[parentID] {
+				core.Warn("plan validation failed: dangling reference",
+					"task", t.ID, "parent", parentID, "plan_json", p.json())
+				return false
+			}
+			if parentID == t.ID {
+				core.Warn("plan validation failed: self-loop",
+					"task", t.ID, "plan_json", p.json())
+				return false
+			}
+			graph[t.ID] = append(graph[t.ID], parentID)
+		}
+	}
+
+	// DFS cycle detection
+	const (
+		white, gray, black = 0, 1, 2
+	)
+	color := make(map[string]int, len(taskIDs))
+
+	var dfs func(id string) bool
+	dfs = func(id string) bool {
+		color[id] = gray
+		for _, parent := range graph[id] {
+			switch color[parent] {
+			case gray:
+				core.Warn("plan validation failed: cycle detected",
+					"task", id, "parent_in_cycle", parent, "plan_json", p.json())
+				return false
+			case white:
+				if !dfs(parent) {
+					return false
+				}
+			}
+		}
+		color[id] = black
+		return true
+	}
+
+	for id := range taskIDs {
+		if color[id] == white && !dfs(id) {
+			return false
+		}
+	}
+	return true
+}
+
+func (p *Plan) json() string {
+	b, _ := json.Marshal(p)
+	return string(b)
 }
 
 // Persist saves the plan to disk via the persist package.

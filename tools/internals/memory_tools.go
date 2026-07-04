@@ -19,16 +19,28 @@ func RegisterMemoryTools(ltm *longterm.LongTermMemory, indexMgr *longterm.IndexM
 		&MemoryRemove{ltm: ltm},
 		&MemoryListSections{ltm: ltm},
 		&MemoryStats{ltm: ltm, indexMgr: indexMgr},
-		&MemoryResolveConflict{ltm: ltm},
 	}
 	if pipeline != nil {
-		t = append(t, &MemoryExtract{pipeline: pipeline})
+		me := &MemoryExtract{pipeline: pipeline}
+		registeredMemoryExtract = me
+		t = append(t, me)
 	}
 	tools.RegisterAll(t...)
+	for _, tool := range t {
+		core.GetToolRegistry().MarkAsInternal(tool.Definition().Name)
+	}
 }
 
-// BuildExtractContextFunc builds an ExtractionContext for the memory_extract tool.
-var BuildExtractContext func() *longterm.ExtractionContext
+// registeredMemoryExtract holds the MemoryExtract instance created by RegisterMemoryTools.
+// BindMemoryExtractInput sets its input function at runtime.
+var registeredMemoryExtract *MemoryExtract
+
+// BindMemoryExtractInput binds the extraction input source to the registered MemoryExtract tool.
+func BindMemoryExtractInput(fn func() longterm.ExtractionInput) {
+	if registeredMemoryExtract != nil {
+		registeredMemoryExtract.inputFn = fn
+	}
+}
 
 // ---- MemoryStore ----
 
@@ -350,61 +362,11 @@ func (t *MemoryStats) Execute(ctx context.Context, detail core.ToolCallDetail) c
 	})
 }
 
-// ---- MemoryResolveConflict ----
-
-type MemoryResolveConflict struct{ ltm *longterm.LongTermMemory }
-
-func (t *MemoryResolveConflict) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
-		Name:        "memory_resolve_conflict",
-		Description: "Resolve a pending memory conflict. Use after asking the human which value to keep.",
-		JsonSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"section": map[string]any{"type": "string", "description": "Section of the conflicting fact."},
-				"key":     map[string]any{"type": "string", "description": "Key of the conflicting fact."},
-				"decision": map[string]any{
-					"type": "string",
-					"description": "Resolution: 'keep_new' (accept new value) or 'keep_old' (keep existing value).",
-				},
-			},
-			"required": []string{"section", "key", "decision"},
-		},
-		OutputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"resolved": map[string]any{"type": "boolean", "description": "true if the conflict was successfully resolved."},
-			},
-		},
-	}
-}
-
-func (t *MemoryResolveConflict) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-	section, err := tools.RequiredString(detail, "section")
-	if err != nil {
-		return tools.ErrorResult(detail.ID, "memory_resolve_conflict", err)
-	}
-	key, err := tools.RequiredString(detail, "key")
-	if err != nil {
-		return tools.ErrorResult(detail.ID, "memory_resolve_conflict", err)
-	}
-	decision, err := tools.RequiredString(detail, "decision")
-	if err != nil {
-		return tools.ErrorResult(detail.ID, "memory_resolve_conflict", err)
-	}
-	if err := tools.In(decision, "keep_new", "keep_old"); err != nil {
-		return tools.ErrorResult(detail.ID, "memory_resolve_conflict", err)
-	}
-	if err := t.ltm.ResolveConflict(section, key, decision); err != nil {
-		return tools.ErrorResult(detail.ID, "memory_resolve_conflict", err)
-	}
-	return tools.SuccessResult(detail.ID, "memory_resolve_conflict", map[string]any{"resolved": true})
-}
-
 // ---- MemoryExtract ----
 
 type MemoryExtract struct {
 	pipeline *longterm.WritePipeline
+	inputFn  func() longterm.ExtractionInput
 }
 
 func (t *MemoryExtract) Definition() core.ToolDefinition {
@@ -431,14 +393,11 @@ func (t *MemoryExtract) Definition() core.ToolDefinition {
 }
 
 func (t *MemoryExtract) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-	if BuildExtractContext == nil {
+	if t.inputFn == nil {
 		return tools.ErrorResult(detail.ID, "memory_extract", fmt.Errorf("extraction context not configured"))
 	}
-	ec := BuildExtractContext()
-	if ec == nil {
-		return tools.ErrorResult(detail.ID, "memory_extract", fmt.Errorf("no session context available"))
-	}
-	result, err := t.pipeline.Run(ctx, ec)
+	input := t.inputFn()
+	result, err := t.pipeline.ExtractFromSession(ctx, input)
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "memory_extract", err)
 	}

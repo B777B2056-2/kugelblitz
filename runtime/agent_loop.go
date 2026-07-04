@@ -3,134 +3,300 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	"github.com/B777B2056-2/kugelblitz/config"
 	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/memory"
+	"github.com/B777B2056-2/kugelblitz/memory/longterm"
+	"github.com/B777B2056-2/kugelblitz/observability"
+	"github.com/B777B2056-2/kugelblitz/persist"
+	"github.com/B777B2056-2/kugelblitz/runtime/engine"
+	"github.com/B777B2056-2/kugelblitz/prompts"
+	"github.com/B777B2056-2/kugelblitz/skills"
+	"github.com/B777B2056-2/kugelblitz/tools/internals"
+	"github.com/B777B2056-2/kugelblitz/utils"
 )
 
-// HITLAgent is the interface for an agent that supports human-in-the-loop.
-type HITLAgent interface {
-	HumanLoopWaiting() bool
-	ResumeWithHumanResponse(ctx context.Context, response string) error
-}
-
-// AgentLoop holds provider and hooks, ready to Run() for multiple goals/sessions.
 type AgentLoop struct {
-	provider   core.ILMProvider
-	hooks      core.AgentEventHooks
-	streamMode bool
+	// LTM subsystem
+	ltm            *longterm.LongTermMemory
+	indexMgr       *longterm.IndexManager
+	writePipeline  *longterm.WritePipeline
+	dreamScheduler *longterm.DreamScheduler
 
-	plannerOpts     []PlannerOption
-	onLLMUsage      func(core.LLMUsageReport)
-	enableThinking  *bool
-	reasoningEffort string
+	// session
+	sessionMem *memory.SessionMemory
 
-	// Cached planner for session continuity across Run() calls.
-	planner *Planner
+	// execution engine
+	planner *engine.Kernel
 
-	hitlAgent HITLAgent
-	done      chan struct{}
-	cancelFn  context.CancelFunc
+	// observability
+	obs          core.Observer
+	currentTrace core.TraceSpan
+	instr        *observability.PlannerInstrument
+
+	// hooks & callbacks
+	eventHooks core.AgentEventHooks
+
+	// config
+	cfg  config.Config
+	goal string
+
+	// lifecycle
+	done     chan struct{}
+	cancelFn context.CancelFunc
 }
 
 // AgentLoopOption configures an AgentLoop at creation time.
 type AgentLoopOption func(*AgentLoop)
 
-// WithThinking enables thinking mode with the given effort level.
-func WithThinking(enabled bool, effort string) AgentLoopOption {
+// WithObserver sets the observability observer for tracing agent execution.
+func WithObserver(obs core.Observer) AgentLoopOption {
 	return func(a *AgentLoop) {
-		a.enableThinking = &enabled
-		a.reasoningEffort = effort
+		a.obs = obs
+		a.instr = observability.NewPlannerInstrument(nil)
 	}
 }
 
-// WithStreamMode enables streaming for provider calls.
-func WithStreamMode(v bool) AgentLoopOption {
-	return func(a *AgentLoop) { a.streamMode = v }
-}
-
-// WithUsageCallback registers a callback for every LLM call during execution.
-func WithUsageCallback(fn func(core.LLMUsageReport)) AgentLoopOption {
-	return func(a *AgentLoop) { a.onLLMUsage = fn }
-}
-
-// WithCachedPlanner reuses an existing Planner (preserves LTM/graph/pipeline).
-func WithCachedPlanner(p *Planner) AgentLoopOption {
-	return func(a *AgentLoop) { a.planner = p }
-}
-
-// CachedPlanner returns the cached Planner (may be nil).
-func (a *AgentLoop) CachedPlanner() *Planner { return a.planner }
-
-// NewAgentLoop creates an AgentLoop instance.
-func NewAgentLoop(provider core.ILMProvider, hooks core.AgentEventHooks,
-	opts ...AgentLoopOption) *AgentLoop {
-	a := &AgentLoop{
-		provider:   provider,
-		hooks:      hooks,
-		streamMode: true,
+// WithExistingSessionID resolves or creates a SessionMemory for the given session ID.
+func WithExistingSessionID(sessionID string) AgentLoopOption {
+	return func(a *AgentLoop) {
+		a.sessionMem = memory.GetSessionMemoryManager().CreateSessionMemory(sessionID)
 	}
+}
+
+func NewAgentLoop(cfg config.Config, opts ...AgentLoopOption) *AgentLoop {
+	al := &AgentLoop{
+		cfg: cfg,
+		obs: core.NoopObserver{},
+	}
+
+	// Apply opts (session reuse, observer)
 	for _, opt := range opts {
-		opt(a)
+		opt(al)
 	}
-	if a.onLLMUsage != nil {
-		fn := a.onLLMUsage
-		a.plannerOpts = append(a.plannerOpts, func(p *Planner) { p.onLLMUsage = fn })
+
+	// LTM subsystem
+	initLTM(cfg.Model.Provider, al)
+
+	// Skills (registers globally)
+	initSkills()
+
+	initSemanticJudge(cfg.Model.Provider)
+
+	// Session memory: opts may have set it (WithExistingSession/ID), else create.
+	if al.sessionMem == nil {
+		al.sessionMem = memory.GetSessionMemoryManager().CreateSessionMemory(utils.GenerateSessionID())
 	}
-	return a
+	if al.indexMgr != nil && al.indexMgr.IsAvailable() {
+		al.indexMgr.RebuildIfStale(context.Background())
+	}
+
+	al.planner = engine.NewKernel(al.sessionMem, cfg)
+	return al
 }
 
-// Resume unblocks a pending HITL with the user's response.
-func (a *AgentLoop) Resume(response string) error {
-	if a.hitlAgent == nil {
-		return fmt.Errorf("agent loop: not running")
+func initLTM(provider core.ILMProvider, al *AgentLoop) {
+	mgr := persist.GetManager()
+	ltm, err := longterm.NewLongTermMemory(mgr.Markdown())
+	if err != nil {
+		core.Warn("plan_mode: failed to init long-term memory", "error", err)
+		return
 	}
-	return a.hitlAgent.ResumeWithHumanResponse(context.Background(), response)
+	al.ltm = ltm
+	al.indexMgr = longterm.NewIndexManager(mgr.Vector(), ltm)
+	al.writePipeline = longterm.NewWritePipeline(provider, ltm, al.indexMgr, 0.15)
+	internals.RegisterMemoryTools(ltm, al.indexMgr, al.writePipeline)
+
+	graphStore := longterm.NewGraphStore(mgr.JSONL(), "memory/longterm/memory_graph.jsonl")
+	graphStore.Load(context.Background())
+	ltm.SetGraph(graphStore)
+
+	dreamer := &longterm.Dreamer{}
+	dreamer.SetProvider(provider)
+	dreamer.SetLTM(ltm)
+	dreamer.SetGraph(graphStore)
+	dreamer.SetIndexManager(al.indexMgr)
+	al.dreamScheduler = longterm.NewDreamScheduler(dreamer)
+	al.dreamScheduler.Start()
 }
 
-// Cancel interrupts the running execution.
+func initSkills() {
+	activeSkill := &skills.Skill{}
+	skillNames, _ := skills.List()
+	skillList := make([]*skills.Skill, 0, len(skillNames))
+	for _, name := range skillNames {
+		if s, err := skills.Load(name); err == nil {
+			skillList = append(skillList, s)
+		}
+	}
+	internals.RegisterSkillTool(skillList, activeSkill)
+}
+
+func initSemanticJudge(provider core.ILMProvider) {
+	longterm.SetSemanticJudge(func(oldVal, newVal string) bool {
+		msg := core.NewUserMessage(core.TextContent{
+			Text: prompts.DefaultFactory.MustRender(prompts.TypeSemanticJudge, prompts.SemanticJudgeParams{
+				OldVal: oldVal, NewVal: newVal,
+			}),
+		})
+		resp, err := provider.Generate(context.Background(), core.GenerateParams{
+			Messages: []core.Message{msg}, Stream: false,
+		})
+		if err != nil {
+			return false
+		}
+		if tc, ok := resp.Content.(core.TextContent); ok {
+			return strings.Contains(strings.ToUpper(tc.Text), "YES")
+		}
+		return false
+	})
+}
+
+// ---- Public API ----
+
+// SessionID returns the ID of the underlying session memory.
+func (a *AgentLoop) SessionID() string { return a.sessionMem.SessionID() }
+
+// RegisterEventHooks saves hooks for the next Execute call.
+func (a *AgentLoop) RegisterEventHooks(hooks core.AgentEventHooks) {
+	a.eventHooks = hooks
+}
+
+// Run starts the agent loop in a background goroutine.
+func (a *AgentLoop) Run(ctx context.Context, goal string) {
+	ctx, a.cancelFn = context.WithCancel(ctx)
+	a.done = make(chan struct{})
+	go func() {
+		defer close(a.done)
+		defer a.Cancel()
+		a.execute(ctx, goal)
+	}()
+}
+
+// Cancel stops the running execution: interrupts main ReAct loop, cancels all workers,
+// and marks the current plan as cancelled.
 func (a *AgentLoop) Cancel() {
 	if a.cancelFn != nil {
 		a.cancelFn()
 	}
+	a.planner.Cancel(context.Background())
 }
 
-// Done returns a channel that closes when the current execution completes.
+// ResumeWithHumanResponse unblocks a pending HITL with the user response.
+func (a *AgentLoop) ResumeWithHumanResponse(response string) error {
+	return a.planner.ResumeWithHumanResponse(context.Background(), response)
+}
+
+// Done returns a channel that closes when execution completes.
 func (a *AgentLoop) Done() <-chan struct{} { return a.done }
 
-// WaitDone blocks until the current execution completes.
-func (a *AgentLoop) WaitDone() { <-a.done }
+// HumanLoopWaiting reports whether the agent is waiting for human input.
+func (a *AgentLoop) HumanLoopWaiting() bool {
+	return a.planner.HumanLoopWaiting()
+}
 
-// Run starts a full agent loop for the given goal and session.
-func (a *AgentLoop) Run(ctx context.Context, goal string, sessionID string) {
-	ctx, a.cancelFn = context.WithCancel(ctx)
-	a.done = make(chan struct{})
+// ---- Execution ----
 
-	go func() {
-		defer close(a.done)
-		defer a.Cancel()
-		a.execute(ctx, goal, sessionID)
+func (a *AgentLoop) execute(ctx context.Context, goal string) ([]core.Message, error) {
+	a.goal = goal
+	if a.dreamScheduler != nil {
+		a.dreamScheduler.NotifyActivity()
+	}
+
+	// observability
+	traceName := a.sessionMem.SessionID()
+	ctx, a.currentTrace = a.obs.StartTrace(ctx, traceName, goal)
+	defer func() {
+		if a.instr != nil {
+			a.instr.Flush()
+		}
+		a.currentTrace.End()
 	}()
+	if a.instr != nil {
+		a.instr.SetTrace(a.currentTrace)
+	}
+
+	a.planner.RegisterEventHooks(a.rewriteEventHooks(a.eventHooks))
+
+	// wire memory_extract input
+	internals.BindMemoryExtractInput(func() longterm.ExtractionInput {
+		return longterm.ExtractionInput{
+			Conversation:   a.sessionMem.GetHistoryMessages(),
+			SessionSummary: a.sessionMem.Summary(),
+			Goal:           a.goal,
+		}
+	})
+
+	result, err := a.planner.Run(ctx, goal)
+	a.sessionMem.AppendMessages(result)
+	_ = a.sessionMem.Persist()
+	return result, err
 }
 
-// execute runs the agent pipeline. Intent recognition is handled by the
-// PlannerStateMachine (Intent → Init or Direct).
-func (a *AgentLoop) execute(ctx context.Context, goal string, sessionID string) {
-	if a.planner == nil {
-		a.planner = NewPlanner(a.provider, a.streamMode,
-			append([]PlannerOption{WithExistingSessionID(sessionID)}, a.plannerOpts...)...)
+// rewriteEventHooks merges AgentLoop internal callbacks with user hooks.
+// AgentLoop callbacks fire first, then user callbacks.
+func (a *AgentLoop) rewriteEventHooks(userHooks core.AgentEventHooks) core.AgentEventHooks {
+	merged := userHooks
+
+	// OnToolCallEnd: AgentLoop compression + usage, then user
+	userOnToolCallEnd := merged.OnToolCallEnd
+	merged.OnToolCallEnd = func(result core.ToolCallResult) {
+		a.sessionMem.CompressToolResult(context.Background(),
+			a.planner.Compressor(), a.cfg.ContextCompress.MaxToolResultChars, &result)
+		if task, ok := result.Outputs["task"].(map[string]any); ok {
+			if um, ok := task["usage"].(map[string]any); ok {
+				if merged.OnLLMUsage != nil {
+					merged.OnLLMUsage(core.LLMUsageReport{
+						Identity: fmt.Sprintf("worker.%v", task["id"]),
+						Usage: core.Usage{
+							InputTokens:  utils.StrToInt64(um["input"]),
+							OutputTokens: utils.StrToInt64(um["output"]),
+							TotalTokens:  utils.StrToInt64(um["total"]),
+						},
+					})
+				}
+			}
+		}
+		if userOnToolCallEnd != nil {
+			userOnToolCallEnd(result)
+		}
 	}
 
-	userMsg := core.NewUserMessage("agent-loop", core.TextContent{Text: goal})
-	a.planner.mem.AppendMessage(userMsg)
-	_ = a.planner.mem.Persist()
-	a.planner.RegisterEventHooks(a.hooks)
-	if a.enableThinking != nil {
-		a.planner.SetThinking(*a.enableThinking, a.reasoningEffort)
+	// OnBeforeCompress: AgentLoop LTM extraction, then user
+	userOnBeforeCompress := merged.OnBeforeCompress
+	merged.OnBeforeCompress = func() {
+		a.extractMemories()
+		if userOnBeforeCompress != nil {
+			userOnBeforeCompress()
+		}
 	}
-	a.hitlAgent = a.planner
-	_, err := a.planner.Execute(ctx, goal)
 
-	if err != nil && a.hooks.ModelEventHandler != nil {
-		a.hooks.ModelEventHandler.OnError(err)
+	// ModelEventHandler: combine instrumentation + user
+	if a.instr != nil {
+		merged.ModelEventHandler = core.CombineModelEventHandlers(
+			a.instr.EventHandler(), merged.ModelEventHandler,
+		)
 	}
+
+	return merged
 }
+
+// extractMemories runs the LTM write pipeline before SM compresses session memory.
+func (a *AgentLoop) extractMemories() {
+	input := longterm.ExtractionInput{
+		Conversation:   a.sessionMem.GetHistoryMessages(),
+		SessionSummary: a.sessionMem.Summary(),
+		Goal:           a.goal,
+	}
+	result, _ := a.writePipeline.ExtractFromSession(context.Background(), input)
+	if result != nil && a.currentTrace != nil {
+		span := a.currentTrace.StartSpan("memory.extract_before_compress", map[string]any{
+			"facts_stored": result.ItemsStored,
+			"needs_human":  result.NeedsHuman,
+		})
+		span.End()
+		}
+	}
+

@@ -293,7 +293,7 @@ func TestServer_FullFlow(t *testing.T) {
 	mockAgent := newMockAgent()
 	mockAgent.executeFn = func(ctx context.Context, sys core.Message, userMsgs []core.Message) ([]core.Message, error) {
 		return []core.Message{
-			core.NewAssistantMessage("root", core.TextContent{Text: "I can help with that!"}),
+			core.NewAssistantMessage(core.TextContent{Text: "I can help with that!"}),
 		}, nil
 	}
 

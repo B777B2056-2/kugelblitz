@@ -75,5 +75,6 @@ func (t *SkillUse) ActiveSkill() *skills.Skill { return t.active }
 func RegisterSkillTool(skillList []*skills.Skill, active *skills.Skill) *SkillUse {
 	s := &SkillUse{skills: skillList, active: active}
 	tools.Register(s)
+	core.GetToolRegistry().MarkAsInternal(s.Definition().Name)
 	return s
 }

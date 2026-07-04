@@ -1,4 +1,4 @@
-package runtime
+package infra
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/tools/internals"
 )
@@ -26,14 +27,14 @@ type humanLoopState struct {
 type ReactAgent struct {
 	provider        core.ILMProvider
 	toolRegistry    *core.ToolRegistry
-	streamMode      bool
-	eventHooks      core.AgentEventHooks
+	StreamMode      bool
+	EventHooks      core.AgentEventHooks
 	abortSignal     chan struct{}
-	enableThinking  *bool
-	reasoningEffort string
+	EnableThinking  *bool
+	ReasoningEffort string
 	toolNames       []string     // nil=all tools; non-nil=whitelist
 	stepCount       int          // ReAct loop iterations
-	onToolResult    OnToolResult // per-tool-execution callback
+	OnToolResult    OnToolResult // per-tool-execution callback
 	humanLoop       *humanLoopState
 	pauseGate       *sync.RWMutex // shared gate; nil=no pausing; RLock blocks tool calls
 }
@@ -42,14 +43,14 @@ func NewReactAgent(provider core.ILMProvider, streamMode bool) *ReactAgent {
 	return &ReactAgent{
 		provider:     provider,
 		toolRegistry: core.GetToolRegistry(),
-		streamMode:   streamMode,
+		StreamMode:   streamMode,
 		abortSignal:  make(chan struct{}, 1),
 	}
 }
 
 func (a *ReactAgent) SetThinking(enabled bool, effort string) {
-	a.enableThinking = &enabled
-	a.reasoningEffort = effort
+	a.EnableThinking = &enabled
+	a.ReasoningEffort = effort
 }
 
 func (a *ReactAgent) WithTools(names ...string) *ReactAgent {
@@ -62,7 +63,7 @@ func (a *ReactAgent) WithTools(names ...string) *ReactAgent {
 }
 
 func (a *ReactAgent) RegisterEventHooks(hooks core.AgentEventHooks) {
-	a.eventHooks = hooks
+	a.EventHooks = hooks
 }
 
 func (a *ReactAgent) WithPauseGate(g *sync.RWMutex) *ReactAgent {
@@ -70,7 +71,7 @@ func (a *ReactAgent) WithPauseGate(g *sync.RWMutex) *ReactAgent {
 	return a
 }
 
-func (a *ReactAgent) SetOnToolResult(fn OnToolResult) { a.onToolResult = fn }
+func (a *ReactAgent) SetOnToolResult(fn OnToolResult) { a.OnToolResult = fn }
 
 func (a *ReactAgent) Execute(ctx context.Context, systemMessage core.Message, userMessages []core.Message) ([]core.Message, error) {
 	return a.ExecuteWithTools(ctx, systemMessage, userMessages, nil)
@@ -96,19 +97,19 @@ func (a *ReactAgent) ExecuteWithTools(ctx context.Context, systemMessage core.Me
 
 		select {
 		case <-a.abortSignal:
-			return assistantMessages, nil
+			return stripDanglingToolCalls(assistantMessages), nil
 		case <-ctx.Done():
-			return assistantMessages, ctx.Err()
+			return stripDanglingToolCalls(assistantMessages), ctx.Err()
 		default:
 		}
 
 		params := core.GenerateParams{
 			Messages:        inputMessages,
 			Tools:           a.visibleTools(),
-			Stream:          a.streamMode,
-			EventHandler:    a.eventHooks.ModelEventHandler,
-			EnableThinking:  a.enableThinking,
-			ReasoningEffort: a.reasoningEffort,
+			Stream:          a.StreamMode,
+			EventHandler:    a.EventHooks.ModelEventHandler,
+			EnableThinking:  a.EnableThinking,
+			ReasoningEffort: a.ReasoningEffort,
 		}
 
 		assistantMessage, err := a.provider.Generate(ctx, params)
@@ -124,23 +125,37 @@ func (a *ReactAgent) ExecuteWithTools(ctx context.Context, systemMessage core.Me
 
 		toolCallResults := a.executeTools(ctx, details)
 
+		toolMsg := core.NewToolMessage(toolCallResults)
+		assistantMessages = append(assistantMessages, toolMsg)
+
 		// Let external observer inspect results and optionally abort
-		if a.onToolResult != nil && !a.onToolResult(toolCallResults, a.stepCount) {
+		if a.OnToolResult != nil && !a.OnToolResult(toolCallResults, a.stepCount) {
 			return assistantMessages, nil
 		}
 
 		if needEarlyTerminating(toolCallResults) {
-			toolMsg := core.NewToolMessage(assistantMessage.ID, toolCallResults)
-			assistantMessages = append(assistantMessages, toolMsg)
 			return assistantMessages, nil
 		}
 
-		inputMessages = append(inputMessages, *assistantMessage)
-
-		toolMsg := core.NewToolMessage(assistantMessage.ID, toolCallResults)
-		inputMessages = append(inputMessages, toolMsg)
-		assistantMessages = append(assistantMessages, toolMsg)
+		inputMessages = append(inputMessages, *assistantMessage, toolMsg)
 	}
+}
+
+// stripDanglingToolCalls removes the last assistant message if it has tool_calls
+// but no corresponding tool results (e.g. after abort/cancel during execution).
+func stripDanglingToolCalls(messages []core.Message) []core.Message {
+	if len(messages) == 0 {
+		return messages
+	}
+	last := messages[len(messages)-1]
+	if last.Role != constants.RoleAssistant {
+		return messages
+	}
+	details := extractToolCalls(last.Content)
+	if len(details) > 0 {
+		return messages[:len(messages)-1]
+	}
+	return messages
 }
 
 // needEarlyTerminating returns true if any terminating tool in the
@@ -177,56 +192,15 @@ func extractToolCalls(content core.Content) []core.ToolCallDetail {
 	}
 }
 
-// extractToolResults extracts all ToolCallResults from a message's content,
-// handling both ToolResultContent and CompositeContent wrappers.
-func extractToolResults(content core.Content) []core.ToolCallResult {
-	if content == nil {
-		return nil
-	}
-	switch ct := content.(type) {
-	case core.ToolResultContent:
-		return ct.Results
-	case core.CompositeContent:
-		var results []core.ToolCallResult
-		for _, part := range ct.Parts {
-			if tr, ok := part.(core.ToolResultContent); ok {
-				results = append(results, tr.Results...)
-			}
-		}
-		return results
-	default:
-		return nil
-	}
-}
-
 func (a *ReactAgent) executeTools(ctx context.Context, details []core.ToolCallDetail) []core.ToolCallResult {
-	if len(details) == 1 {
-		result := a.callTool(ctx, details[0])
-		if a.eventHooks.OnToolCallEnd != nil {
-			a.eventHooks.OnToolCallEnd(result)
-		}
-		return []core.ToolCallResult{result}
-	}
-
 	results := make([]core.ToolCallResult, len(details))
-	var wg sync.WaitGroup
-	var cbMu sync.Mutex
-
 	for i, detail := range details {
-		wg.Add(1)
-		go func(idx int, d core.ToolCallDetail) {
-			defer wg.Done()
-			result := a.callTool(ctx, d)
-			results[idx] = result
-			if a.eventHooks.OnToolCallEnd != nil {
-				cbMu.Lock()
-				a.eventHooks.OnToolCallEnd(result)
-				cbMu.Unlock()
-			}
-		}(i, detail)
+		result := a.callTool(ctx, detail)
+		results[i] = result
+		if a.EventHooks.OnToolCallEnd != nil {
+			a.EventHooks.OnToolCallEnd(result)
+		}
 	}
-
-	wg.Wait()
 	return results
 }
 
@@ -248,6 +222,8 @@ func (a *ReactAgent) visibleTools() []core.ToolDefinition {
 		if whitelist == nil {
 			whitelist = []string{"<all>"}
 		}
+		_ = names
+		_ = whitelist
 	}
 	if a.toolNames == nil {
 		return all
@@ -268,6 +244,7 @@ func (a *ReactAgent) visibleTools() []core.ToolDefinition {
 		for i, d := range filtered {
 			names[i] = d.Name
 		}
+		_ = names
 	}
 	return filtered
 }
@@ -308,8 +285,8 @@ func (a *ReactAgent) WaitForHuman(ctx context.Context, reason, prompt string) (s
 	if a.humanLoop == nil {
 		return "", fmt.Errorf("human-in-the-loop not enabled")
 	}
-	if a.eventHooks.OnWaitForHumanAction != nil {
-		a.eventHooks.OnWaitForHumanAction(reason, prompt)
+	if a.EventHooks.OnWaitForHumanAction != nil {
+		a.EventHooks.OnWaitForHumanAction(reason, prompt)
 	}
 	a.humanLoop.isWaiting.Store(true)
 	defer a.humanLoop.isWaiting.Store(false)

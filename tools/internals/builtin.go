@@ -3,6 +3,7 @@ package internals
 import (
 	"path/filepath"
 
+	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
@@ -34,6 +35,9 @@ func All() []tools.Tool {
 // Called automatically via init(); you can also call it explicitly to re-register after a Reset().
 func RegisterAll() {
 	tools.RegisterAll(All()...)
+	for _, t := range All() {
+		core.GetToolRegistry().MarkAsInternal(t.Definition().Name)
+	}
 }
 
 // WorkerSpawn tool is registered via internals.RegisterWorkerSpawn in plan.go.

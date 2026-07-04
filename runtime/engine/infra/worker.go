@@ -1,4 +1,4 @@
-package runtime
+package infra
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/B777B2056-2/kugelblitz/core"
-	"github.com/B777B2056-2/kugelblitz/runtime/prompts"
+	"github.com/B777B2056-2/kugelblitz/prompts"
 )
 
 // WorkerAgent is a lightweight agent that executes a single task with a
@@ -30,24 +30,31 @@ var workerTools = []string{
 }
 
 type WorkerAgent struct {
-	provider    core.ILMProvider
-	streamMode  bool
-	customTools []string
-	maxSteps    int                   // safety limit on ReAct loop iterations
-	hooks       core.AgentEventHooks  // set by DAG executor; relayed to worker's ReactAgent
-	pauseGate   *sync.RWMutex        // shared DAG pause gate; nil = no pausing
-	onHITL      func(agent *ReactAgent, reason, prompt string) // fire on worker HITL
+	provider   core.ILMProvider
+	streamMode bool
+	maxSteps   int                  // safety limit on ReAct loop iterations
+	hooks      core.AgentEventHooks // set by DAG executor; relayed to worker's ReactAgent
+	pauseGate  *sync.RWMutex        // shared DAG pause gate; nil = no pausing
+	onHITL     func(agent *ReactAgent, reason, prompt string) // fire on worker HITL
 }
 
 // NewWorkerAgent creates a WorkerAgent with built-in execution tools plus custom tools.
-func NewWorkerAgent(provider core.ILMProvider, streamMode bool, customTools ...string) *WorkerAgent {
+func NewWorkerAgent(provider core.ILMProvider, streamMode bool) *WorkerAgent {
 	return &WorkerAgent{
-		provider:    provider,
-		streamMode:  streamMode,
-		customTools: customTools,
-		maxSteps:    10,
+		provider:   provider,
+		streamMode: streamMode,
+		maxSteps:   10,
 	}
 }
+
+// SetHooks sets the event hooks relayed to the worker's ReactAgent.
+func (w *WorkerAgent) SetHooks(hooks core.AgentEventHooks) { w.hooks = hooks }
+
+// SetPauseGate sets the shared DAG pause gate.
+func (w *WorkerAgent) SetPauseGate(g *sync.RWMutex) { w.pauseGate = g }
+
+// SetOnHITL sets the callback fired when the worker enters HITL.
+func (w *WorkerAgent) SetOnHITL(fn func(agent *ReactAgent, reason, prompt string)) { w.onHITL = fn }
 
 // workerResult collects the WorkerAgent's output and usage safely from callbacks.
 type workerResult struct {
@@ -88,16 +95,16 @@ func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (str
 	sysPrompt := prompts.DefaultFactory.MustRender(prompts.TypeWorker, prompts.WorkerParams{
 		Goal: goal, Action: action,
 	})
-	systemMsg := core.NewSystemMessage("root", core.TextContent{Text: sysPrompt})
+	systemMsg := core.NewSystemMessage(core.TextContent{Text: sysPrompt})
 
-	userMsg := core.NewUserMessage("root", core.TextContent{
+	userMsg := core.NewUserMessage(core.TextContent{
 		Text: fmt.Sprintf("Execute the task: %s", goal),
 	})
 
 	handler := &workerEventHandler{result: result}
 
 	agent := NewReactAgent(w.provider, w.streamMode)
-	agent.WithTools(append(workerTools, w.customTools...)...)
+	agent.WithTools(append(workerTools, core.GetToolRegistry().CustomToolNames()...)...)
 	agent.EnableHumanInTheLoop()
 	if w.pauseGate != nil {
 		agent.WithPauseGate(w.pauseGate)

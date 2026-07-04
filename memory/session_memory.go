@@ -7,28 +7,10 @@ import (
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"sync"
+	"unicode/utf8"
 )
 
 // ---- Config ----
-
-// CompressConfig controls how compression is performed.
-type CompressConfig struct {
-	// KeepLastN is the number of most recent messages to keep uncompressed.
-	// Messages beyond this window are consolidated into a summary.
-	KeepLastN int
-
-	// MinMessagesToCompress is the minimum number of old messages needed
-	// before compression is triggered. Prevents summarizing tiny histories.
-	MinMessagesToCompress int
-}
-
-// DefaultCompressConfig returns sensible defaults.
-func DefaultCompressConfig() CompressConfig {
-	return CompressConfig{
-		KeepLastN:             10,
-		MinMessagesToCompress: 5,
-	}
-}
 
 // ---- SessionMemory ----
 
@@ -77,7 +59,7 @@ func (s *SessionMemory) GetHistoryMessages() []core.Message {
 	copy(base, s.historyMessages)
 
 	if s.summary != "" {
-		sumMsg := core.NewUserMessage(s.sessionID, core.TextContent{Text: s.summary})
+		sumMsg := core.NewUserMessage(core.TextContent{Text: s.summary})
 		sumMsg.Role = "system"
 		return append([]core.Message{sumMsg}, base...)
 	}
@@ -87,20 +69,20 @@ func (s *SessionMemory) GetHistoryMessages() []core.Message {
 // Compress delegates to a Compressor to summarize old messages and
 // replaces them with a compact summary. Recent messages (last KeepLastN)
 // are preserved. Returns the LLM token usage from the summarization call.
-func (s *SessionMemory) Compress(ctx context.Context, c *Compressor, cfg CompressConfig) (*core.Usage, error) {
+func (s *SessionMemory) Compress(ctx context.Context, c *Compressor, keepLastN, minToCompress int) (*core.Usage, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	total := len(s.historyMessages)
-	if total <= cfg.KeepLastN {
+	if total <= keepLastN {
 		return nil, nil
 	}
 
-	splitAt := total - cfg.KeepLastN
+	splitAt := total - keepLastN
 	old := s.historyMessages[:splitAt]
 	recent := s.historyMessages[splitAt:]
 
-	if len(old) < cfg.MinMessagesToCompress {
+	if len(old) < minToCompress {
 		return nil, nil
 	}
 
@@ -115,6 +97,30 @@ func (s *SessionMemory) Compress(ctx context.Context, c *Compressor, cfg Compres
 
 	// Auto-persist: summaries are expensive (LLM call), don't lose them
 	return usage, s.Persist()
+}
+
+// CompressToolResult compresses oversized string fields in a tool result via the LLM.
+// Fields exceeding maxChars are summarized in-place. Error fields are never compressed.
+func (s *SessionMemory) CompressToolResult(
+	ctx context.Context, c *Compressor, maxChars int, result *core.ToolCallResult,
+) {
+	if maxChars <= 0 {
+		return
+	}
+	if _, isErr := result.Outputs["error"]; isErr {
+		return
+	}
+	for k, v := range result.Outputs {
+		raw, ok := v.(string)
+		if !ok || utf8.RuneCountInString(raw) <= maxChars {
+			continue
+		}
+		summary, err := c.SummarizeToolResultField(ctx, result.ToolName, k, raw)
+		if err != nil {
+			continue
+		}
+		result.Outputs[k] = summary
+	}
 }
 
 // Persist saves the session to disk via the persist package.

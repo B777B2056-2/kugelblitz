@@ -2,64 +2,71 @@
 
 [中文](README_zh.md)
 
-A lightweight, modular **Harness Agent** for Go — scaffolding, lifecycle management,
-and observability infrastructure that surrounds and orchestrates LLM-powered agents.
+A lightweight, modular Go harness agent — smart routing, FSM state harness, and DAG
+task orchestration that keep LLM agents predictable, auditable, and controllable.
 
 ## Features
 
-- **ReAct Engine** — think → act → observe loop with streaming and tool-call support
-- **Planner + Worker** — dual-agent pattern: one plans, many execute
-- **Plan-Execute-Adapt-Finish** — structured workflow with checkpoints and rollback
-- **Three-Layer Memory** — Session (conversation) + Working (plans/tasks) + Long-Term (MEMORY.md + ChromaDB index)
-- **Goal-Drift Review** — periodic alignment check, automatic replan on drift
-- **Skills** — pluggable domain-knowledge modules
-- **Built-in Web Tools** — `web_search` (DuckDuckGo, zero-config) + `web_fetch` (HTML → Markdown, optional JS rendering)
-- **Human-in-the-Loop** — agent can pause to consult a human, resume via
-  `OnWaitForHumanAction` callback + `ResumeWithHumanResponse`
-- **Langfuse Observability** — full trace / span / generation hierarchy out of the box
-- **Unified Usage Callback** — single callback for all LLM token consumption,
-  tagged by source identity (planner, compressor, reviewer, worker)
-- **ACP (Agent Client Protocol)** — JSON-RPC 2.0 over stdio adapter, opt-in.
-  Use any ACP-compatible editor (Zed, JetBrains, VS Code, Neovim) as the
-  frontend for a Kugelblitz-powered agent
+- **🧭 Smart Routing** — single structured LLM call classifies intent: simple task → Direct (zero-planning), complex task → Plan (full FSM lifecycle)
+- **⚙️ Agent State Harness** — FSM-enforced 9-state lifecycle, predictable and auditable. See [Harness — Self-Healing & Drift Prevention](#harness--self-healing--drift-prevention)
+- **📋 DAG Task Orchestration** — topological batching, concurrent execution, failure isolation + drift callback
+- **ReAct Engine** — think → act → observe loop with streaming, tool whitelists per state
+- **Three-Layer Memory** — Session (auto-compress) + Working (Plan/Task/Checkpoint) + Long-Term (MEMORY.md + ChromaDB + Knowledge Graph + auto Dreaming)
+- **Goal-Drift Review** — periodic alignment check with automatic checkpoint rollback
+- **Human-in-the-Loop** — `ask_human` tool pauses execution; DAG-wide pause gate; `OnWaitForHumanAction` + `ResumeWithHumanResponse` resume
+- **Skills** — pluggable YAML/SKILL.md domain-knowledge modules
+- **Built-in Web Tools** — `web_search` (DuckDuckGo, zero-config) + `web_fetch` (HTML→Markdown, optional JS rendering)
+- **Observability** — Observer interface + built-in Langfuse adapter, full trace/span/generation hierarchy
+- **Unified Usage Callback** — single callback for all LLM token consumption, tagged by source identity
+- **ACP (Agent Client Protocol)** — JSON-RPC 2.0 over stdio, compatible with Zed / JetBrains / VS Code / Neovim
 
 ## Architecture
 
 ```
-                         ┌──────────────────────────────┐
-                         │       Kugelblitz Harness      │
- User Goal ─────────────►│                               │
-                         │  ┌─────────────────────────┐  │
-                         │  │ Planner                 │  │
-                         │  │ Plan → Execute →        │  │
-                         │  │ Adapt → Finish          │  │
-                         │  └───────────┬─────────────┘  │
-                         │              │                │
-                         │  ┌───────────▼─────────────┐  │
-                         │  │ Tool Harness            │  │
-                         │  │ plan_*, task_*,         │  │
-                         │  │ memory_*, skill_use,    │  │
-                         │  │ worker_spawn            │  │
-                         │  └───────────┬─────────────┘  │
-                         │              │                │
-                         │  ┌───────────▼─────────────┐  │
-                         │  │ Memory Harness          │  │
-                         │  │ session + LTM           │  │
-                         │  │ + auto-compress         │  │
-                         │  └───────────┬─────────────┘  │
-                         │              │                │
-                         │  ┌───────────▼─────────────┐  │
-                         │  │ Review Harness          │  │
-                         │  │ drift detection         │  │
-                         │  │ + auto-rollback         │  │
-                         │  └───────────┬─────────────┘  │
-                         │              │                │
-                         │  ┌───────────▼─────────────┐  │
-                         │  │ Observability           │  │
-                         │  │ Langfuse traces +       │  │
-                         │  │ unified usage callback  │  │
-                         │  └─────────────────────────┘  │
-                         └──────────────────────────────┘
+                         ┌──────────────────────────────────────┐
+                         │          Kugelblitz Agent             │
+ User Goal ─────────────►│                                      │
+                         │  ┌────────────────────────────────┐  │
+                         │  │  Smart Routing (Intent phase)  │  │
+                         │  │  classify → set_work_mode      │  │
+                         │  └──────────────┬─────────────────┘  │
+                         │                 │                    │
+                         │     simple ─────┴──── plan           │
+                         │        │                │            │
+                         │        ▼                ▼            │
+                         │  ┌──────────┐   ┌───────────────┐   │
+                         │  │  Direct  │   │  Agent State   │   │
+                         │  │ (ReAct)  │   │  Harness (FSM) │   │
+                         │  └────┬─────┘   └───────┬───────┘   │
+                         │       │                   │           │
+                         │       │           ┌───────▼───────┐   │
+                         │       │           │  Task         │   │
+                         │       │           │  Orchestration│   │
+                         │       │           │  (DAG)        │   │
+                         │       │           └───────┬───────┘   │
+                         │       │                   │           │
+                         │       ▼                   ▼           │
+                         │  ┌──────────┐   ┌──────────────────┐ │
+                         │  │  ReAct   │   │  Plan Engine     │ │
+                         │  │  Engine  │   │  React Executor  │ │
+                         │  │ ReactAgent  │   │  + Reviewer     │ │
+                         │  └────┬─────┘   │  + WorkerAgent   │ │
+                         │       │         └────────┬─────────┘ │
+                         │       │                  │           │
+                         │       ▼                  ▼           │
+                         │  ┌────────────────────────────────┐  │
+                         │  │  Memory System                │  │
+                         │  │  Session + Working + LTM      │  │
+                         │  │  + auto-compress              │  │
+                         │  └──────────────┬─────────────────┘  │
+                         │                 │                    │
+                         │  ┌──────────────▼─────────────────┐  │
+                         │  │  Observability                 │  │
+                         │  │  Observer interface            │  │
+                         │  │  built-in Langfuse adapter     │  │
+                         │  │  + unified usage callback      │  │
+                         │  └────────────────────────────────┘  │
+                         └──────────────────────────────────────┘
 ```
 
 ## Quick Start
@@ -70,30 +77,53 @@ package main
 import (
     "context"
     "fmt"
+    "os/signal"
 
+    "github.com/B777B2056-2/kugelblitz/config"
     "github.com/B777B2056-2/kugelblitz/core"
     "github.com/B777B2056-2/kugelblitz/provider"
     "github.com/B777B2056-2/kugelblitz/runtime"
 )
 
 func main() {
-    p := provider.DeepSeek("sk-xxx", "https://api.deepseek.com", "deepseek-v4-flash")
-    planner := runtime.NewPlanner(p, true /* streaming */)
+    p := provider.DeepSeek("sk-xxx", "https://api.deepseek.com", "deepseek-chat")
 
-    msgs, err := planner.Execute(context.Background(),
-        "Create a README.md describing the project features, then add a docs/architecture.md")
-    if err != nil {
-        panic(err)
+    cfg := config.Config{
+        Model: config.ModelConfig{
+            Provider:        p,
+            StreamMode:      true,
+            EnableThinking:  true,
+            ReasoningEffort: core.ReasoningEffortHigh,
+        },
+        Runtime:         config.RuntimeConfig{MaxStateMachineCycles: 30},
+        ContextCompress: config.ContextCompressConfig{MaxAttempts: 3},
+        TargetDrift:     config.TargetDriftConfig{
+            ReviewInterval:          12,
+            MaxFailuresBeforeReview: 5,
+        },
     }
-    for _, m := range msgs {
-        if tc, ok := m.Content.(core.TextContent); ok {
-            fmt.Println(tc.Text)
-        }
-    }
+
+    loop := runtime.NewAgentLoop(cfg)
+    loop.RegisterEventHooks(core.AgentEventHooks{
+        OnLLMUsage: func(report core.LLMUsageReport) {
+            fmt.Printf("[%s] tokens: in=%d out=%d\n",
+                report.Identity,
+                report.Usage.InputTokens,
+                report.Usage.OutputTokens,
+            )
+        },
+    })
+
+    ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+    defer cancel()
+
+    go func() { <-loop.Done(); cancel() }()
+    loop.Run(ctx, "Create a README.md and docs/architecture.md")
+    <-ctx.Done()
 }
 ```
 
-Run with optional Langfuse tracing:
+Run with optional observability (built-in Langfuse adapter):
 
 ```bash
 go run . -apikey sk-xxx \
@@ -104,18 +134,79 @@ go run . -apikey sk-xxx \
 
 ## Core Concepts
 
-### Planner
+### AgentLoop — Main Entry Point
 
-The Planner follows a **Plan → Execute → Adapt → Finish** workflow. It decomposes the
-user's goal into subtasks, spawns Worker agents to handle independent tasks in parallel,
-and monitors progress. Failed tasks trigger adaptation (replan or retry). When all tasks
-are done the Planner summarizes and finishes.
+`runtime.AgentLoop` is the top-level harness. A single constructor wires up the
+entire stack:
+
+```go
+loop := runtime.NewAgentLoop(cfg)
+loop.RegisterEventHooks(hooks)       // optional: usage callbacks, HITL, etc.
+loop.Run(ctx, "your goal here")      // async execution
+<-loop.Done()                        // wait for completion
+```
+
+Under the hood it initializes: Long-Term Memory (MEMORY.md + ChromaDB), Skills
+registry, Semantic Judge, Session Memory, and the Kernel FSM engine.
+
+**Lifecycle API**:
+
+| Method | Description |
+|--------|-------------|
+| `Run(ctx, goal)` | Start async execution |
+| `Done() <-chan struct{}` | Closed when execution completes |
+| `Cancel()` | Interrupt main loop + cancel all workers |
+| `HumanLoopWaiting() bool` | Whether agent is waiting for human input |
+| `ResumeWithHumanResponse(reply) error` | Unblock HITL with human response |
+
+### Smart Routing — Intent Recognition
+
+Before any plan is created, the agent enters the **Intent** state. A single ReAct
+step with only the `set_work_mode` tool determines the execution path:
+
+- `{mode: "simple"}` → **Direct** mode: runs a ReAct loop with the full tool set
+  (shell, file, web, memory, ask_human). Suitable for single-step tasks like
+  reading files, running commands, or searching the web.
+- `{mode: "plan"}` → **Plan** mode: enters the FSM lifecycle (Init → Confirmed →
+  Doing). Suitable for multi-step tasks like implementing features or refactoring.
+
+Both modes receive the same Agent Context and Skills injection.
+
+### Agent State Harness (FSM)
+
+The harness enforces a 9-state lifecycle over every plan-based execution.
+Each state defines **allowed tools**, **actions**, and **transition rules** —
+the LLM cannot skip or alter the flow path.
+
+See [Harness — Agent State Harness & Tool Harness](#harness--self-healing--drift-prevention)
+for detailed state definitions, tool-level safety mechanisms, and the drift detection loop.
+
+### DAG Task Orchestration
+
+When `Doing` begins, `DAGTaskExecutor` takes over:
+
+- Computes task dependency graph from `ParentTaskID` fields
+- Executes in **topological batches**: all tasks whose parents are `done` run concurrently
+- Each task gets a `WorkerAgent` with a restricted tool set
+- Failures trigger the drift detection callback
+- Batches auto-advance until all tasks terminal or context cancelled
+
+### ReAct Engine
+
+`infra.ReactAgent` powers the think→act→observe loop:
+
+- **Tool whitelists** — each state passes a list of allowed tool names; the agent
+  filters the global registry to expose only those tools
+- **Streaming** — supports both block and SSE streaming modes
+- **HITL** — local `ask_human` tool pauses the loop without affecting the global registry
+- **Interrupt** — `abortSignal` channel for graceful cancellation
 
 ### Worker
 
-Workers execute discrete subtasks with a restricted tool set (file read/write, directory
-operations). The Planner spawns them via `worker_spawn`, and they run concurrently when
-tasks are independent.
+`infra.WorkerAgent` executes individual tasks with a restricted tool set (shell,
+file, web, skill_use, ask_human). Spawned by DAGTaskExecutor, workers run
+concurrently when tasks are independent. Each worker exposes HITL support via
+the DAG's shared pause gate.
 
 ### Memory System
 
@@ -125,21 +216,21 @@ conversation history), **Working Memory** (plans and tasks in progress), and
 
 ```
 ┌─────────────────────────────────────────────┐
-│              Session Memory                 │  ← in-memory, per-conversation
+│              Session Memory                 │  ← session-isolated, JSONL persisted
 │  Messages + Summary (auto-compressed)       │
 ├─────────────────────────────────────────────┤
 │              Working Memory                 │  ← plans + tasks + checkpoints
 │  Plan / Task / Checkpoint (JSONL)           │
 ├─────────────────────────────────────────────┤
 │              Long-Term Memory               │  ← persistent, cross-session
-│  MEMORY.md (authoritative) + ChromaDB (index)│
+│  MEMORY.md + ChromaDB + Graph + Dreaming     │
 └─────────────────────────────────────────────┘
 ```
 
 #### Session Memory
 
 Full conversation history kept in memory. Persisted as JSONL to disk after every
-`Planner.Execute()` and after compression. When the context window overflows
+`AgentLoop` execution and after compression. When the context window overflows
 (`ErrContextLengthExceeded`), the harness **automatically compresses** old messages
 into an LLM-generated cumulative summary, keeping the most recent N messages intact.
 On restart, `SessionMemoryManager` automatically reloads from disk.
@@ -227,38 +318,32 @@ queries. Set `needGraph: true` on `memory_search` to include graph results.
 | `memory_resolve_conflict` | Confirm a pending conflict (keep_new / keep_old) |
 | `memory_extract` | Agent-triggered: extract + persist from current session |
 
+#### Tool Result Compression
+
+When a tool returns a large string value (e.g. `file_read` of a 10000-line file,
+or `web_fetch` of a long page), the harness **automatically compresses** that field
+via the LLM before it enters the conversation context — preventing token waste and
+context overflow.
+
+- **Per-field** — only individual string values that exceed the threshold are
+  compressed; other fields (paths, numbers, booleans, short strings) stay intact.
+- **Error-safe** — results containing an `error` key are never compressed.
+- **Configurable** — threshold via `ContextCompressConfig.MaxToolResultChars` (default 4000 UTF-8 chars, 0 = disable).
+
+Compressed fields are replaced in-place within `Outputs`, so the agent sees
+the summarized version while the tool span in the observability backend still records the original.
+
 ### Skills
 
 Skills are pluggable YAML/SKILL.md modules that inject domain knowledge into the
-Planner's system prompt. Activate a skill via `skill_use` and the harness
-automatically loads its instructions and tool definitions.
-
-### Web Tools
-
-Built-in tools that give agents internet access — register with a single call:
-
-```go
-internals.RegisterWebTools(nil) // DuckDuckGo (free, no API key)
-```
-
-**`web_search`** — search the web via DuckDuckGo with zero configuration.
-Returns structured results (title, URL, snippet). Supports custom backends
-(e.g. Brave Search) via the `SearchBackend` interface.
-
-**`web_fetch`** — fetch a URL and convert it to clean Markdown using
-`html-to-markdown`. Scripts, styles, and navigation are automatically stripped.
-Set `render_js: true` to render SPAs with a headless browser before extraction.
-
-```
-web_search (query, limit?)  → {query, results[{title, url, snippet}]}
-web_fetch  (url, render_js?) → {url, title, markdown}
-```
+system prompt. Activate a skill via `skill_use` and the harness automatically
+loads its instructions and tool definitions.
 
 ## ACP — Agent Client Protocol
 
-Kugelblitz 可作为 ACP-compatible Agent 运行，接入任何支持
-[Agent Client Protocol](https://agentclientprotocol.com) 的编辑器（Zed、JetBrains、
-VS Code、Neovim 等）。
+Kugelblitz can run as an ACP-compatible agent for any editor that supports the
+[Agent Client Protocol](https://agentclientprotocol.com) (Zed, JetBrains,
+VS Code, Neovim).
 
 ### Protocol Flow
 
@@ -294,8 +379,8 @@ Editor (Client)              Kugelblitz (Server)
 ### Quick Start
 
 ```go
-p := provider.DeepSeek("sk-xxx", "https://api.deepseek.com", "deepseek-v4-flash")
-agent := runtime.NewReactAgent(p, true)
+p := provider.DeepSeek("sk-xxx", "https://api.deepseek.com", "deepseek-chat")
+agent := infra.NewReactAgent(p, true)
 
 srv := acp.NewServer(agent, p)
 srv.Run(context.Background())
@@ -305,7 +390,7 @@ srv.Run(context.Background())
 go run examples/acp_server/main.go -apikey sk-xxx
 ```
 
-编辑器配置示例：
+Editor configuration example:
 
 ```json
 {
@@ -317,7 +402,7 @@ go run examples/acp_server/main.go -apikey sk-xxx
 }
 ```
 
-完整示例见 [examples/acp_server/](examples/acp_server/)。
+Full example at [examples/acp_server/](examples/acp_server/).
 
 ## Human-in-the-Loop
 
@@ -342,6 +427,7 @@ ReAct Loop
   │           └─ returns {"response":"yes, delete"} to LLM
   │
   ├── think → call tool C (acts on human response)
+  ├── think → ... (ReAct loop resumes normally)
   └── final result
 ```
 
@@ -360,12 +446,15 @@ ReAct Loop
 - **Zero changes to `ToolCallResult`** — pause mechanism is entirely encapsulated within the tool's `Execute`
 - **Zero changes to `Interrupt`** — `Interrupt()` only manages `abortSignal`; pause is cancelled via context
 - **Local tool registration** — `ask_human` is registered per-agent, not globally, holding a reference to the agent's `HumanGate`
-- **Planner / Worker default** — enabled by default in `NewPlanner` and `NewWorkerAgent`
+- **Enabled by default** — `NewKernel` and `NewWorkerAgent` enable HITL automatically
+- **DAG-wide pause** — when any Worker enters HITL during DAG execution, **all Workers in the
+  same DAG are paused** via a shared pause gate. This prevents sibling tasks from racing ahead
+  while the human provides input on the blocked task, ensuring consistent plan state.
 
 ### Example
 
 ```go
-agent := runtime.NewReactAgent(p, true)
+agent := infra.NewReactAgent(p, true)
 agent.EnableHumanInTheLoop()
 
 waitSig := make(chan struct{}, 1)
@@ -391,8 +480,6 @@ for {
 }
 ```
 
-Full example at [examples/human_in_the_loop/](examples/human_in_the_loop/).
-
 ## Agent Context Files
 
 On startup, the harness auto-loads files from `~/.kugelblitz/` and injects them
@@ -408,50 +495,119 @@ into the system prompt:
 Missing or empty files are silently skipped. This is **zero-code agent customization** —
 drop files into the workspace directory to change agent behavior.
 
-## Harness — Self‑Healing & Drift Prevention
+## Harness — Self-Healing & Drift Prevention
 
-The harness provides two built-in safety mechanisms that operate **without human
+The harness provides built-in safety mechanisms that operate **without human
 intervention** to keep execution on track.
 
-### Planner Self‑Healing
+### Agent State Harness
 
-When tool calls fail repeatedly (`FailuresBeforeReview` consecutive failures), the
-Planner **automatically rolls back** to the last known-good checkpoint:
+The harness **enforces** a finite state machine over the agent's lifecycle — the LLM
+cannot skip or alter the flow:
 
 ```
-Step N   ──❌ fail
-Step N+1 ──❌ fail
-Step N+2 ──❌ fail
-    → FailuresBeforeReview (default 3) reached
-    → Load checkpoint from version N-1
-    → Restore Plan to that checkpoint
-    → Inject system message: "plan rolled back to vN-1"
-    → Continue execution from the safe point
+                 ┌──────────┐
+                 │  Intent  │  Intent recognition
+                 └────┬─────┘
+           simple ───┴─── plan
+              │              │
+              ▼              ▼
+         ┌────────┐    ┌──────────┐
+         │ Direct │    │   Init   │  Create plan
+         └────────┘    └────┬─────┘
+                            │ plan valid
+                            ▼
+                      ┌───────────┐
+                      │ Confirmed │  User approval
+                      └──┬───┬────┘
+                         │   │ rejected
+                  approved│   ▼
+                         │  ┌──────────┐
+                         │  │ Rejected │
+                         │  └──────────┘
+                         ▼
+                      ┌──────────┐
+                 ┌───►│  Doing   │  DAG parallel execution
+                 │    └────┬─────┘
+                 │         │         all done
+                 │         │              │
+                 │         │              ▼
+                 │         │         ┌──────────┐
+                 │         │         │   Done   │  Summarize
+                 │         │         └──────────┘
+                 │         │
+                 │    goal drift detected
+                 │         │
+                 │         ▼
+                 │   ┌──────────┐
+                 │   │ Updating │  Replan
+                 │   └────┬─────┘
+                 │        │
+                 │   plan valid
+                 └────────┘
 ```
 
-This prevents the model from compounding errors and gives it a clean path to
-recovery — **no human intervention required**.
+Every plan-based execution goes through a 9-state FSM lifecycle. Each state is
+defined by three explicit properties:
 
-Configuration:
+| Property | Description |
+|----------|-------------|
+| **Tool whitelist** | Which tools the LLM can call in this state |
+| **Action** | The atomic operation performed (ReactAction / DAGAction / NoOpAction) |
+| **Transition rule** | Under which conditions the state changes, and to what |
 
-```go
-planner.SetReviewConfig(runtime.ReviewConfig{
-    FailuresBeforeReview: 3,  // trigger after 3 consecutive failures
-})
-```
+States and their tools:
 
-### Reviewer Drift Detection
+| State | Tools | Action |
+|-------|-------|--------|
+| `Intent` | `set_work_mode` | ReactAction → classify |
+| `Init` | `plan_create`, `task_insert`, `memory_*`, `skill_use` | ReactAction → build plan |
+| `Confirmed` | `ask_human`, `confirm_plan` | ReactAction → await approval |
+| `Doing` | `task_query`, `task_status_update` | DAGAction → execute tasks |
+| `Updating` | `task_*`, `plan_query`, `memory_*`, `skill_use` | ReactAction → replan |
+| `Done` | `task_query`, `plan_query` | ReactAction → summarize |
+| `Failed` | `task_query`, `plan_query` | ReactAction → failure summary |
+| `Direct` | shell, file, web, memory, `skill_use`, `ask_human` | ReactAction → execute |
+| `Rejected` | (none) | NoOpAction → terminal |
 
-Two triggers independently activate the Reviewer:
+Transitions are **enforced by the harness** — the LLM cannot skip or alter the
+flow. This guarantees predictable, auditable agent behavior at every step.
 
-1. **ReAct step interval** — every N steps (`ReActStepInterval`), regardless of
+### Tool Harness
+
+Every tool invocation passes through the harness, which applies two layers of
+safety before the tool ever reaches the LLM's context:
+
+**Per-state tool visibility** — The FSM state determines exactly which tools are
+exposed to the LLM via a **whitelist**. Tools not on the list are invisible to the
+model, preventing hallucinated tool calls that could destabilize the state machine:
+
+| State | Tools visible | Why |
+|-------|---------------|-----|
+| `Intent` | only `set_work_mode` | LLM cannot call file/shell tools before classification |
+| `Init` | plan tools + memory, **no ask_human** | LLM must create a valid plan before seeking approval |
+| `Confirmed` | only `ask_human` + `confirm_plan` | LLM cannot modify the plan while awaiting user decision |
+| `Doing` | only `task_query` + `task_status_update` | LLM cannot create new tasks mid-execution |
+| Terminal | query-only tools | LLM can inspect but not modify |
+
+**Input validation** — Each built-in tool validates its arguments at the harness
+level before execution:
+- Required fields are checked for presence and type
+- String fields are bounded (no unlimited-length inputs)
+- Enumerated values are validated against allowed sets
+- Error results short-circuit the tool pipeline and never enter the LLM context
+
+### Drift Detection During Execution
+
+Two triggers independently activate the Reviewer during the `Doing` state:
+
+1. **Step interval** — every N ReAct steps (`ReviewInterval`), regardless of
    success or failure.
-2. **Consecutive failures** — after N consecutive tool failures
-   (`FailuresBeforeReview`).
+2. **Consecutive failures** — after N consecutive task failures
+   (`MaxFailuresBeforeReview`).
 
 The Reviewer sends the **original goal**, **current plan state**, and **recent
-activity** to an LLM that uses a `reviewer_report` tool to return structured
-output:
+activity** to an LLM using a `reviewer_report` tool for structured output:
 
 ```go
 type ReviewResult struct {
@@ -461,86 +617,19 @@ type ReviewResult struct {
 }
 ```
 
-If `Drift == true`, the harness triggers `replan()`, rolling back to the previous
-checkpoint version — just like the self-healing path.
+If `Drift == true`, the harness auto-rolls back to the previous checkpoint,
+transitions to `Updating` (replan), then re-enters `Confirmed` → `Doing`.
+A `system` message is injected so the LLM explains the rollback in its next
+response. The `OnPlanRollback` callback also fires for frontend notification.
 
-This keeps the Planner focused on the **original goal** and prevents token waste
+This keeps execution focused on the **original goal** and prevents token waste
 on irrelevant or scope-crept tasks.
-
-Configuration:
-
-```go
-planner.SetReviewConfig(runtime.ReviewConfig{
-    ReActStepInterval:    8,  // review every 8 ReAct steps
-    FailuresBeforeReview: 3,  // review after 3 consecutive failures
-})
-```
-
-### Tool Result Compression
-
-When a tool returns a large string value (e.g. `file_read` of a 10000-line file,
-or `web_fetch` of a long page), the harness **automatically compresses** that field
-via the LLM before it enters the conversation context — preventing token waste and
-context overflow.
-
-- **Per-field** — only individual string values that exceed the threshold are
-  compressed; other fields (paths, numbers, booleans, short strings) stay intact.
-- **Error-safe** — results containing an `error` key are never compressed.
-- **Configurable** — threshold is set via `WithMaxToolResultChars` (default 4000 UTF-8 chars, 0 = disable).
-
-```go
-planner := runtime.NewPlanner(p, true,
-    runtime.WithMaxToolResultChars(2000), // compress strings > 2000 chars
-)
-```
-
-Compressed fields are replaced in-place within `Outputs`, so the Planner sees
-the summarized version while the tool span in Langfuse still records the original.
-
-### Harness Flow Summary
-
-```
-        ┌──────────┐
-        │  Execute  │
-        └─────┬─────┘
-              │
-    ┌─────────▼─────────┐
-    │  ReAct Step Loop  │◄──────────────────────────┐
-    └─────────┬─────────┘                           │
-              │                                     │
-    ┌─────────▼─────────┐     ┌──────────────┐      │
-    │  Tool Results     │────►│  Failures?   │      │
-    └───────────────────┘     └──────┬───────┘      │
-                                     │              │
-                          ┌──────────▼──────────┐   │
-                          │  ≥ FailuresBefore   │   │
-                          │  Review threshold?   │   │
-                          └──────────┬───────────┘   │
-                                     │              │
-                          ┌──────────▼──────────┐   │
-                          │  Reviewer checks    │   │
-                          │  for goal drift     │   │
-                          └──────────┬──────────┘   │
-                                     │              │
-                          ┌──────────▼──────────┐   │
-                          │  Drift detected?    │───┤
-                          │  → replan(rollback) │   │
-                          └─────────────────────┘   │
-                                                    │
-                          ┌─────────────────────────┘
-                          │
-                ┌─────────▼─────────┐
-                │  Step interval    │
-                │  ≥ ReActStep      │──► Reviewer check
-                │  Interval?        │
-                └───────────────────┘
-```
 
 ## Observability
 
-### Langfuse Tracing
+### Observability (Observer Interface, Built-in Langfuse Adapter)
 
-Planner execution is automatically traced with full hierarchy:
+Execution is automatically traced with full hierarchy:
 
 ```
 Trace "session-<uuid>"
@@ -563,7 +652,7 @@ lfObs := observability.NewLangfuseObserver(observability.LangfuseConfig{
     PublicKey: "pk-xxx",
     SecretKey: "sk-xxx",
 })
-planner := runtime.NewPlanner(p, true, runtime.WithObserver(lfObs))
+loop := runtime.NewAgentLoop(cfg, runtime.WithObserver(lfObs))
 ```
 
 ### Unified Usage Callback
@@ -571,16 +660,16 @@ planner := runtime.NewPlanner(p, true, runtime.WithObserver(lfObs))
 A single callback reports **every LLM call's** token consumption, tagged by source:
 
 ```go
-planner := runtime.NewPlanner(p, true,
-    runtime.WithLLMUsageCallback(func(report core.LLMUsageReport) {
+loop.RegisterEventHooks(core.AgentEventHooks{
+    OnLLMUsage: func(report core.LLMUsageReport) {
         fmt.Printf("[%s] in=%d out=%d total=%d\n",
             report.Identity,
             report.Usage.InputTokens,
             report.Usage.OutputTokens,
             report.Usage.TotalTokens,
         )
-    }),
-)
+    },
+})
 ```
 
 Identities emitted: `planner.step-1`, `planner.step-2`, `compressor`, `reviewer`,
@@ -588,19 +677,24 @@ Identities emitted: `planner.step-1`, `planner.step-2`, `compressor`, `reviewer`
 
 ## Built-in Tools
 
+### Intent & Routing
+
+| Tool | Description |
+|------|-------------|
+| `set_work_mode` | Structured classification: analyze request → select mode ("plan" or "simple") |
+
 ### Plan & Task
 
 | Tool | Description |
 |------|-------------|
 | `plan_create` | Create a new empty plan |
 | `plan_query` | Query a plan by ID or list all |
-| `plan_status_update` | Update plan status (init → doing → done / failed) |
+| `confirm_plan` | Confirm or reject a plan after user review |
 | `plan_rollback` | Rollback a plan to a previous checkpoint |
 | `task_insert` | Insert a subtask into a plan |
 | `task_delete` | Delete a task from a plan |
 | `task_query` | Query a task by ID or list tasks in a plan |
 | `task_status_update` | Update task status (pending → doing → done / failed) |
-| `worker_spawn` | Spawn a WorkerAgent to execute a task |
 
 ### Memory
 
@@ -645,37 +739,35 @@ Identities emitted: `planner.step-1`, `planner.step-2`, `compressor`, `reviewer`
 
 ```
 kugelblitz/
-├── core/              # Interfaces: Observer, Span, Message, Tool, Workspace
-├── runtime/           # Planner, ReactAgent, WorkerAgent, Reviewer
+├── core/              # Interfaces: ILMProvider, Observer, Span, Message, Tool, IAgent
+├── config/            # Configuration structs (Model, Runtime, Compress, Drift)
+├── constants/         # Enums: PlanState, RoleType, MultiModalType
+├── runtime/           # Agent execution runtime
+│   ├── agent_loop.go  #   AgentLoop — main entry point
+│   └── engine/
+│       ├── kernel.go  #   Kernel — public facade
+│       ├── fsm/       #   State machine (State + Action + Machine)
+│       ├── dag/       #   DAG task executor (topological batch execution)
+│       └── infra/     #   Infrastructure (ReactAgent, Reviewer, WorkerAgent)
 ├── memory/
-│   ├── session.go     # SessionMemory — conversation history + auto-compress
-│   ├── compressor.go  # LLM-based context summarization
-│   ├── longterm/      # Long-Term Memory (MEMORY.md + ChromaDB + Graph)
-│   │   ├── fact.go    #   MemoryItem CRUD + confidence decay
-│   │   ├── index.go   #   ChromaDB index manager
-│   │   ├── graph.go   #   Entity-relationship graph (persisted, BFS, Mermaid)
-│   │   ├── extractor.go # LLM extraction prompt builder
-│   │   ├── pipeline.go  # 4-stage write pipeline
-│   │   ├── dream.go     #   Background memory consolidation (sleep cycle)
-│   │   ├── conflict.go  # Conflict resolution + human-in-the-loop queue
-│   │   └── dedup.go     # Semantic deduplication
-│   └── working/       # Working Memory (plans + tasks + checkpoints)
-│       └── working.go
-├── observability/     # LangfuseObserver, PlannerInstrument
+│   ├── session_memory.go  # SessionMemory — conversation history + auto-compress
+│   ├── compressor.go      # LLM-based context summarization
+│   ├── working/           # Working Memory (Plan + Task + Checkpoint)
+│   └── longterm/          # Long-Term Memory (MEMORY.md + ChromaDB + Graph + Dream)
+├── prompts/           # System prompt templates
+├── observability/     # Observer interface + Langfuse adapter, PlannerInstrument
 ├── acp/               # ACP adapter (JSON-RPC 2.0 stdio transport, session mgmt)
+├── mcp/               # MCP server integration
 ├── tools/
-│   └── internals/     # plan_*, task_*, memory_*, worker_spawn, skill_use
+│   └── internals/     # Built-in tools (plan_*, task_*, memory_*, web, file, shell)
 ├── skills/            # Skill loader + registry
 ├── provider/
 │   └── chat_completions/  # OpenAI-compatible Format (Block + Stream)
 ├── persist/           # Format-level stores: MarkdownPersist, JSONLPersist, VectorPersist
 ├── utils/             # UUID generation, session IDs
 └── examples/
-    ├── plan_mode/            # Full Planner demo
-    ├── react/                # Standalone ReAct agent
-    ├── acp_server/           # ACP server (editor-compatible agent)
-    ├── drift_demo/           # Drift detection demo
-    └── human_in_the_loop/    # Human-in-the-loop demo
+    ├── simple/            # Quick start example
+    └── acp_server/        # ACP server (editor-compatible agent)
 ```
 
 ### Workspace Layout (`~/.kugelblitz/`)

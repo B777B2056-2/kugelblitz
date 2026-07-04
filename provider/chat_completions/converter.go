@@ -261,7 +261,7 @@ func formatOutputSchema(schema map[string]any) string {
 
 func (c *Converter) ParseResponse(ctx context.Context, parentID string, raw openai.ChatCompletionMessage) (*core.Message, error) {
 	reasoningContent := parseReasoningFromRaw(raw.RawJSON())
-	msg := core.NewAssistantMessage(parentID, nil)
+	msg := core.NewAssistantMessage(nil)
 
 	hasText := raw.Content != ""
 	hasToolCalls := len(raw.ToolCalls) > 0
@@ -330,7 +330,7 @@ func (c *Converter) ParseStreamChunk(ctx context.Context, parentID string, raw o
 	}
 
 	reasoningDelta := parseReasoningFromChunkRaw(raw.RawJSON())
-	msg := core.NewAssistantMessage(parentID, nil)
+	msg := core.NewAssistantMessage(nil)
 
 	if raw.Usage.TotalTokens > 0 {
 		msg.Usage = &core.Usage{

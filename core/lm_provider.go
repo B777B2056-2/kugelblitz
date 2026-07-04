@@ -47,6 +47,47 @@ type GenerateParams struct {
 	ReasoningEffort string
 }
 
+// CombineModelEventHandlers returns a handler that delegates to all given handlers in order.
+// nil handlers are skipped. If all handlers are nil, returns nil.
+func CombineModelEventHandlers(handlers ...ModelEventHandler) ModelEventHandler {
+	var nonNil []ModelEventHandler
+	for _, h := range handlers {
+		if h != nil {
+			nonNil = append(nonNil, h)
+		}
+	}
+	if len(nonNil) == 0 {
+		return nil
+	}
+	if len(nonNil) == 1 {
+		return nonNil[0]
+	}
+	return &combinedHandler{handlers: nonNil}
+}
+
+type combinedHandler struct {
+	handlers []ModelEventHandler
+}
+
+func (h *combinedHandler) OnThinkingChunk(chunk string) {
+	for _, d := range h.handlers { d.OnThinkingChunk(chunk) }
+}
+func (h *combinedHandler) OnReplyChunk(chunk string) {
+	for _, d := range h.handlers { d.OnReplyChunk(chunk) }
+}
+func (h *combinedHandler) OnFunctionCall(detail ToolCallDetail) {
+	for _, d := range h.handlers { d.OnFunctionCall(detail) }
+}
+func (h *combinedHandler) OnFinished(reason string) {
+	for _, d := range h.handlers { d.OnFinished(reason) }
+}
+func (h *combinedHandler) OnUsageUpdated(usage Usage) {
+	for _, d := range h.handlers { d.OnUsageUpdated(usage) }
+}
+func (h *combinedHandler) OnError(err error) {
+	for _, d := range h.handlers { d.OnError(err) }
+}
+
 // ILMProvider is the interface all language model providers must implement.
 type ILMProvider interface {
 	Generate(ctx context.Context, params GenerateParams) (*Message, error)

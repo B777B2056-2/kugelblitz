@@ -31,7 +31,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/acp"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/provider"
-	"github.com/B777B2056-2/kugelblitz/runtime"
+	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
 
 	_ "github.com/B777B2056-2/kugelblitz/tools/internals" // auto-register built-in tools
 )
@@ -59,7 +59,7 @@ func main() {
 	p := createProvider(*providerChoice, *apiKey, *baseURL, *model)
 
 	// ---- Create agent ----
-	agent := runtime.NewReactAgent(p, *streamMode)
+	agent := infra.NewReactAgent(p, *streamMode)
 	if *enableThinking {
 		agent.SetThinking(true, core.ReasoningEffortHigh)
 	}
