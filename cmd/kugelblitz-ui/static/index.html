@@ -135,9 +135,12 @@
 
     <!-- Settings Panel -->
     <div id="settings-panel">
-        <div id="settings-layout">
-            <div id="settings-sidebar">
-                <!-- Provider Config -->
+        <div class="settings-tabs">
+            <button class="settings-tab active" onclick="switchSettingsTab('config')">⚙ 配置</button>
+            <button class="settings-tab" onclick="switchSettingsTab('files')">📁 文件</button>
+        </div>
+        <div id="settings-config" class="settings-tab-content active">
+            <div class="config-scroll">
                 <div class="config-section">
                     <div class="config-title">⚡ 模型配置</div>
                     <div class="config-form">
@@ -146,13 +149,10 @@
                             <option value="deepseek">DeepSeek</option>
                             <option value="openai">OpenAI</option>
                         </select>
-
                         <label>模型</label>
                         <input type="text" id="cfg-model" placeholder="deepseek-v4-flash">
-
                         <label>Base URL</label>
                         <input type="text" id="cfg-baseurl" placeholder="https://api.deepseek.com">
-
                         <label>API Key</label>
                         <div class="apikey-row">
                             <input type="password" id="cfg-apikey" placeholder="sk-…">
@@ -160,17 +160,11 @@
                         </div>
                     </div>
                 </div>
-
-                <!-- Model Runtime -->
                 <div class="config-section">
                     <div class="config-title">🧠 推理设置</div>
                     <div class="config-form">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="cfg-stream" checked> Stream 模式
-                        </label>
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="cfg-thinking" checked> 深度思考
-                        </label>
+                        <label class="checkbox-label"><input type="checkbox" id="cfg-stream" checked> Stream 模式</label>
+                        <label class="checkbox-label"><input type="checkbox" id="cfg-thinking" checked> 深度思考</label>
                         <label>推理强度</label>
                         <select id="cfg-reasoning-effort">
                             <option value="low">Low</option>
@@ -181,8 +175,6 @@
                         </select>
                     </div>
                 </div>
-
-                <!-- Runtime -->
                 <div class="config-section">
                     <div class="config-title">⚙️ 运行时</div>
                     <div class="config-form">
@@ -190,38 +182,28 @@
                         <input type="number" id="cfg-max-cycles" min="5" max="200" value="30">
                     </div>
                 </div>
-
-                <!-- Context Compress -->
                 <div class="config-section">
                     <div class="config-title">📦 上下文压缩</div>
                     <div class="config-form">
                         <label>最大压缩尝试次数</label>
                         <input type="number" id="cfg-compress-attempts" min="1" max="10" value="1">
-
                         <label>工具结果压缩阈值 (字符)</label>
                         <input type="number" id="cfg-compress-chars" min="0" max="100000" value="4000" step="500">
-
                         <label>保留最近消息数 (不压缩)</label>
                         <input type="number" id="cfg-keep-last-n" min="5" max="100" value="20">
-
                         <label>最少旧消息数 (触发压缩)</label>
                         <input type="number" id="cfg-min-msgs" min="5" max="50" value="10">
                     </div>
                 </div>
-
-                <!-- Target Drift -->
                 <div class="config-section">
                     <div class="config-title">🎯 目标漂移检测</div>
                     <div class="config-form">
                         <label>审查间隔 (步数)</label>
                         <input type="number" id="cfg-review-interval" min="1" max="100" value="12">
-
                         <label>失败阈值 (触发审查)</label>
                         <input type="number" id="cfg-max-failures" min="1" max="50" value="5">
                     </div>
                 </div>
-
-                <!-- MCP Servers -->
                 <div class="config-section">
                     <div class="config-title">🔌 MCP 服务器</div>
                     <div class="config-form">
@@ -229,26 +211,28 @@
                         <button class="btn-add-server" onclick="addMCPServer()">+ 添加服务器</button>
                     </div>
                 </div>
-
-                <!-- Save -->
+            </div>
+            <div class="save-row">
                 <button class="btn-save-config" onclick="saveConfig()">保存配置</button>
                 <span class="config-status" id="config-status"></span>
-
-                <!-- File List -->
-                <div id="settings-files">
-                    <div class="files-header">📁 可编辑文件</div>
-                </div>
             </div>
-
-            <div id="settings-editor">
-                <div class="editor-header">
-                    <div>
-                        <span class="filename" id="editor-filename">选择文件</span>
-                        <span class="modified-dot" id="modified-dot" title="未保存的更改"></span>
-                    </div>
-                    <button class="btn-save" id="btn-save-settings" onclick="saveSettings()" disabled>保存</button>
+        </div>
+        <div id="settings-files-tab" class="settings-tab-content">
+            <div id="settings-files-layout">
+                <div id="settings-files-sidebar">
+                    <div class="files-header">可编辑文件</div>
+                    <div id="settings-files"></div>
                 </div>
-                <textarea id="editor-content" placeholder="在左侧选择文件进行编辑…" spellcheck="false"></textarea>
+                <div id="settings-editor">
+                    <div class="editor-header">
+                        <div>
+                            <span class="filename" id="editor-filename">选择文件</span>
+                            <span class="modified-dot" id="modified-dot" title="未保存的更改"></span>
+                        </div>
+                        <button class="btn-save" id="btn-save-settings" onclick="saveSettings()" disabled>保存</button>
+                    </div>
+                    <textarea id="editor-content" placeholder="选择文件进行编辑…" spellcheck="false"></textarea>
+                </div>
             </div>
         </div>
     </div>

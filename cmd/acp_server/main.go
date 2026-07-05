@@ -22,7 +22,6 @@ import (
 	"os/signal"
 	"path/filepath"
 
-	"github.com/B777B2056-2/kugelblitz/acp"
 	"github.com/B777B2056-2/kugelblitz/cmd/common"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/runtime"
@@ -51,7 +50,7 @@ func main() {
 
 	// AgentLoop wires up MCP, skills, LTM, session — same as Web UI.
 	loop := runtime.NewAgentLoop(cfg)
-	srv := acp.NewServer(loop.Agent(), cfg.Model.Provider)
+	srv := NewServer(loop.Agent(), cfg.Model.Provider)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()

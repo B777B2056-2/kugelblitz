@@ -1,4 +1,4 @@
-package acp
+package main
 
 import (
 	"encoding/json"

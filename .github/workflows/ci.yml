@@ -63,3 +63,34 @@ jobs:
 
       - name: Race Test
         run: cd ${{ matrix.module }} && go test -race ./... -count=1 -timeout 300s
+
+  build:
+    name: Build (${{ matrix.bin }}/${{ matrix.os }}/${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    strategy:
+      matrix:
+        bin: ["acp_server", "kugelblitz-ui"]
+        os: ["windows", "darwin"]
+        arch: ["amd64", "arm64"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Build
+        run: |
+          cd cmd/${{ matrix.bin }}
+          ext=""
+          [ "${{ matrix.os }}" = "windows" ] && ext=".exe"
+          GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build -o ${{ matrix.bin }}-${{ matrix.os }}-${{ matrix.arch }}$ext .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.bin }}-${{ matrix.os }}-${{ matrix.arch }}
+          path: cmd/${{ matrix.bin }}/${{ matrix.bin }}-${{ matrix.os }}-${{ matrix.arch }}*

@@ -30,15 +30,6 @@ function updateWelcome() {
     welcomeEl.style.display = messagesEl.children.length === 0 ? 'flex' : 'none';
 }
 
-// ═══ Right Panel Tabs ═══
-function switchRightTab(name) {
-    document.querySelectorAll('.right-tab').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.right-content').forEach(c => c.classList.remove('active'));
-    document.querySelector(`.right-tab[onclick*="${name}"]`)?.classList.add('active');
-    const content = document.getElementById('right-' + name);
-    if (content) content.classList.add('active');
-}
-
 // ═══ Session Management ═══
 async function loadSessions() {
     try {
@@ -67,6 +58,8 @@ async function newSession() {
         state.sessionId = data.session_id;
         resetAll();
         loadSessions();
+        switchTab('chat');
+        document.getElementById('goal-input').focus();
     } catch (e) { /* ignore */ }
 }
 
@@ -154,7 +147,8 @@ function resetAll() {
     document.getElementById('session-info').textContent = '';
     resetPlanPanel();
     resetUsagePanel();
-    document.getElementById('token-counter').textContent = '';
+    document.getElementById('right-panel').classList.remove('show');
+    updateTokenDisplay(0,0,0,0);
 }
 
 // ═══ Stop ═══
@@ -400,14 +394,14 @@ function onToolResult(data) {
 
 // ── Plan Update ──
 function onPlanUpdate(data) {
-    // New plan_id replaces old plan
+    document.getElementById('right-panel').classList.add('show');
     if (data.plan_id !== state.activePlanId) {
         resetPlanPanel();
     }
     state.activePlanId = data.plan_id;
     document.getElementById('plan-name').textContent = data.name||'—';
     const st = document.getElementById('plan-status'), status = data.status||'init';
-    st.style.display = 'inline-flex'; st.className = 'plan-status '+status;
+    st.className = 'plan-status '+status;
     st.querySelector('.status-label').textContent = status.toUpperCase();
     document.getElementById('session-info').textContent = `plan: ${data.name||'—'} · ${status}`;
 
@@ -425,7 +419,8 @@ function onPlanUpdate(data) {
 
 function resetPlanPanel() {
     document.getElementById('plan-name').textContent='暂无计划';
-    const st=document.getElementById('plan-status'); st.style.display='none'; st.className='plan-status init';
+    const st=document.getElementById('plan-status'); st.className='plan-status init';
+    st.querySelector('.status-label').textContent='INIT';
     document.getElementById('plan-info').textContent='';
     document.getElementById('task-list').innerHTML='<div class="no-plan"><div class="empty-icon">📋</div><div>Agent 尚未创建计划</div></div>';
 }
@@ -528,29 +523,19 @@ function onError(data) {
 
 // ── Usage (per-LLM-call; now also updates the right panel) ──
 function onUsage(data) {
-    // Status bar
-    if (data.total) {
-        state.totalTokens += data.total; if (data.identity) updateAgentIdentity(data.identity);
-        document.getElementById('token-counter').textContent = fmtNum(state.totalTokens)+' tokens';
-    }
-    // Right panel — update cumulative from every LLM call
     if (data.input)  state.tokenCumulative.input += data.input;
     if (data.output) state.tokenCumulative.output += data.output;
     if (data.reasoning) state.tokenCumulative.reasoning += data.reasoning;
-    if (data.total) state.tokenCumulative.total += data.total;
-
-    // Add to per-source reports
-    if (data.identity) {
-        state.tokenReports.push({
-            identity: data.identity,
-            input: data.input || 0,
-            output: data.output || 0,
-            reason: data.reasoning || 0,
-            total: data.total || 0
-        });
+    if (data.total) {
+        state.totalTokens += data.total;
+        if (data.identity) updateAgentIdentity(data.identity);
     }
-
-    updateUsagePanel();
+    updateTokenDisplay(
+        state.tokenCumulative.input,
+        state.tokenCumulative.output,
+        state.tokenCumulative.reasoning,
+        state.tokenCumulative.total
+    );
 }
 
 // ── Token Report (per-identity breakdown at turn end) ──
@@ -573,51 +558,16 @@ function onTokenReport(data) {
         state.tokenReports.push(data);
     }
 
-    updateUsagePanel();
-}
-
-function updateUsagePanel() {
-    const c = state.tokenCumulative;
-    const total = c.total || 1;
-
-    document.getElementById('usage-input').textContent = fmtNum(c.input);
-    document.getElementById('usage-output').textContent = fmtNum(c.output);
-    document.getElementById('usage-reasoning').textContent = fmtNum(c.reasoning);
-    document.getElementById('usage-total').textContent = fmtNum(c.total);
-
-    const pctI = Math.round(c.input/total*100);
-    const pctO = Math.round(c.output/total*100);
-    const pctR = Math.round(c.reasoning/total*100);
-    document.getElementById('bar-input').style.width = pctI+'%';
-    document.getElementById('bar-output').style.width = pctO+'%';
-    document.getElementById('bar-reasoning').style.width = pctR+'%';
-
-    const container = document.getElementById('usage-by-source');
-    if (!state.tokenReports.length) {
-        container.innerHTML = '<div class="usage-empty">等待用量数据…</div>';
-        return;
-    }
-
-    const maxTotal = Math.max(1, ...state.tokenReports.map(r=>r.total||0));
-    container.innerHTML = state.tokenReports.map(r => {
-        const pct = Math.round((r.total||0)/maxTotal*100);
-        return `<div class="usage-source-item">
-            <span class="src-id" title="${escapeHtml(r.identity)}">${escapeHtml(r.identity)}</span>
-            <span class="src-tokens">${fmtNum(r.total||0)}</span>
-            <div class="src-bar-wrap"><div class="src-bar" style="width:${pct}%"></div></div>
-        </div>`;
-    }).join('');
+    updateTokenDisplay(
+        state.tokenCumulative.input,
+        state.tokenCumulative.output,
+        state.tokenCumulative.reasoning,
+        state.tokenCumulative.total
+    );
 }
 
 function resetUsagePanel() {
-    document.getElementById('usage-input').textContent = '0';
-    document.getElementById('usage-output').textContent = '0';
-    document.getElementById('usage-reasoning').textContent = '0';
-    document.getElementById('usage-total').textContent = '0';
-    document.getElementById('bar-input').style.width = '0%';
-    document.getElementById('bar-output').style.width = '0%';
-    document.getElementById('bar-reasoning').style.width = '0%';
-    document.getElementById('usage-by-source').innerHTML = '<div class="usage-empty">等待用量数据…</div>';
+    updateTokenDisplay(0,0,0,0);
 }
 
 // ═══ Helpers ═══
@@ -646,11 +596,23 @@ function updateAgentIdentity(id) {
     if (id) document.getElementById('session-info').textContent = 'agent: ' + id;
 }
 
-function fmtNum(n) {
-    if (!n || n<0) return '0';
-    if (n>=1e6) return (n/1e6).toFixed(1)+'M';
-    if (n>=1e3) return (n/1e3).toFixed(1)+'k';
-    return String(Math.round(n));
+function updateTokenDisplay(input, output, reasoning, total) {
+    var tc = document.querySelector('#token-counter');
+    if (!tc) return;
+    var tin = tc.querySelector('.tok-in');
+    var tout = tc.querySelector('.tok-out');
+    var trea = tc.querySelector('.tok-reason');
+    var ttot = tc.querySelector('.tok-total');
+    if (tin) tin.textContent = '输入 ' + formatTokens(input);
+    if (tout) tout.textContent = '输出 ' + formatTokens(output);
+    if (trea) trea.textContent = '推理 ' + formatTokens(reasoning);
+    if (ttot) ttot.textContent = '总计 ' + formatTokens(total);
+}
+
+function formatTokens(n) {
+    if (n >= 1000000) return (n/1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n/1000).toFixed(1) + 'K';
+    return String(n);
 }
 
 function escapeHtml(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
@@ -672,9 +634,10 @@ function switchTab(tab) {
         chat.style.display='none'; right.style.display='none';
         settings.classList.add('active');
         tChat.classList.remove('active'); tSettings.classList.add('active');
-        loadConfigForm(); loadSettingsFiles();
+        loadConfigForm(); switchSettingsTab('config');
     } else {
-        chat.style.display='flex'; right.style.display='flex';
+        chat.style.display='flex';
+        if (!state.activePlanId) right.classList.remove('show');
         settings.classList.remove('active');
         tChat.classList.add('active'); tSettings.classList.remove('active');
     }

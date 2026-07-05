@@ -2,6 +2,15 @@
 // Kugelblitz Settings Client
 // ═══════════════════════════════════════════
 
+function switchSettingsTab(name) {
+    document.querySelectorAll('.settings-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.settings-tab-content').forEach(c => c.classList.remove('active'));
+    document.querySelector('.settings-tab[onclick*="' + name + '"]')?.classList.add('active');
+    var el = document.getElementById(name === 'files' ? 'settings-files-tab' : 'settings-config');
+    if (el) el.classList.add('active');
+    if (name === 'files') loadSettingsFiles();
+}
+
 const settingsState = {
     files: [],
     activeName: null,

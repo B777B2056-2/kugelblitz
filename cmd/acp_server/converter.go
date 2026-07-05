@@ -1,4 +1,4 @@
-package acp
+package main
 
 import (
 	"github.com/B777B2056-2/kugelblitz/constants"
