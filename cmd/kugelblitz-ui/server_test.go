@@ -242,7 +242,7 @@ func TestHandleHITLStatus_NotWaiting(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	json.NewDecoder(rec.Body).Decode(&resp)
+	_ = json.NewDecoder(rec.Body).Decode(&resp)
 	assert.Equal(t, false, resp["waiting"])
 }
 
@@ -259,7 +259,7 @@ func TestHandleHITLStatus_Waiting(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	json.NewDecoder(rec.Body).Decode(&resp)
+	_ = json.NewDecoder(rec.Body).Decode(&resp)
 	assert.Equal(t, true, resp["waiting"])
 	assert.NotNil(t, resp["question"])
 }
@@ -310,7 +310,7 @@ func TestWriteJSON(t *testing.T) {
 	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 
 	var resp map[string]string
-	json.NewDecoder(rec.Body).Decode(&resp)
+	_ = json.NewDecoder(rec.Body).Decode(&resp)
 	assert.Equal(t, "earl grey", resp["tea"])
 }
 
