@@ -132,7 +132,6 @@ func (tr *ToolRegistry) Reset() {
 	defer tr.mu.Unlock()
 	tr.tools = make(map[string]registryEntry)
 	tr.internalNames = make(map[string]bool)
-	tr.internalNames = make(map[string]bool)
 }
 
 // RegisterTool registers a tool on the global ToolRegistry.

@@ -50,10 +50,8 @@ func (f *Format) Generate(ctx context.Context, params core.GenerateParams) (*cor
 	if err != nil {
 		return nil, err
 	}
-	// Debug: print raw request JSON
-	if raw, jerr := json.MarshalIndent(req, "", "  "); jerr == nil {
-		core.Info("=== LLM request ===\n" + string(raw))
-	}
+	core.Debug("llm_request", "model", f.model, "stream", params.Stream,
+		"messages", len(params.Messages), "tools", len(params.Tools))
 	if params.Stream {
 		return f.Stream(ctx, req, params)
 	}
@@ -230,14 +228,26 @@ func (f *Format) Stream(ctx context.Context, req openai.ChatCompletionNewParams,
 		return nil, fmt.Errorf("stream: %w", wrapContextError(err))
 	}
 
-	// Parse accumulated raw arguments JSON strings into parsed maps
+	// Parse accumulated raw arguments and build final content
+	aggregated.Content = f.buildStreamContent(&textBuilder, &reasoningBuilder, toolCallAccum)
+
+	return &aggregated, nil
+}
+
+// buildStreamContent parses accumulated tool call arguments and assembles the
+// final Content value from streaming text, reasoning, and tool call accumulators.
+func (f *Format) buildStreamContent(
+	textBuilder, reasoningBuilder *strings.Builder,
+	toolCallAccum map[string]*toolCallEntry,
+) core.Content {
+	// Parse accumulated raw arguments JSON strings
 	for _, entry := range toolCallAccum {
 		if entry.rawArgs.Len() > 0 {
 			entry.Detail.Args = convertArgsJSON(entry.rawArgs.String())
 		}
 	}
 
-	// Convert accumulated tool call map to ordered slice
+	// Collect tool call details
 	toolCallDetails := make([]core.ToolCallDetail, 0, len(toolCallAccum))
 	for _, entry := range toolCallAccum {
 		if entry.Detail.ToolName != "" {
@@ -245,33 +255,30 @@ func (f *Format) Stream(ctx context.Context, req openai.ChatCompletionNewParams,
 		}
 	}
 
-	// Build aggregated content
 	reasoningText := reasoningBuilder.String()
 	text := textBuilder.String()
 	switch {
 	case len(toolCallDetails) > 0 && reasoningText != "":
-		aggregated.Content = core.CompositeContent{
+		return core.CompositeContent{
 			Parts: []core.Content{
 				core.ReasoningContent{Reasoning: reasoningText},
 				core.ToolCallContent{Details: toolCallDetails},
 			},
 		}
 	case len(toolCallDetails) > 0:
-		aggregated.Content = core.ToolCallContent{Details: toolCallDetails}
+		return core.ToolCallContent{Details: toolCallDetails}
 	case reasoningText != "" && text != "":
-		aggregated.Content = core.CompositeContent{
+		return core.CompositeContent{
 			Parts: []core.Content{
 				core.ReasoningContent{Reasoning: reasoningText},
 				core.TextContent{Text: text},
 			},
 		}
 	case reasoningText != "":
-		aggregated.Content = core.ReasoningContent{Reasoning: reasoningText}
+		return core.ReasoningContent{Reasoning: reasoningText}
 	default:
-		aggregated.Content = core.TextContent{Text: text}
+		return core.TextContent{Text: text}
 	}
-
-	return &aggregated, nil
 }
 
 // ---- Streaming tool call delta accumulation ----

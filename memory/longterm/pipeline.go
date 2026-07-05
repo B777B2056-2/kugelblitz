@@ -91,7 +91,11 @@ func (p *WritePipeline) Run(ctx context.Context, ec *ExtractionContext) (*Pipeli
 
 	// Stage 6: Rebuild ChromaDB index (async)
 	if p.indexMgr != nil {
-		go func() { _ = p.indexMgr.Rebuild(context.Background()) }()
+		go func() {
+			rebuildCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Minute)
+			defer cancel()
+			_ = p.indexMgr.Rebuild(rebuildCtx)
+		}()
 	}
 
 	result.Duration = time.Since(start)

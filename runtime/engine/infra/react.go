@@ -230,19 +230,6 @@ func (a *ReactAgent) visibleTools() []core.ToolDefinition {
 			all = append(all, def)
 		}
 	}
-	// Debug: log all globally registered tools
-	{
-		names := make([]string, len(all))
-		for i, d := range all {
-			names[i] = d.Name
-		}
-		whitelist := a.toolNames
-		if whitelist == nil {
-			whitelist = []string{"<all>"}
-		}
-		_ = names
-		_ = whitelist
-	}
 	if a.toolNames == nil {
 		return all
 	}
@@ -255,14 +242,6 @@ func (a *ReactAgent) visibleTools() []core.ToolDefinition {
 		if allow[def.Name] {
 			filtered = append(filtered, def)
 		}
-	}
-	// Debug: log filtered tools
-	{
-		names := make([]string, len(filtered))
-		for i, d := range filtered {
-			names[i] = d.Name
-		}
-		_ = names
 	}
 	return filtered
 }
@@ -369,5 +348,5 @@ func (a *ReactAgent) callTool(ctx context.Context, detail core.ToolCallDetail) c
 // modelEventHandler returns a ModelEventHandler for the provider by creating
 // a bridge from the AgentEventHooks callback fields.
 func (a *ReactAgent) modelEventHandler() core.ModelEventHandler {
-	return core.NewAgentEventBridge(&a.EventHooks, a.agentIdentity)
+	return a.EventHooks.AsModelEventHandler(a.agentIdentity)
 }

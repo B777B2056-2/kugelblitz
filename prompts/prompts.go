@@ -145,7 +145,7 @@ func BuildPlanStatusParams(plan *working.Plan) PlanStatusParams {
 		}
 		if t.Status == working.TaskStatusFailed {
 			failed++
-			reason := t.FinishedReson
+			reason := t.FinishedReason
 			if reason == "" {
 				reason = "(no reason)"
 			}

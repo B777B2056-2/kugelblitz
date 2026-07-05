@@ -34,7 +34,7 @@ type Task struct {
 	ParentTaskID  string      `json:"parent_task_id,omitempty"`
 	Goal          string      `json:"goal"`
 	Status        TaskStatus  `json:"status"`
-	FinishedReson string      `json:"finished_reason,omitempty"`
+	FinishedReason string      `json:"finished_reason,omitempty"`
 	Action        string      `json:"action,omitempty"`
 	Usage         *core.Usage `json:"usage,omitempty"`
 }
@@ -47,7 +47,7 @@ type Plan struct {
 	SubTasks                  []Task              `json:"subtasks"`
 	CurrentActivateSubTaskIDs []string            `json:"current_active_subtask_ids"`
 	State                     constants.PlanState `json:"status"`
-	FinishedReson             string              `json:"finished_reason,omitempty"`
+	FinishedReason             string              `json:"finished_reason,omitempty"`
 	Version                   int                 `json:"version"`
 
 	mu sync.Mutex `json:"-"` // serializes saveCheckpoint calls for this plan
@@ -99,7 +99,7 @@ func saveCheckpoint(p *Plan, reason string) {
 		SubTasks:                  append([]Task{}, p.SubTasks...),
 		CurrentActivateSubTaskIDs: append([]string{}, p.CurrentActivateSubTaskIDs...),
 		State:                     p.State,
-		FinishedReson:             p.FinishedReson,
+		FinishedReason:             p.FinishedReason,
 		Version:                   p.Version,
 	}
 	cp := Checkpoint{

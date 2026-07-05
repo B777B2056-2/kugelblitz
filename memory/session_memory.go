@@ -55,15 +55,15 @@ func (s *SessionMemory) GetHistoryMessages() []core.Message {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	base := make([]core.Message, len(s.historyMessages))
-	copy(base, s.historyMessages)
-
-	if s.summary != "" {
-		sumMsg := core.NewUserMessage(core.TextContent{Text: s.summary})
-		sumMsg.Role = "system"
-		return append([]core.Message{sumMsg}, base...)
+	if s.summary == "" {
+		return s.historyMessages
 	}
-	return base
+
+	sumMsg := core.NewSystemMessage(core.TextContent{Text: s.summary})
+	result := make([]core.Message, 0, len(s.historyMessages)+1)
+	result = append(result, sumMsg)
+	result = append(result, s.historyMessages...)
+	return result
 }
 
 // Compress delegates to a Compressor to summarize old messages and
