@@ -5,7 +5,7 @@
 //
 // The adapter enables any ACP-compatible editor (Zed, JetBrains, VS Code,
 // Neovim) to use a Kugelblitz-powered agent as its AI backend.
-package acp
+package main
 
 import (
 	"context"
