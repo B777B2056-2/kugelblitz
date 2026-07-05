@@ -50,10 +50,8 @@ func (f *Format) Generate(ctx context.Context, params core.GenerateParams) (*cor
 	if err != nil {
 		return nil, err
 	}
-	// Debug: print raw request JSON
-	if raw, jerr := json.MarshalIndent(req, "", "  "); jerr == nil {
-		core.Info("=== LLM request ===\n" + string(raw))
-	}
+	core.Debug("llm_request", "model", f.model, "stream", params.Stream,
+		"messages", len(params.Messages), "tools", len(params.Tools))
 	if params.Stream {
 		return f.Stream(ctx, req, params)
 	}
@@ -141,7 +139,7 @@ func (f *Format) Stream(ctx context.Context, req openai.ChatCompletionNewParams,
 
 	var textBuilder, reasoningBuilder strings.Builder
 	toolCallAccum := make(map[string]*toolCallEntry) // ID → accumulated entry
-	indexToID := make(map[int]string)                // array index → call ID
+	indexToID := make(map[int64]string)              // array index → call ID
 	handler := params.EventHandler
 
 	for streamResp.Next() {
@@ -153,35 +151,34 @@ func (f *Format) Stream(ctx context.Context, req openai.ChatCompletionNewParams,
 		}
 
 		// Extract raw tool call deltas BEFORE passing to converter
-		// (converter loses raw args strings since they come as JSON fragments)
-		rawTCs := extractRawToolCalls(streamResp.Current().RawJSON())
-		for _, rtc := range rawTCs {
-			if rtc.ID != "" {
-				indexToID[rtc.Index] = rtc.ID
-			}
-			// Resolve ID via index map for deltas that only have index
-			if rtc.ID == "" {
-				if id, ok := indexToID[rtc.Index]; ok {
-					rtc.ID = id
+		current := streamResp.Current()
+		for _, ch := range current.Choices {
+			for _, tc := range ch.Delta.ToolCalls {
+				id := tc.ID
+				if id == "" {
+					if resolved, ok := indexToID[tc.Index]; ok {
+						id = resolved
+					} else {
+						continue
+					}
+				} else {
+					indexToID[tc.Index] = id
 				}
-			}
-			// Accumulate by resolved ID (skip empty IDs — stray deltas)
-			if rtc.ID != "" {
-				entry, ok := toolCallAccum[rtc.ID]
+				entry, ok := toolCallAccum[id]
 				if !ok {
 					entry = &toolCallEntry{}
-					toolCallAccum[rtc.ID] = entry
+					toolCallAccum[id] = entry
 				}
-				if rtc.Name != "" && entry.Detail.ToolName == "" {
-					entry.Detail.ToolName = rtc.Name
-					entry.Detail.ID = rtc.ID
+				if tc.Function.Name != "" && entry.Detail.ToolName == "" {
+					entry.Detail.ToolName = tc.Function.Name
+					entry.Detail.ID = id
 					if handler != nil && !entry.notified {
-						handler.OnFunctionCall(core.ToolCallDetail{ID: rtc.ID, ToolName: rtc.Name})
+						handler.OnFunctionCall(core.ToolCallDetail{ID: id, ToolName: tc.Function.Name})
 						entry.notified = true
 					}
 				}
-				if rtc.Args != "" {
-					entry.rawArgs.WriteString(rtc.Args)
+				if tc.Function.Arguments != "" {
+					entry.rawArgs.WriteString(tc.Function.Arguments)
 				}
 			}
 		}
@@ -230,14 +227,26 @@ func (f *Format) Stream(ctx context.Context, req openai.ChatCompletionNewParams,
 		return nil, fmt.Errorf("stream: %w", wrapContextError(err))
 	}
 
-	// Parse accumulated raw arguments JSON strings into parsed maps
+	// Parse accumulated raw arguments and build final content
+	aggregated.Content = f.buildStreamContent(&textBuilder, &reasoningBuilder, toolCallAccum)
+
+	return &aggregated, nil
+}
+
+// buildStreamContent parses accumulated tool call arguments and assembles the
+// final Content value from streaming text, reasoning, and tool call accumulators.
+func (f *Format) buildStreamContent(
+	textBuilder, reasoningBuilder *strings.Builder,
+	toolCallAccum map[string]*toolCallEntry,
+) core.Content {
+	// Parse accumulated raw arguments JSON strings
 	for _, entry := range toolCallAccum {
 		if entry.rawArgs.Len() > 0 {
 			entry.Detail.Args = convertArgsJSON(entry.rawArgs.String())
 		}
 	}
 
-	// Convert accumulated tool call map to ordered slice
+	// Collect tool call details
 	toolCallDetails := make([]core.ToolCallDetail, 0, len(toolCallAccum))
 	for _, entry := range toolCallAccum {
 		if entry.Detail.ToolName != "" {
@@ -245,33 +254,30 @@ func (f *Format) Stream(ctx context.Context, req openai.ChatCompletionNewParams,
 		}
 	}
 
-	// Build aggregated content
 	reasoningText := reasoningBuilder.String()
 	text := textBuilder.String()
 	switch {
 	case len(toolCallDetails) > 0 && reasoningText != "":
-		aggregated.Content = core.CompositeContent{
+		return core.CompositeContent{
 			Parts: []core.Content{
 				core.ReasoningContent{Reasoning: reasoningText},
 				core.ToolCallContent{Details: toolCallDetails},
 			},
 		}
 	case len(toolCallDetails) > 0:
-		aggregated.Content = core.ToolCallContent{Details: toolCallDetails}
+		return core.ToolCallContent{Details: toolCallDetails}
 	case reasoningText != "" && text != "":
-		aggregated.Content = core.CompositeContent{
+		return core.CompositeContent{
 			Parts: []core.Content{
 				core.ReasoningContent{Reasoning: reasoningText},
 				core.TextContent{Text: text},
 			},
 		}
 	case reasoningText != "":
-		aggregated.Content = core.ReasoningContent{Reasoning: reasoningText}
+		return core.ReasoningContent{Reasoning: reasoningText}
 	default:
-		aggregated.Content = core.TextContent{Text: text}
+		return core.TextContent{Text: text}
 	}
-
-	return &aggregated, nil
 }
 
 // ---- Streaming tool call delta accumulation ----
@@ -283,56 +289,6 @@ type toolCallEntry struct {
 	Detail   core.ToolCallDetail
 	rawArgs  strings.Builder // concatenated raw JSON arguments (no reallocation per fragment)
 	notified bool            // OnFunctionCall already fired
-}
-
-// rawToolCall represents a single tool call delta from a raw chunk JSON.
-// It captures index, id, name, and arguments. Arguments are raw string
-// fragments that must be concatenated across chunks to form valid JSON.
-type rawToolCall struct {
-	Index int    `json:"index"`
-	ID    string `json:"id"`
-	Type  string `json:"type"`
-	Name  string `json:"-"`
-	Args  string `json:"-"`
-}
-
-// extractRawToolCalls parses tool call deltas from a raw streaming chunk JSON.
-// Returns raw fragments with index/id/name/args for accumulation.
-func extractRawToolCalls(rawJSON string) []rawToolCall {
-	if rawJSON == "" {
-		return nil
-	}
-	var m struct {
-		Choices []struct {
-			Delta struct {
-				ToolCalls []struct {
-					Index    int    `json:"index"`
-					ID       string `json:"id"`
-					Type     string `json:"type"`
-					Function struct {
-						Name      string `json:"name"`
-						Arguments string `json:"arguments"`
-					} `json:"function"`
-				} `json:"tool_calls"`
-			} `json:"delta"`
-		} `json:"choices"`
-	}
-	if err := json.Unmarshal([]byte(rawJSON), &m); err != nil {
-		return nil
-	}
-	var result []rawToolCall
-	for _, ch := range m.Choices {
-		for _, tc := range ch.Delta.ToolCalls {
-			result = append(result, rawToolCall{
-				Index: tc.Index,
-				ID:    tc.ID,
-				Type:  tc.Type,
-				Name:  tc.Function.Name,
-				Args:  tc.Function.Arguments,
-			})
-		}
-	}
-	return result
 }
 
 // convertArgsJSON parses a complete JSON arguments string into a map.

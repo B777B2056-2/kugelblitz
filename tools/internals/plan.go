@@ -165,7 +165,7 @@ func (t *ConfirmPlan) Execute(ctx context.Context, detail core.ToolCallDetail) c
 	newStatus := constants.PlanState(statusStr)
 	plan.State = newStatus
 	if reason != "" {
-		plan.FinishedReson = reason
+		plan.FinishedReason = reason
 	}
 	working.PutPlan(plan)
 
@@ -418,7 +418,7 @@ func (t *TaskStatusUpdate) Execute(ctx context.Context, detail core.ToolCallDeta
 
 	task.Status = working.TaskStatus(statusStr)
 	if reason != "" {
-		task.FinishedReson = reason
+		task.FinishedReason = reason
 	}
 	working.PutPlan(plan)
 
@@ -493,7 +493,7 @@ func (t *PlanRollback) Execute(ctx context.Context, detail core.ToolCallDetail) 
 	plan.SubTasks = cp.Plan.SubTasks
 	plan.CurrentActivateSubTaskIDs = cp.Plan.CurrentActivateSubTaskIDs
 	plan.State = cp.Plan.State
-	plan.FinishedReson = cp.Plan.FinishedReson
+	plan.FinishedReason = cp.Plan.FinishedReason
 	working.PutPlan(plan)
 
 	return tools.SuccessResult(detail.ID, "plan_rollback", map[string]any{

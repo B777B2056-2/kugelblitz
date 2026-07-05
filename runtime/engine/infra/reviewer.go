@@ -52,7 +52,7 @@ func (r *Reviewer) Review(ctx context.Context, originalGoal, planSummary, recent
 			},
 		}},
 		Stream:       false,
-		EventHandler: core.NewAgentEventBridge(&r.Hooks, constants.AgentReviewer),
+		EventHandler: r.Hooks.AsModelEventHandler(constants.AgentReviewer),
 	}
 
 	result, err := r.Provider.Generate(ctx, params)

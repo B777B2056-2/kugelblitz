@@ -171,7 +171,11 @@ func TestDAGTaskExecutor_ContextCancelledDuringExecution(t *testing.T) {
 	blocker := make(chan struct{})
 	prov := &mockProvider{
 		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			<-blocker
+			select {
+			case <-blocker:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 			msg := core.NewAssistantMessage(core.TextContent{Text: "ok"})
 			return &msg, nil
 		},

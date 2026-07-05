@@ -118,7 +118,7 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 		if ctx.Err() != nil {
 			for _, t := range ready {
 				t.Status = working.TaskStatusFailed
-				t.FinishedReson = "cancelled"
+				t.FinishedReason = "cancelled"
 			}
 			working.PutPlan(plan)
 			return BatchResult{Batched: anyBatch, HasFailed: true, AllDone: d.isDAGDone(plan)}
@@ -139,7 +139,7 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 					if planMu != nil {
 						if _, taskMu := working.FindTask(task.ID); taskMu != nil {
 							taskMu.Status = working.TaskStatusFailed
-							taskMu.FinishedReson = "cancelled"
+							taskMu.FinishedReason = "cancelled"
 							working.PutPlan(planMu)
 						}
 					}
@@ -161,18 +161,23 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 				if taskMu == nil {
 					return nil
 				}
+				// Serialize plan mutations: PutPlan → saveCheckpoint → json.Marshal
+				// reads all SubTasks. Holding the plan mutex during mutation ensures
+				// the marshal (which also acquires plan.mu) sees a consistent snapshot.
+				planMu.Lock()
 				if err != nil {
 					taskMu.Status = working.TaskStatusFailed
-					taskMu.FinishedReson = err.Error()
+					taskMu.FinishedReason = err.Error()
 					atomic.AddInt32(&failCount, 1)
 					if onTaskFailed != nil {
-						onTaskFailed(task.ID, task.Goal, taskMu.FinishedReson)
+						onTaskFailed(task.ID, task.Goal, taskMu.FinishedReason)
 					}
 				} else {
 					taskMu.Status = working.TaskStatusDone
-					taskMu.FinishedReson = output
+					taskMu.FinishedReason = output
 				}
 				taskMu.Usage = usage
+				planMu.Unlock()
 				working.PutPlan(planMu)
 
 				if d.workerHooks.OnTaskUpdated != nil {

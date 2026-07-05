@@ -118,7 +118,7 @@ func TestBuildPrompt_DoingShowsSummary(t *testing.T) {
 		SubTasks: []working.Task{
 			{ID: "task-1", Goal: "Task 1", Status: working.TaskStatusDone},
 			{ID: "task-2", Goal: "Task 2", Status: working.TaskStatusPending},
-			{ID: "task-3", Goal: "Task 3", Status: working.TaskStatusFailed, FinishedReson: "timeout"},
+			{ID: "task-3", Goal: "Task 3", Status: working.TaskStatusFailed, FinishedReason: "timeout"},
 		},
 	}
 	prompt := buildPrompt(constants.PlanStateDoing, plan)

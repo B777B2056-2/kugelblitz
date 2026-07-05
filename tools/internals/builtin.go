@@ -34,8 +34,9 @@ func All() []tools.Tool {
 // RegisterAll registers all built-in tools with the global ToolRegistry.
 // Called automatically via init(); you can also call it explicitly to re-register after a Reset().
 func RegisterAll() {
-	tools.RegisterAll(All()...)
-	for _, t := range All() {
+	all := All()
+	tools.RegisterAll(all...)
+	for _, t := range all {
 		core.GetToolRegistry().MarkAsInternal(t.Definition().Name)
 	}
 }

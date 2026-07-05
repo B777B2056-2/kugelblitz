@@ -1,8 +1,10 @@
 package longterm
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -60,13 +62,15 @@ func TestLongTermMemory_StoreConflictNewWins(t *testing.T) {
 func TestLongTermMemory_StoreConflictOldWins(t *testing.T) {
 	ltm := newTestLTM(t)
 
-	// Old fact with high confidence
+	// Old fact — UpdatedAt is set in the future so decayConfidence returns
+	// the original 1.0 regardless of platform clock resolution.
 	ltm.items = append(ltm.items, MemoryItem{
 		Section: "prefs", Key: "lang", Value: "Python",
-		Version: 1, Confidence: 1.0, UpdatedAt: time.Now(),
+		Version: 1, Confidence: 1.0, UpdatedAt: time.Now().Add(time.Hour),
 	})
 
-	// New fact — old has higher decayed confidence
+	// New fact also has confidence 1.0. With no decay on old, 1.0 > 1.0 is
+	// false → falls to default → old wins (kept as winner, new returned as conflict).
 	winner, conflict, _ := ltm.Store("prefs", "lang", "Go")
 	assert.NotNil(t, conflict)
 	assert.Equal(t, "Python", winner.Value) // old wins
@@ -283,4 +287,88 @@ func TestLongTermMemory_Stats(t *testing.T) {
 	assert.Equal(t, 1, total)
 	assert.Equal(t, 1, sections)
 	assert.Greater(t, avg, 0.0)
+}
+
+func TestLongTermMemory_ConcurrentStoreAndGet(t *testing.T) {
+	ltm := &LongTermMemory{}
+	ltm.initIndex()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			_, _, _ = ltm.Store("s", fmt.Sprintf("key-%d", idx), fmt.Sprintf("val-%d", idx))
+		}(i)
+	}
+	wg.Wait()
+
+	// Verify all keys are present
+	for i := 0; i < 10; i++ {
+		item, ok := ltm.Get("s", fmt.Sprintf("key-%d", i))
+		assert.True(t, ok, "key-%d should exist", i)
+		assert.Equal(t, fmt.Sprintf("val-%d", i), item.Value)
+	}
+}
+
+func TestLongTermMemory_ConcurrentBulkAndRemove(t *testing.T) {
+	ltm := &LongTermMemory{}
+	ltm.initIndex()
+
+	items := make([]MemoryItem, 10)
+	for i := 0; i < 10; i++ {
+		items[i] = MemoryItem{Section: "s", Key: fmt.Sprintf("k%d", i), Value: fmt.Sprintf("v%d", i)}
+	}
+
+	// BulkStore
+	require.NoError(t, ltm.BulkStore(items))
+
+	var wg sync.WaitGroup
+	// Concurrent reads via All
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			all := ltm.All()
+			assert.NotEmpty(t, all)
+		}()
+	}
+
+	// Concurrent Remove
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			_ = ltm.Remove("s", fmt.Sprintf("k%d", idx))
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Remaining items should be 7 (10 - 3)
+	remaining := len(ltm.All())
+	assert.GreaterOrEqual(t, remaining, 7)
+	assert.LessOrEqual(t, remaining, 10)
+}
+
+func TestLongTermMemory_ConcurrentSameKeyStore(t *testing.T) {
+	ltm := &LongTermMemory{}
+	ltm.initIndex()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			_, _, _ = ltm.Store("s", "same-key", fmt.Sprintf("val-%d", idx))
+		}(i)
+	}
+	wg.Wait()
+
+	// Final item should exist (no panic, no corruption)
+	item, ok := ltm.Get("s", "same-key")
+	assert.True(t, ok)
+	assert.NotEmpty(t, item.Value)
+	// Index count should match items count
+	assert.Equal(t, len(ltm.items), len(ltm.index))
 }

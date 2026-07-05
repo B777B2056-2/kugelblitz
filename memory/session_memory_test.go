@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -240,4 +241,66 @@ func TestManager_MultipleSessions(t *testing.T) {
 
 	assert.Len(t, mem1.GetHistoryMessages(), 1)
 	assert.Len(t, mem2.GetHistoryMessages(), 1)
+}
+
+func TestSessionMemory_ConcurrentReadDuringCompress(t *testing.T) {
+	sm := newSessionMemory("test")
+	for i := 0; i < 100; i++ {
+		sm.AppendMessage(core.NewUserMessage(core.TextContent{Text: fmt.Sprintf("msg-%d", i)}))
+	}
+
+	var wg sync.WaitGroup
+	// Simulate compress: truncate messages and set summary
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		sm.mu.Lock()
+		sm.summary = "compressed"
+		sm.historyMessages = sm.historyMessages[50:]
+		sm.mu.Unlock()
+	}()
+
+	// Concurrent reads
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = sm.GetHistoryMessages()
+		}()
+	}
+
+	// Concurrent appends
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			sm.AppendMessage(core.NewUserMessage(core.TextContent{Text: fmt.Sprintf("new-%d", idx)}))
+		}(i)
+	}
+
+	wg.Wait()
+	msgs := sm.GetHistoryMessages()
+	assert.NotEmpty(t, msgs)
+	// Summary should be set by the simulated compress
+	assert.Equal(t, "compressed", sm.Summary())
+}
+
+func TestSessionMemory_ConcurrentAppendAndPersist(t *testing.T) {
+	sm := newSessionMemory("test")
+	for i := 0; i < 10; i++ {
+		sm.AppendMessage(core.NewUserMessage(core.TextContent{Text: fmt.Sprintf("base-%d", i)}))
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			sm.AppendMessage(core.NewUserMessage(core.TextContent{Text: fmt.Sprintf("appended-%d", idx)}))
+		}(i)
+	}
+	wg.Wait()
+
+	msgs := sm.GetHistoryMessages()
+	assert.GreaterOrEqual(t, len(msgs), 20, "should have base + appended messages")
 }

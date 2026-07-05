@@ -43,6 +43,7 @@ const confidenceDecayPerDay = 0.95
 // For non-fact memories (episodic, patterns), use EpisodicMemory backed by ChromaDB.
 type LongTermMemory struct {
 	items []MemoryItem
+	index map[string]int // key → slice index for O(1) lookup by section+key
 	mu    sync.RWMutex
 
 	mdStore *persist.MarkdownPersist
@@ -68,6 +69,28 @@ func (ltm *LongTermMemory) Graph() *GraphStore { return ltm.graph }
 // SetGraph attaches a GraphStore for entity-relationship extraction.
 func (ltm *LongTermMemory) SetGraph(g *GraphStore) { ltm.graph = g }
 
+// indexKey builds the normalized index key for O(1) lookup.
+func (ltm *LongTermMemory) indexKey(section, key string) string {
+	return ltm.normalize(section) + "\x00" + key
+}
+
+// initIndex lazily initializes the index map if nil (for tests that don't use NewLongTermMemory).
+// Must be called with mu held.
+func (ltm *LongTermMemory) initIndex() {
+	if ltm.index == nil {
+		ltm.index = make(map[string]int)
+	}
+}
+
+// rebuildIndex rebuilds the in-memory index from the items slice.
+// Must be called with mu held.
+func (ltm *LongTermMemory) rebuildIndex() {
+	ltm.index = make(map[string]int, len(ltm.items))
+	for i := range ltm.items {
+		ltm.index[ltm.indexKey(ltm.items[i].Section, ltm.items[i].Key)] = i
+	}
+}
+
 // ---- CRUD ----
 
 // Store upserts a fact with confidence-based conflict resolution.
@@ -75,20 +98,23 @@ func (ltm *LongTermMemory) SetGraph(g *GraphStore) { ltm.graph = g }
 func (ltm *LongTermMemory) Store(section, key, value string) (winner MemoryItem, conflict *MemoryItem, _ error) {
 	ltm.mu.Lock()
 	defer ltm.mu.Unlock()
+	ltm.initIndex()
 	now := time.Now()
 
 	section = ltm.normalize(section)
-	var curIdx = -1
-	for i := range ltm.items {
-		if ltm.normalize(ltm.items[i].Section) == section && ltm.items[i].Key == key {
-			curIdx = i
-			break
-		}
+	idxKey := ltm.indexKey(section, key)
+	curIdx, exists := ltm.index[idxKey]
+
+	// Fallback: rebuild index if items were populated externally (e.g. tests)
+	if !exists && len(ltm.index) == 0 && len(ltm.items) > 0 {
+		ltm.rebuildIndex()
+		curIdx, exists = ltm.index[idxKey]
 	}
 
 	newFact := MemoryItem{Section: section, Key: key, Value: value, Version: 1, Confidence: 1.0, UpdatedAt: now}
 
-	if curIdx < 0 {
+	if !exists {
+		ltm.index[idxKey] = len(ltm.items)
 		ltm.items = append(ltm.items, newFact)
 		_ = ltm.write()
 		return newFact, nil, nil
@@ -128,24 +154,20 @@ func (ltm *LongTermMemory) Store(section, key, value string) (winner MemoryItem,
 func (ltm *LongTermMemory) BulkStore(items []MemoryItem) error {
 	ltm.mu.Lock()
 	defer ltm.mu.Unlock()
+	ltm.initIndex()
 
 	now := time.Now()
 	for _, newFact := range items {
 		newFact.UpdatedAt = now
 		newFact.Section = ltm.normalize(newFact.Section)
+		idxKey := ltm.indexKey(newFact.Section, newFact.Key)
 
-		curIdx := -1
-		for i := range ltm.items {
-			if ltm.normalize(ltm.items[i].Section) == newFact.Section && ltm.items[i].Key == newFact.Key {
-				curIdx = i
-				break
-			}
-		}
-		if curIdx < 0 {
-			ltm.items = append(ltm.items, newFact)
-		} else {
+		if curIdx, exists := ltm.index[idxKey]; exists {
 			newFact.Version = ltm.items[curIdx].Version + 1
 			ltm.items[curIdx] = newFact
+		} else {
+			ltm.index[idxKey] = len(ltm.items)
+			ltm.items = append(ltm.items, newFact)
 		}
 	}
 	return ltm.write()
@@ -156,11 +178,19 @@ func (ltm *LongTermMemory) Get(section, key string) (MemoryItem, bool) {
 	ltm.mu.RLock()
 	defer ltm.mu.RUnlock()
 
+	// Use index when available for O(1) lookup
+	if ltm.index != nil {
+		if idx, ok := ltm.index[ltm.indexKey(section, key)]; ok {
+			return ltm.decayConfidence(ltm.items[idx]), true
+		}
+		return MemoryItem{}, false
+	}
+
+	// Fallback linear scan (for tests that populate items directly)
 	section = ltm.normalize(section)
 	for _, f := range ltm.items {
 		if ltm.normalize(f.Section) == section && f.Key == key {
-			d := ltm.decayConfidence(f)
-			return d, true
+			return ltm.decayConfidence(f), true
 		}
 	}
 	return MemoryItem{}, false
@@ -170,16 +200,24 @@ func (ltm *LongTermMemory) Get(section, key string) (MemoryItem, bool) {
 func (ltm *LongTermMemory) Remove(section, key string) error {
 	ltm.mu.Lock()
 	defer ltm.mu.Unlock()
+	ltm.initIndex()
 
-	section = ltm.normalize(section)
-	for i, f := range ltm.items {
-		if ltm.normalize(f.Section) == section && f.Key == key {
-			ltm.items = append(ltm.items[:i], ltm.items[i+1:]...)
-			_ = ltm.write()
-			return nil
-		}
+	idxKey := ltm.indexKey(section, key)
+	idx, ok := ltm.index[idxKey]
+	if !ok {
+		return nil
 	}
-	return nil
+
+	// swap-remove: move last element to the deleted position, update index
+	lastIdx := len(ltm.items) - 1
+	if idx != lastIdx {
+		ltm.items[idx] = ltm.items[lastIdx]
+		ltm.index[ltm.indexKey(ltm.items[idx].Section, ltm.items[idx].Key)] = idx
+	}
+	ltm.items = ltm.items[:lastIdx]
+	delete(ltm.index, idxKey)
+
+	return ltm.write()
 }
 
 // GetSection returns all items in a section with decayed confidence.
@@ -197,15 +235,14 @@ func (ltm *LongTermMemory) GetSection(section string) []MemoryItem {
 	return result
 }
 
-// All returns a copy of all items.
+// All returns a copy of all items without confidence decay.
+// Decay is computed lazily on Get/GetSection to avoid O(n) math.Pow on every call.
 func (ltm *LongTermMemory) All() []MemoryItem {
 	ltm.mu.RLock()
 	defer ltm.mu.RUnlock()
 
 	result := make([]MemoryItem, len(ltm.items))
-	for i, f := range ltm.items {
-		result[i] = ltm.decayConfidence(f)
-	}
+	copy(result, ltm.items)
 	return result
 }
 
@@ -290,6 +327,7 @@ func (ltm *LongTermMemory) load() error {
 	for _, e := range entries {
 		ltm.items = append(ltm.items, markdownToItem(e))
 	}
+	ltm.rebuildIndex()
 	return nil
 }
 

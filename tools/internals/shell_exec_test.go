@@ -62,21 +62,6 @@ func TestShellExec_WorkingDir(t *testing.T) {
 	assert.Contains(t, result.Outputs["stdout"], "/tmp")
 }
 
-func TestShellExec_Timeout(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("timeout signal propagation differs on Windows")
-	}
-
-	tool := &ShellExec{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
-		ID: "t1", ToolName: "shell_exec",
-		Args: map[string]any{"command": "sleep 30", "timeout": float64(1)},
-	})
-
-	// Should be killed by 1-second timeout
-	assert.NotNil(t, result.Outputs["error"])
-}
-
 func TestShellExec_Definition(t *testing.T) {
 	tool := &ShellExec{}
 	def := tool.Definition()

@@ -147,7 +147,7 @@ func (m *Machine) handleDrift(ctx *Context, reason string) {
 	plan.SubTasks = cp.Plan.SubTasks
 	plan.CurrentActivateSubTaskIDs = cp.Plan.CurrentActivateSubTaskIDs
 	plan.State = constants.PlanStateUpdating
-	plan.FinishedReson = fmt.Sprintf("drift: %s", reason)
+	plan.FinishedReason = fmt.Sprintf("drift: %s", reason)
 	_ = plan.Persist()
 
 	ctx.Deps.Session.AppendMessage(core.NewSystemMessage(core.TextContent{

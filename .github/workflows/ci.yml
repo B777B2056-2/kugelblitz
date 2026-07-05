@@ -8,8 +8,11 @@ on:
 
 jobs:
   lint:
-    name: Lint
+    name: Lint (${{ matrix.module }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: [".", "cmd/common", "cmd/acp_server", "cmd/kugelblitz-ui"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,33 +22,18 @@ jobs:
         with:
           go-version: "1.24"
 
-      - name: golangci-lint (root)
+      - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
           version: v2.0.0
-          working-directory: .
-
-      - name: golangci-lint (cmd/common)
-        uses: golangci/golangci-lint-action@v7
-        with:
-          version: v2.0.0
-          working-directory: cmd/common
-
-      - name: golangci-lint (cmd/kugelblitz-ui)
-        uses: golangci/golangci-lint-action@v7
-        with:
-          version: v2.0.0
-          working-directory: cmd/kugelblitz-ui
-
-      - name: golangci-lint (cmd/acp_server)
-        uses: golangci/golangci-lint-action@v7
-        with:
-          version: v2.0.0
-          working-directory: cmd/acp_server
+          working-directory: ${{ matrix.module }}
 
   test:
-    name: Test
+    name: Test (${{ matrix.module }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: [".", "cmd/common", "cmd/acp_server", "cmd/kugelblitz-ui"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,14 +43,23 @@ jobs:
         with:
           go-version: "1.24"
 
-      - name: Test (root)
-        run: go test ./... -count=1 -timeout 120s
+      - name: Test
+        run: cd ${{ matrix.module }} && go test ./... -count=1 -timeout 120s
 
-      - name: Test (cmd/common)
-        run: cd cmd/common && go test ./... -count=1 -timeout 120s
+  race:
+    name: Race (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: [".", "cmd/common", "cmd/acp_server", "cmd/kugelblitz-ui"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Test (cmd/kugelblitz-ui)
-        run: cd cmd/kugelblitz-ui && go test ./... -count=1 -timeout 120s
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
 
-      - name: Test (cmd/acp_server)
-        run: cd cmd/acp_server && go test ./... -count=1 -timeout 120s
+      - name: Race Test
+        run: cd ${{ matrix.module }} && go test -race ./... -count=1 -timeout 300s

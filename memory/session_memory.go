@@ -55,45 +55,56 @@ func (s *SessionMemory) GetHistoryMessages() []core.Message {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	base := make([]core.Message, len(s.historyMessages))
-	copy(base, s.historyMessages)
-
-	if s.summary != "" {
-		sumMsg := core.NewUserMessage(core.TextContent{Text: s.summary})
-		sumMsg.Role = "system"
-		return append([]core.Message{sumMsg}, base...)
+	if s.summary == "" {
+		return s.historyMessages
 	}
-	return base
+
+	sumMsg := core.NewSystemMessage(core.TextContent{Text: s.summary})
+	result := make([]core.Message, 0, len(s.historyMessages)+1)
+	result = append(result, sumMsg)
+	result = append(result, s.historyMessages...)
+	return result
 }
 
 // Compress delegates to a Compressor to summarize old messages and
 // replaces them with a compact summary. Recent messages (last KeepLastN)
 // are preserved. Returns the LLM token usage from the summarization call.
+//
+// Locking strategy: the LLM call may take multiple seconds. To avoid blocking
+// GetHistoryMessages (called every ReAct iteration), we snapshot old messages
+// and recent messages under RLock, release, call the LLM, then reacquire the
+// write lock to atomically update the summary and history.
 func (s *SessionMemory) Compress(ctx context.Context, c *Compressor, keepLastN, minToCompress int) (*core.Usage, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	// Step 1: RLock to snapshot
+	s.mu.RLock()
 	total := len(s.historyMessages)
 	if total <= keepLastN {
+		s.mu.RUnlock()
 		return nil, nil
 	}
-
 	splitAt := total - keepLastN
-	old := s.historyMessages[:splitAt]
-	recent := s.historyMessages[splitAt:]
+	old := make([]core.Message, splitAt)
+	copy(old, s.historyMessages[:splitAt])
+	recent := make([]core.Message, keepLastN)
+	copy(recent, s.historyMessages[splitAt:])
+	oldSummary := s.summary
+	s.mu.RUnlock()
 
 	if len(old) < minToCompress {
 		return nil, nil
 	}
 
-	newSummary, usage, err := c.Summarize(ctx, old, s.summary)
+	// Step 2: LLM call (no lock held)
+	newSummary, usage, err := c.Summarize(ctx, old, oldSummary)
 	if err != nil {
 		return usage, fmt.Errorf("compress: %w", err)
 	}
 
-	s.summary = newSummary // already consolidated by the LLM
-	s.historyMessages = make([]core.Message, len(recent))
-	copy(s.historyMessages, recent)
+	// Step 3: write-lock to update
+	s.mu.Lock()
+	s.summary = newSummary
+	s.historyMessages = recent
+	s.mu.Unlock()
 
 	// Auto-persist: summaries are expensive (LLM call), don't lose them
 	return usage, s.Persist()

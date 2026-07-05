@@ -37,3 +37,56 @@ type IAgent interface {
 	Interrupt(ctx context.Context) error
 	ResumeWithHumanResponse(ctx context.Context, response string) error
 }
+
+// AsModelEventHandler returns a ModelEventHandler that delegates each callback
+// to this AgentEventHooks with the given AgentIdentity.
+func (h *AgentEventHooks) AsModelEventHandler(id constants.AgentIdentity) ModelEventHandler {
+	return &agentEventBridge{hooks: h, identity: id}
+}
+
+// agentEventBridge adapts AgentEventHooks to the ModelEventHandler interface.
+type agentEventBridge struct {
+	hooks    *AgentEventHooks
+	identity constants.AgentIdentity
+}
+
+func (b *agentEventBridge) OnThinkingChunk(chunk string) {
+	if b.hooks.OnThinkingChunk != nil {
+		b.hooks.OnThinkingChunk(b.identity, chunk)
+	}
+}
+func (b *agentEventBridge) OnReplyChunk(chunk string) {
+	if b.hooks.OnReplyChunk != nil {
+		b.hooks.OnReplyChunk(b.identity, chunk)
+	}
+}
+func (b *agentEventBridge) OnBlockThinking(reasoning string) {
+	if b.hooks.OnBlockThinking != nil {
+		b.hooks.OnBlockThinking(b.identity, reasoning)
+	}
+}
+func (b *agentEventBridge) OnBlockReply(text string) {
+	if b.hooks.OnBlockReply != nil {
+		b.hooks.OnBlockReply(b.identity, text)
+	}
+}
+func (b *agentEventBridge) OnFunctionCall(detail ToolCallDetail) {
+	if b.hooks.OnFunctionCall != nil {
+		b.hooks.OnFunctionCall(b.identity, detail)
+	}
+}
+func (b *agentEventBridge) OnFinished(reason string) {
+	if b.hooks.OnModelFinished != nil {
+		b.hooks.OnModelFinished(b.identity, reason)
+	}
+}
+func (b *agentEventBridge) OnUsageUpdated(usage Usage) {
+	if b.hooks.OnUsageUpdated != nil {
+		b.hooks.OnUsageUpdated(b.identity, usage)
+	}
+}
+func (b *agentEventBridge) OnError(err error) {
+	if b.hooks.OnError != nil {
+		b.hooks.OnError(b.identity, err)
+	}
+}

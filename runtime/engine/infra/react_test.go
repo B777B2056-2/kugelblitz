@@ -935,3 +935,308 @@ func TestReactAgent_Execute_WithAskHumanIntegration(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "Got it, won't delete.", textContent.Text)
 }
+
+// ---- Full ReAct cycle tests ----
+
+func TestReactAgent_FullReActCycle_CallbackOrder(t *testing.T) {
+	core.GetToolRegistry().Reset()
+	core.RegisterTool(
+		core.ToolDefinition{Name: "get_weather", Description: "Get weather"},
+		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+			return core.ToolCallResult{
+				ToolCallID: detail.ID, ToolName: detail.ToolName,
+				Outputs: map[string]any{"temp": 72},
+			}
+		},
+	)
+
+	callCount := 0
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			callCount++
+			if callCount == 1 {
+				// Simulate what real provider does: fire OnFunctionCall for each tool call
+				if params.EventHandler != nil {
+					params.EventHandler.OnFunctionCall(core.ToolCallDetail{ID: "tc-1", ToolName: "get_weather", Args: map[string]any{"city": "NYC"}})
+				}
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-1", ToolName: "get_weather", Args: map[string]any{"city": "NYC"}},
+					},
+				})
+				return &msg, nil
+			}
+			msg := core.NewAssistantMessage(core.TextContent{Text: "The weather is 72F"})
+			msg.FinishReason = "stop"
+			if params.EventHandler != nil {
+				params.EventHandler.OnFinished("stop")
+			}
+			return &msg, nil
+		},
+	}
+
+	var callOrder []string
+	agent := NewReactAgent(provider, false)
+	agent.SetAgentIdentity(constants.AgentMain)
+	agent.RegisterEventHooks(core.AgentEventHooks{
+		OnFunctionCall: func(id constants.AgentIdentity, detail core.ToolCallDetail) {
+			assert.Equal(t, constants.AgentMain, id)
+			callOrder = append(callOrder, "function_call")
+		},
+		OnToolCallEnd: func(id constants.AgentIdentity, result core.ToolCallResult) {
+			assert.Equal(t, constants.AgentMain, id)
+			callOrder = append(callOrder, "tool_call_end")
+		},
+		OnModelFinished: func(id constants.AgentIdentity, reason string) {
+			assert.Equal(t, constants.AgentMain, id)
+			callOrder = append(callOrder, "model_finished")
+		},
+	})
+
+	messages, err := agent.Execute(
+		context.Background(),
+		core.NewUserMessage(core.TextContent{Text: "system"}),
+		[]core.Message{core.NewUserMessage(core.TextContent{Text: "what's the weather?"})},
+	)
+
+	require.NoError(t, err)
+	require.Len(t, messages, 3)
+	assert.Equal(t, 2, callCount)
+	assert.Equal(t, []string{"function_call", "tool_call_end", "model_finished"}, callOrder)
+}
+
+func TestReactAgent_MultiTurnWithErrors(t *testing.T) {
+	core.GetToolRegistry().Reset()
+	core.RegisterTool(
+		core.ToolDefinition{Name: "get_weather", Description: "Get weather"},
+		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+			return core.ToolCallResult{
+				ToolCallID: detail.ID, ToolName: detail.ToolName,
+				Outputs: map[string]any{"temp": 72},
+			}
+		},
+	)
+
+	callCount := 0
+	var errorHooksFired int
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			callCount++
+			switch callCount {
+			case 1:
+				if params.EventHandler != nil {
+					params.EventHandler.OnFunctionCall(core.ToolCallDetail{ID: "tc-err", ToolName: "nonexistent"})
+				}
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-err", ToolName: "nonexistent", Args: nil},
+					},
+				})
+				return &msg, nil
+			case 2:
+				if params.EventHandler != nil {
+					params.EventHandler.OnFunctionCall(core.ToolCallDetail{ID: "tc-ok", ToolName: "get_weather", Args: map[string]any{"city": "NYC"}})
+				}
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-ok", ToolName: "get_weather", Args: map[string]any{"city": "NYC"}},
+					},
+				})
+				return &msg, nil
+			default:
+				msg := core.NewAssistantMessage(core.TextContent{Text: "Weather: 72F"})
+				msg.FinishReason = "stop"
+				if params.EventHandler != nil {
+					params.EventHandler.OnFinished("stop")
+				}
+				return &msg, nil
+			}
+		},
+	}
+
+	var functionCalls int
+	agent := NewReactAgent(provider, false)
+	agent.RegisterEventHooks(core.AgentEventHooks{
+		OnFunctionCall: func(id constants.AgentIdentity, detail core.ToolCallDetail) {
+			functionCalls++
+		},
+		OnError: func(id constants.AgentIdentity, err error) {
+			errorHooksFired++
+		},
+	})
+
+	messages, err := agent.Execute(
+		context.Background(),
+		core.NewUserMessage(core.TextContent{Text: "system"}),
+		[]core.Message{core.NewUserMessage(core.TextContent{Text: "weather?"})},
+	)
+
+	require.NoError(t, err)
+	require.Len(t, messages, 5)
+	assert.Equal(t, 3, callCount)
+	assert.Equal(t, 2, functionCalls)
+	assert.Equal(t, 0, errorHooksFired, "tool not found should not trigger OnError")
+}
+func TestReactAgent_StreamMode_FullCallbackChain(t *testing.T) {
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			if params.EventHandler != nil {
+				params.EventHandler.OnReplyChunk("Hel")
+				params.EventHandler.OnReplyChunk("lo World")
+				params.EventHandler.OnFinished("stop")
+			}
+			msg := core.NewAssistantMessage(core.TextContent{Text: "Hello World"})
+			msg.FinishReason = "stop"
+			return &msg, nil
+		},
+	}
+
+	handler := &testEventHandler{}
+	agent := NewReactAgent(provider, true)
+	agent.RegisterEventHooks(core.AgentEventHooks{
+		OnReplyChunk:    func(id constants.AgentIdentity, chunk string) { handler.OnReplyChunk(chunk) },
+		OnBlockReply:    func(id constants.AgentIdentity, text string) { handler.OnBlockReply(text) },
+		OnModelFinished: func(id constants.AgentIdentity, reason string) { handler.OnFinished(reason) },
+	})
+
+	messages, err := agent.Execute(
+		context.Background(),
+		core.NewUserMessage(core.TextContent{Text: "system"}),
+		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
+	)
+
+	require.NoError(t, err)
+	require.Len(t, messages, 1)
+	assert.Equal(t, []string{"Hel", "lo World"}, handler.replyChunks)
+	assert.Equal(t, []string{"stop"}, handler.finishReasons)
+	assert.Empty(t, handler.thinkingChunks, "OnBlockReply should not fire in stream mode")
+}
+
+func TestReactAgent_UsageReportedPerCall(t *testing.T) {
+	core.GetToolRegistry().Reset()
+	core.RegisterTool(
+		core.ToolDefinition{Name: "tool_a", Description: "A"},
+		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+			return core.ToolCallResult{ToolCallID: detail.ID, ToolName: detail.ToolName, Outputs: map[string]any{"ok": true}}
+		},
+	)
+
+	callCount := 0
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			callCount++
+			if callCount == 1 {
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{{ID: "t1", ToolName: "tool_a", Args: nil}},
+				})
+				msg.Usage = &core.Usage{TotalTokens: 10}
+				return &msg, nil
+			}
+			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+			msg.FinishReason = "stop"
+			msg.Usage = &core.Usage{TotalTokens: 20}
+			return &msg, nil
+		},
+	}
+
+	var usages []core.Usage
+	agent := NewReactAgent(provider, false)
+	agent.RegisterEventHooks(core.AgentEventHooks{
+		OnUsageUpdated: func(id constants.AgentIdentity, usage core.Usage) {
+			usages = append(usages, usage)
+		},
+	})
+
+	_, err := agent.Execute(
+		context.Background(),
+		core.NewUserMessage(core.TextContent{Text: "system"}),
+		[]core.Message{core.NewUserMessage(core.TextContent{Text: "go"})},
+	)
+
+	require.NoError(t, err)
+	require.Len(t, usages, 2)
+	assert.Equal(t, int64(10), usages[0].TotalTokens)
+	assert.Equal(t, int64(20), usages[1].TotalTokens)
+}
+
+func TestReactAgent_Interrupt_DuringLoop(t *testing.T) {
+	core.GetToolRegistry().Reset()
+	core.RegisterTool(
+		core.ToolDefinition{Name: "slow_tool", Description: "Slow"},
+		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+			return core.ToolCallResult{ToolCallID: detail.ID, ToolName: detail.ToolName, Outputs: map[string]any{"ok": true}}
+		},
+	)
+
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			msg := core.NewAssistantMessage(core.ToolCallContent{
+				Details: []core.ToolCallDetail{{ID: "t1", ToolName: "slow_tool", Args: nil}},
+			})
+			return &msg, nil
+		},
+	}
+
+	agent := NewReactAgent(provider, false)
+	agent.SetOnToolResult(func(results []core.ToolCallResult, step int) bool {
+		_ = agent.Interrupt(context.Background())
+		return true
+	})
+
+	messages, err := agent.Execute(
+		context.Background(),
+		core.NewUserMessage(core.TextContent{Text: "system"}),
+		[]core.Message{core.NewUserMessage(core.TextContent{Text: "go"})},
+	)
+
+	require.NoError(t, err)
+	// Interrupt fires during OnToolResult (after tool exec), so tool_call + tool_result
+	// are both present. The loop exits at the top of the next iteration.
+	require.Len(t, messages, 2)
+	assert.Equal(t, constants.RoleAssistant, messages[0].Role)
+	assert.Equal(t, constants.RoleTool, messages[1].Role)
+}
+
+func TestReactAgent_TerminatingTool_StopsLoop(t *testing.T) {
+	core.GetToolRegistry().Reset()
+	core.RegisterTool(
+		core.ToolDefinition{Name: "submit_answer", Description: "Submit final answer", Terminating: true},
+		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+			return core.ToolCallResult{
+				ToolCallID: detail.ID, ToolName: detail.ToolName,
+				Outputs: map[string]any{"answer": "42"},
+			}
+		},
+	)
+
+	callCount := 0
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			callCount++
+			if callCount == 1 {
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-1", ToolName: "submit_answer", Args: map[string]any{"value": "42"}},
+					},
+				})
+				return &msg, nil
+			}
+			msg := core.NewAssistantMessage(core.TextContent{Text: "should not be called"})
+			return &msg, nil
+		},
+	}
+
+	agent := NewReactAgent(provider, false)
+	messages, err := agent.Execute(
+		context.Background(),
+		core.NewUserMessage(core.TextContent{Text: "system"}),
+		[]core.Message{core.NewUserMessage(core.TextContent{Text: "what is 6*7?"})},
+	)
+
+	require.NoError(t, err)
+	// Terminating tool returns after tool exec; messages include tool_call + tool_result
+	require.Len(t, messages, 2)
+	assert.Equal(t, 1, callCount, "terminating tool should stop loop without second LLM call")
+	assert.Equal(t, constants.RoleAssistant, messages[0].Role)
+	assert.Equal(t, constants.RoleTool, messages[1].Role)
+}
