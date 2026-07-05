@@ -39,7 +39,9 @@ func TestDerivePlanUpdate_PlanCreate(t *testing.T) {
 	require.Len(t, pu.Tasks, 2)
 	// Map iteration order is non-deterministic
 	taskMap := map[string]string{}
-	for _, t := range pu.Tasks { taskMap[t.ID] = t.Goal }
+	for _, t := range pu.Tasks {
+		taskMap[t.ID] = t.Goal
+	}
 	assert.Equal(t, "step 1", taskMap["t1"])
 	assert.Equal(t, "step 2", taskMap["t2"])
 }
