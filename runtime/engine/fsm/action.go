@@ -3,6 +3,7 @@ package fsm
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
@@ -110,25 +111,26 @@ func (a *NoOpAction) Execute(ctx *Context) (*ActionResult, error) {
 
 // buildPrompt builds the system prompt for a given state and plan.
 func buildPrompt(status constants.PlanState, plan *working.Plan) string {
-	var sb string
+	var sb strings.Builder
 
 	if agentCtx := core.LoadAgentContext(); agentCtx != "" {
-		sb = agentCtx + "\n\n"
+		sb.WriteString(agentCtx)
+		sb.WriteString("\n\n")
 	}
 
 	if plan != nil {
 		if status == constants.PlanStateConfirmed {
-			sb += prompts.DefaultFactory.MustRender(
-				prompts.TypePlanConfirm, prompts.BuildPlanConfirmParams(plan))
+			sb.WriteString(prompts.DefaultFactory.MustRender(
+				prompts.TypePlanConfirm, prompts.BuildPlanConfirmParams(plan)))
 		} else {
-			sb += prompts.DefaultFactory.MustRender(
-				prompts.TypePlanStatus, prompts.BuildPlanStatusParams(plan))
+			sb.WriteString(prompts.DefaultFactory.MustRender(
+				prompts.TypePlanStatus, prompts.BuildPlanStatusParams(plan)))
 		}
-		sb += "\n\n"
+		sb.WriteString("\n\n")
 	}
 
-	sb += prompts.PlannerPrompt(status)
-	return sb
+	sb.WriteString(prompts.PlannerPrompt(status))
+	return sb.String()
 }
 
 // shouldReview checks whether a drift review should be triggered.

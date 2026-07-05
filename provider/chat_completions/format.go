@@ -139,7 +139,7 @@ func (f *Format) Stream(ctx context.Context, req openai.ChatCompletionNewParams,
 
 	var textBuilder, reasoningBuilder strings.Builder
 	toolCallAccum := make(map[string]*toolCallEntry) // ID → accumulated entry
-	indexToID := make(map[int]string)                // array index → call ID
+	indexToID := make(map[int64]string)              // array index → call ID
 	handler := params.EventHandler
 
 	for streamResp.Next() {
@@ -151,35 +151,34 @@ func (f *Format) Stream(ctx context.Context, req openai.ChatCompletionNewParams,
 		}
 
 		// Extract raw tool call deltas BEFORE passing to converter
-		// (converter loses raw args strings since they come as JSON fragments)
-		rawTCs := extractRawToolCalls(streamResp.Current().RawJSON())
-		for _, rtc := range rawTCs {
-			if rtc.ID != "" {
-				indexToID[rtc.Index] = rtc.ID
-			}
-			// Resolve ID via index map for deltas that only have index
-			if rtc.ID == "" {
-				if id, ok := indexToID[rtc.Index]; ok {
-					rtc.ID = id
+		current := streamResp.Current()
+		for _, ch := range current.Choices {
+			for _, tc := range ch.Delta.ToolCalls {
+				id := tc.ID
+				if id == "" {
+					if resolved, ok := indexToID[tc.Index]; ok {
+						id = resolved
+					} else {
+						continue
+					}
+				} else {
+					indexToID[tc.Index] = id
 				}
-			}
-			// Accumulate by resolved ID (skip empty IDs — stray deltas)
-			if rtc.ID != "" {
-				entry, ok := toolCallAccum[rtc.ID]
+				entry, ok := toolCallAccum[id]
 				if !ok {
 					entry = &toolCallEntry{}
-					toolCallAccum[rtc.ID] = entry
+					toolCallAccum[id] = entry
 				}
-				if rtc.Name != "" && entry.Detail.ToolName == "" {
-					entry.Detail.ToolName = rtc.Name
-					entry.Detail.ID = rtc.ID
+				if tc.Function.Name != "" && entry.Detail.ToolName == "" {
+					entry.Detail.ToolName = tc.Function.Name
+					entry.Detail.ID = id
 					if handler != nil && !entry.notified {
-						handler.OnFunctionCall(core.ToolCallDetail{ID: rtc.ID, ToolName: rtc.Name})
+						handler.OnFunctionCall(core.ToolCallDetail{ID: id, ToolName: tc.Function.Name})
 						entry.notified = true
 					}
 				}
-				if rtc.Args != "" {
-					entry.rawArgs.WriteString(rtc.Args)
+				if tc.Function.Arguments != "" {
+					entry.rawArgs.WriteString(tc.Function.Arguments)
 				}
 			}
 		}
@@ -290,56 +289,6 @@ type toolCallEntry struct {
 	Detail   core.ToolCallDetail
 	rawArgs  strings.Builder // concatenated raw JSON arguments (no reallocation per fragment)
 	notified bool            // OnFunctionCall already fired
-}
-
-// rawToolCall represents a single tool call delta from a raw chunk JSON.
-// It captures index, id, name, and arguments. Arguments are raw string
-// fragments that must be concatenated across chunks to form valid JSON.
-type rawToolCall struct {
-	Index int    `json:"index"`
-	ID    string `json:"id"`
-	Type  string `json:"type"`
-	Name  string `json:"-"`
-	Args  string `json:"-"`
-}
-
-// extractRawToolCalls parses tool call deltas from a raw streaming chunk JSON.
-// Returns raw fragments with index/id/name/args for accumulation.
-func extractRawToolCalls(rawJSON string) []rawToolCall {
-	if rawJSON == "" {
-		return nil
-	}
-	var m struct {
-		Choices []struct {
-			Delta struct {
-				ToolCalls []struct {
-					Index    int    `json:"index"`
-					ID       string `json:"id"`
-					Type     string `json:"type"`
-					Function struct {
-						Name      string `json:"name"`
-						Arguments string `json:"arguments"`
-					} `json:"function"`
-				} `json:"tool_calls"`
-			} `json:"delta"`
-		} `json:"choices"`
-	}
-	if err := json.Unmarshal([]byte(rawJSON), &m); err != nil {
-		return nil
-	}
-	var result []rawToolCall
-	for _, ch := range m.Choices {
-		for _, tc := range ch.Delta.ToolCalls {
-			result = append(result, rawToolCall{
-				Index: tc.Index,
-				ID:    tc.ID,
-				Type:  tc.Type,
-				Name:  tc.Function.Name,
-				Args:  tc.Function.Arguments,
-			})
-		}
-	}
-	return result
 }
 
 // convertArgsJSON parses a complete JSON arguments string into a map.

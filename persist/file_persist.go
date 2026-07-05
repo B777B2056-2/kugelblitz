@@ -13,7 +13,7 @@ import (
 // Each key is stored as a .json file under the root directory.
 type FilePersist struct {
 	root string
-	mu   sync.Mutex
+	mu   sync.RWMutex
 }
 
 // NewFilePersist creates a FilePersist rooted at the given directory.
@@ -38,13 +38,15 @@ func (fp *FilePersist) Store(_ context.Context, key string, data []byte) error {
 
 // Load reads the key's file contents.
 func (fp *FilePersist) Load(_ context.Context, key string) ([]byte, error) {
-	fp.mu.Lock()
-	defer fp.mu.Unlock()
+	fp.mu.RLock()
+	defer fp.mu.RUnlock()
 	return os.ReadFile(fp.fullPath(key))
 }
 
 // Exists reports whether the key's file exists.
 func (fp *FilePersist) Exists(_ context.Context, key string) bool {
+	fp.mu.RLock()
+	defer fp.mu.RUnlock()
 	_, err := os.Stat(fp.fullPath(key))
 	return err == nil
 }

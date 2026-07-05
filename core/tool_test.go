@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -116,6 +117,59 @@ func TestToolRegistry_ConcurrentAccess(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestToolRegistry_ConcurrentRegisterCallReset(t *testing.T) {
+	r := registry()
+	var wg sync.WaitGroup
+
+	// Concurrent Register
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			name := fmt.Sprintf("t%d", idx)
+			r.Register(ToolDefinition{Name: name, Description: "test"},
+				func(ctx context.Context, detail ToolCallDetail) ToolCallResult {
+					return ToolCallResult{ToolCallID: detail.ID, ToolName: name}
+				})
+		}(i)
+	}
+	wg.Wait()
+
+	// Concurrent Call
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			_ = r.Call(context.Background(), ToolCallDetail{ID: "tc", ToolName: fmt.Sprintf("t%d", idx)})
+		}(i)
+	}
+	wg.Wait()
+
+	// Verify all registered
+	defs := r.ListDefinitions()
+	assert.GreaterOrEqual(t, len(defs), 5)
+
+	// Concurrent Reset + Register
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r.Reset()
+		}()
+	}
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			r.Register(ToolDefinition{Name: fmt.Sprintf("new%d", idx), Description: "after reset"}, nil)
+		}(i)
+	}
+	wg.Wait()
+
+	// No panic, no corruption
+	_ = r.ListDefinitions()
 }
 
 func TestMakeErrorToolOutputs_ContainsErrorMessage(t *testing.T) {

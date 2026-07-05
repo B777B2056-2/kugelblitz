@@ -4,7 +4,6 @@
 package working
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -30,13 +29,13 @@ const (
 
 // Task is a single subtask within a plan.
 type Task struct {
-	ID            string      `json:"id"`
-	ParentTaskID  string      `json:"parent_task_id,omitempty"`
-	Goal          string      `json:"goal"`
-	Status        TaskStatus  `json:"status"`
+	ID             string      `json:"id"`
+	ParentTaskID   string      `json:"parent_task_id,omitempty"`
+	Goal           string      `json:"goal"`
+	Status         TaskStatus  `json:"status"`
 	FinishedReason string      `json:"finished_reason,omitempty"`
-	Action        string      `json:"action,omitempty"`
-	Usage         *core.Usage `json:"usage,omitempty"`
+	Action         string      `json:"action,omitempty"`
+	Usage          *core.Usage `json:"usage,omitempty"`
 }
 
 // Plan is a versioned plan with subtasks, persisted as JSONL.
@@ -47,11 +46,17 @@ type Plan struct {
 	SubTasks                  []Task              `json:"subtasks"`
 	CurrentActivateSubTaskIDs []string            `json:"current_active_subtask_ids"`
 	State                     constants.PlanState `json:"status"`
-	FinishedReason             string              `json:"finished_reason,omitempty"`
+	FinishedReason            string              `json:"finished_reason,omitempty"`
 	Version                   int                 `json:"version"`
 
 	mu sync.Mutex `json:"-"` // serializes saveCheckpoint calls for this plan
 }
+
+// Lock acquires the plan's mutex for external mutation serialization.
+func (p *Plan) Lock() { p.mu.Lock() }
+
+// Unlock releases the plan's mutex.
+func (p *Plan) Unlock() { p.mu.Unlock() }
 
 // Checkpoint is a versioned snapshot of a plan.
 type Checkpoint struct {
@@ -67,6 +72,13 @@ var (
 	planStore   = make(map[string]*Plan)
 	planStoreMu sync.RWMutex
 )
+
+// ResetPlans clears the in-memory plan store. Primarily for tests.
+func ResetPlans() {
+	planStoreMu.Lock()
+	defer planStoreMu.Unlock()
+	planStore = make(map[string]*Plan)
+}
 
 // GetPlan returns the plan with the given ID, or false if not found.
 func GetPlan(id string) (*Plan, bool) {
@@ -99,7 +111,7 @@ func saveCheckpoint(p *Plan, reason string) {
 		SubTasks:                  append([]Task{}, p.SubTasks...),
 		CurrentActivateSubTaskIDs: append([]string{}, p.CurrentActivateSubTaskIDs...),
 		State:                     p.State,
-		FinishedReason:             p.FinishedReason,
+		FinishedReason:            p.FinishedReason,
 		Version:                   p.Version,
 	}
 	cp := Checkpoint{
@@ -198,23 +210,10 @@ func SplitParentIDs(raw string) []string {
 	return result
 }
 
-// AllParentsDone returns true if every parent task ID is marked done in the plan.
-func AllParentsDone(plan *Plan, parentIDs []string) bool {
-	if len(parentIDs) == 0 {
-		return true
-	}
+// allParentsDone returns true if every parent task ID has status Done.
+func allParentsDone(parentIDs []string, statusMap map[string]TaskStatus) bool {
 	for _, pid := range parentIDs {
-		found := false
-		for _, t := range plan.SubTasks {
-			if t.ID == pid {
-				if t.Status != TaskStatusDone {
-					return false
-				}
-				found = true
-				break
-			}
-		}
-		if !found {
+		if statusMap[pid] != TaskStatusDone {
 			return false
 		}
 	}
@@ -223,12 +222,16 @@ func AllParentsDone(plan *Plan, parentIDs []string) bool {
 
 // ReadyTasks returns all pending tasks whose parents are done, for DAG execution.
 func ReadyTasks(plan *Plan) []*Task {
+	statusMap := make(map[string]TaskStatus, len(plan.SubTasks))
+	for i := range plan.SubTasks {
+		statusMap[plan.SubTasks[i].ID] = plan.SubTasks[i].Status
+	}
 	var ready []*Task
 	for i := range plan.SubTasks {
 		if plan.SubTasks[i].Status != TaskStatusPending {
 			continue
 		}
-		if AllParentsDone(plan, SplitParentIDs(plan.SubTasks[i].ParentTaskID)) {
+		if allParentsDone(SplitParentIDs(plan.SubTasks[i].ParentTaskID), statusMap) {
 			ready = append(ready, &plan.SubTasks[i])
 		}
 	}
@@ -339,10 +342,20 @@ func GetWorkerFactory() WorkerFactory { return workerFactory }
 
 // PlanToMap converts a Plan to a generic map for tool output.
 func PlanToMap(p *Plan) map[string]any {
-	data, _ := json.Marshal(p)
-	var m map[string]any
-	_ = json.Unmarshal(data, &m)
-	return m
+	tasks := make([]map[string]any, len(p.SubTasks))
+	for i := range p.SubTasks {
+		tasks[i] = TaskToMap(&p.SubTasks[i])
+	}
+	return map[string]any{
+		"id":                         p.ID,
+		"session_id":                 p.SessionID,
+		"name":                       p.Name,
+		"subtasks":                   tasks,
+		"current_active_subtask_ids": p.CurrentActivateSubTaskIDs,
+		"status":                     string(p.State),
+		"finished_reason":            p.FinishedReason,
+		"version":                    p.Version,
+	}
 }
 
 // PlansToMaps converts a slice of Plans for list output.
@@ -356,9 +369,29 @@ func PlansToMaps(plans []*Plan) []map[string]any {
 
 // TaskToMap converts a Task to a generic map for tool output.
 func TaskToMap(t *Task) map[string]any {
-	data, _ := json.Marshal(t)
-	var m map[string]any
-	_ = json.Unmarshal(data, &m)
+	m := map[string]any{
+		"id":     t.ID,
+		"goal":   t.Goal,
+		"status": string(t.Status),
+	}
+	if t.ParentTaskID != "" {
+		m["parent_task_id"] = t.ParentTaskID
+	}
+	if t.FinishedReason != "" {
+		m["finished_reason"] = t.FinishedReason
+	}
+	if t.Action != "" {
+		m["action"] = t.Action
+	}
+	if t.Usage != nil {
+		m["usage"] = map[string]any{
+			"total_tokens":     t.Usage.TotalTokens,
+			"input_tokens":     t.Usage.InputTokens,
+			"cached_tokens":    t.Usage.CachedTokens,
+			"reasoning_tokens": t.Usage.ReasoningTokens,
+			"output_tokens":    t.Usage.OutputTokens,
+		}
+	}
 	return m
 }
 

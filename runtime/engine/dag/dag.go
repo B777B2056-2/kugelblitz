@@ -161,6 +161,10 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 				if taskMu == nil {
 					return nil
 				}
+				// Serialize plan mutations: PutPlan → saveCheckpoint → json.Marshal
+				// reads all SubTasks. Holding the plan mutex during mutation ensures
+				// the marshal (which also acquires plan.mu) sees a consistent snapshot.
+				planMu.Lock()
 				if err != nil {
 					taskMu.Status = working.TaskStatusFailed
 					taskMu.FinishedReason = err.Error()
@@ -173,6 +177,7 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 					taskMu.FinishedReason = output
 				}
 				taskMu.Usage = usage
+				planMu.Unlock()
 				working.PutPlan(planMu)
 
 				if d.workerHooks.OnTaskUpdated != nil {

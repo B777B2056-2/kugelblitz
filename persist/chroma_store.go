@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -18,7 +17,6 @@ type ChromaStore struct {
 	baseURL    string
 	collection string
 	client     *http.Client
-	mu         sync.Mutex
 }
 
 // NewChromaStore creates a ChromaDB-backed VectorStore for the given collection.
@@ -70,9 +68,6 @@ func (c *ChromaStore) ensureCollection() error {
 
 // Add inserts documents into the collection (legacy, prefer UpsertMany).
 func (c *ChromaStore) Add(documents []string, metadatas []map[string]any) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	ids := make([]string, len(documents))
 	for i := range ids {
 		ids[i] = fmt.Sprintf("doc-%d-%d", time.Now().UnixNano(), i)
@@ -102,9 +97,6 @@ func (c *ChromaStore) Add(documents []string, metadatas []map[string]any) error 
 
 // Search queries the collection.
 func (c *ChromaStore) Search(query string, mode SearchMode, limit int) ([]SearchResult, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	body := map[string]any{
 		"query_texts": []string{query},
 		"n_results":   limit,
@@ -152,9 +144,6 @@ func (c *ChromaStore) UpsertMany(entries []VectorEntry) error {
 	if len(entries) == 0 {
 		return nil
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	ids := make([]string, len(entries))
 	docs := make([]string, len(entries))
 	metas := make([]map[string]any, len(entries))
@@ -220,9 +209,6 @@ func (c *ChromaStore) Exists(ctx context.Context, key string) bool {
 }
 
 func (c *ChromaStore) DeleteDocument(docID string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	body := map[string]any{
 		"ids": []string{docID},
 	}

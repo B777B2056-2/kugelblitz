@@ -1,6 +1,8 @@
 package longterm
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -76,9 +78,9 @@ func (g *GraphStore) Load(ctx context.Context) error {
 	if err != nil || len(data) == 0 {
 		return err
 	}
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
@@ -104,6 +106,9 @@ func (g *GraphStore) Load(ctx context.Context) error {
 			g.adjOut[rel.From] = append(g.adjOut[rel.From], rel)
 			g.adjIn[rel.To] = append(g.adjIn[rel.To], rel)
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
 	}
 	// Regenerate Mermaid view on startup
 	return g.writeMermaid(ctx)

@@ -33,9 +33,10 @@ type ReactAgent struct {
 	abortSignal     chan struct{}
 	EnableThinking  *bool
 	ReasoningEffort string
-	toolNames       []string     // nil=all tools; non-nil=whitelist
-	stepCount       int          // ReAct loop iterations
-	OnToolResult    OnToolResult // per-tool-execution callback
+	toolNames       []string              // nil=all tools; non-nil=whitelist
+	visibleCache    []core.ToolDefinition // cached filtered tool list; invalidated by WithTools
+	stepCount       int                   // ReAct loop iterations
+	OnToolResult    OnToolResult          // per-tool-execution callback
 	humanLoop       *humanLoopState
 	pauseGate       *sync.RWMutex // shared gate; nil=no pausing; RLock blocks tool calls
 }
@@ -55,6 +56,7 @@ func (a *ReactAgent) SetThinking(enabled bool, effort string) {
 }
 
 func (a *ReactAgent) WithTools(names ...string) *ReactAgent {
+	a.visibleCache = nil // invalidate cache
 	if len(names) == 0 {
 		a.toolNames = nil
 	} else {
@@ -96,8 +98,13 @@ func (a *ReactAgent) ExecuteWithTools(ctx context.Context, systemMessage core.Me
 	// Override tools only when explicitly provided (nil = use instance config)
 	if tools != nil {
 		originalTools := a.toolNames
+		originalCache := a.visibleCache
 		a.toolNames = tools
-		defer func() { a.toolNames = originalTools }()
+		a.visibleCache = nil
+		defer func() {
+			a.toolNames = originalTools
+			a.visibleCache = originalCache
+		}()
 	}
 
 	a.stepCount = 0
@@ -223,15 +230,25 @@ func (a *ReactAgent) executeTools(ctx context.Context, details []core.ToolCallDe
 }
 
 func (a *ReactAgent) visibleTools() []core.ToolDefinition {
+	// No whitelist → return all tools (global + local)
+	if a.toolNames == nil {
+		all := a.toolRegistry.ListDefinitions()
+		if a.humanLoop != nil {
+			for _, def := range a.humanLoop.localDefs {
+				all = append(all, def)
+			}
+		}
+		return all
+	}
+	// Have whitelist → use cache
+	if a.visibleCache != nil {
+		return a.visibleCache
+	}
 	all := a.toolRegistry.ListDefinitions()
-	// Append local tool definitions
 	if a.humanLoop != nil {
 		for _, def := range a.humanLoop.localDefs {
 			all = append(all, def)
 		}
-	}
-	if a.toolNames == nil {
-		return all
 	}
 	allow := make(map[string]bool, len(a.toolNames))
 	for _, n := range a.toolNames {
@@ -243,6 +260,7 @@ func (a *ReactAgent) visibleTools() []core.ToolDefinition {
 			filtered = append(filtered, def)
 		}
 	}
+	a.visibleCache = filtered
 	return filtered
 }
 
@@ -260,6 +278,7 @@ func (a *ReactAgent) EnableHumanInTheLoop() *ReactAgent {
 	if a.humanLoop != nil {
 		return a // already enabled
 	}
+	a.visibleCache = nil // invalidate cache: local ask_human tool will be added
 	a.humanLoop = &humanLoopState{
 		localTools: make(map[string]core.ToolCallFunc),
 		localDefs:  make(map[string]core.ToolDefinition),

@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/B777B2056-2/kugelblitz/config"
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
 	"github.com/B777B2056-2/kugelblitz/tools/internals"
@@ -447,4 +450,489 @@ func TestCompressSingleResult_MultipleFields(t *testing.T) {
 	assert.Equal(t, "hi", r.Outputs["field_c"])
 	assert.Equal(t, true, r.Outputs["flag"])
 	assert.Equal(t, float64(99), r.Outputs["count"])
+}
+
+// ---- End-to-end FSM state migration tests ----
+
+func latestPlanID() string {
+	plans := working.ListPlans()
+	if len(plans) == 0 {
+		return ""
+	}
+	return plans[0].ID
+}
+
+func TestAgentLoop_IntentToDirect_SimpleTask(t *testing.T) {
+	core.GetToolRegistry().Reset()
+	working.ResetPlans()
+	internals.RegisterAll()
+	persist.SetManager(persist.NewFileManager(t.TempDir()))
+
+	callCount := 0
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			callCount++
+			if callCount == 1 {
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-1", ToolName: "set_work_mode", Args: map[string]any{"mode": "simple"}},
+					},
+				})
+				return &msg, nil
+			}
+			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+			msg.FinishReason = "stop"
+			return &msg, nil
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	al := NewAgentLoop(testCfg(provider))
+	al.Run(ctx, "echo hello")
+	<-al.Done()
+
+	assert.Empty(t, working.ListPlans(), "simple task should not create a plan")
+}
+
+func TestAgentLoop_RejectPath_UserRejectsPlan(t *testing.T) {
+	core.GetToolRegistry().Reset()
+	working.ResetPlans()
+	internals.RegisterAll()
+	persist.SetManager(persist.NewFileManager(t.TempDir()))
+
+	var mu sync.Mutex
+	callCount := 0
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			mu.Lock()
+			callCount++
+			c := callCount
+			mu.Unlock()
+			switch c {
+			case 1:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-1", ToolName: "set_work_mode", Args: map[string]any{"mode": "plan"}},
+					},
+				})
+				return &msg, nil
+			case 2:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-2", ToolName: "plan_create", Args: map[string]any{"name": "Test Plan"}},
+					},
+				})
+				return &msg, nil
+			case 3:
+				pid := working.ListPlans()[0].ID
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-3", ToolName: "task_insert",
+							Args: map[string]any{"plan_id": pid, "goal": "Task 1"},
+						},
+					},
+				})
+				return &msg, nil
+			case 4:
+				msg := core.NewAssistantMessage(core.TextContent{Text: "plan ready"})
+				return &msg, nil
+			case 5:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-4", ToolName: "ask_human",
+							Args: map[string]any{"question": "Approve?", "reason": "confirm"},
+						},
+					},
+				})
+				return &msg, nil
+			case 6:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-5", ToolName: "confirm_plan",
+							Args: map[string]any{"status": "rejected", "plan_id": latestPlanID()},
+						},
+					},
+				})
+				return &msg, nil
+			default:
+				msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+				return &msg, nil
+			}
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	al := NewAgentLoop(testCfg(provider))
+	hitlCh := make(chan struct{}, 2)
+	al.RegisterEventHooks(core.AgentEventHooks{
+		OnWaitForHumanAction: func(id constants.AgentIdentity, reason, prompt string) {
+			hitlCh <- struct{}{}
+		},
+	})
+	al.Run(ctx, "build a web app")
+
+	select {
+	case <-hitlCh:
+	case <-time.After(10 * time.Second):
+		t.Fatal("HITL never triggered")
+	}
+	require.NoError(t, al.ResumeWithHumanResponse("no, reject this plan"))
+	<-al.Done()
+
+	plans := working.ListPlans()
+	require.Len(t, plans, 1)
+	assert.Equal(t, constants.PlanStateRejected, plans[0].State)
+	assert.Len(t, plans[0].SubTasks, 1)
+}
+
+func TestAgentLoop_HappyPath_IntentToDone(t *testing.T) {
+	core.GetToolRegistry().Reset()
+	working.ResetPlans()
+	internals.RegisterAll()
+	persist.SetManager(persist.NewFileManager(t.TempDir()))
+
+	var mu sync.Mutex
+	callCount := 0
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			mu.Lock()
+			callCount++
+			c := callCount
+			mu.Unlock()
+			switch c {
+			case 1:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-1", ToolName: "set_work_mode", Args: map[string]any{"mode": "plan"}},
+					},
+				})
+				return &msg, nil
+			case 2:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-2", ToolName: "plan_create", Args: map[string]any{"name": "Happy Plan"}},
+					},
+				})
+				return &msg, nil
+			case 3:
+				pid := latestPlanID()
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-3a", ToolName: "task_insert", Args: map[string]any{"plan_id": pid, "goal": "Step 1"}},
+						{ID: "tc-3b", ToolName: "task_insert", Args: map[string]any{"plan_id": pid, "goal": "Step 2"}},
+					},
+				})
+				return &msg, nil
+			case 4:
+				msg := core.NewAssistantMessage(core.TextContent{Text: "plan ready"})
+				return &msg, nil
+			case 5:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-4", ToolName: "ask_human", Args: map[string]any{"question": "OK?", "reason": "confirm"}},
+					},
+				})
+				return &msg, nil
+			case 6:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-5", ToolName: "confirm_plan", Args: map[string]any{"status": "doing", "plan_id": latestPlanID()}},
+					},
+				})
+				return &msg, nil
+			default:
+				msg := core.NewAssistantMessage(core.TextContent{Text: "task completed"})
+				msg.FinishReason = "stop"
+				return &msg, nil
+			}
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	al := NewAgentLoop(testCfg(provider))
+	hitlCh := make(chan struct{}, 2)
+	al.RegisterEventHooks(core.AgentEventHooks{
+		OnWaitForHumanAction: func(id constants.AgentIdentity, reason, prompt string) {
+			hitlCh <- struct{}{}
+		},
+	})
+	al.Run(ctx, "build a web app")
+
+	select {
+	case <-hitlCh:
+	case <-time.After(10 * time.Second):
+		t.Fatal("HITL never triggered")
+	}
+	require.NoError(t, al.ResumeWithHumanResponse("yes, proceed"))
+	<-al.Done()
+
+	plans := working.ListPlans()
+	require.Len(t, plans, 1)
+	assert.Equal(t, constants.PlanStateDone, plans[0].State, "plan should reach Done")
+	for _, task := range plans[0].SubTasks {
+		assert.Equal(t, working.TaskStatusDone, task.Status, "task should be done")
+	}
+}
+
+func TestAgentLoop_RecoveryPath_FailReplanRetry(t *testing.T) {
+	core.GetToolRegistry().Reset()
+	working.ResetPlans()
+	internals.RegisterAll()
+	persist.SetManager(persist.NewFileManager(t.TempDir()))
+
+	var mu sync.Mutex
+	callCount := 0
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			mu.Lock()
+			callCount++
+			c := callCount
+			mu.Unlock()
+			switch c {
+			case 1:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-1", ToolName: "set_work_mode", Args: map[string]any{"mode": "plan"}},
+					},
+				})
+				return &msg, nil
+			case 2:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-2", ToolName: "plan_create", Args: map[string]any{"name": "Recovery Plan"}},
+					},
+				})
+				return &msg, nil
+			case 3:
+				pid := latestPlanID()
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-3", ToolName: "task_insert", Args: map[string]any{"plan_id": pid, "goal": "Risky task"}},
+					},
+				})
+				return &msg, nil
+			case 4:
+				msg := core.NewAssistantMessage(core.TextContent{Text: "plan ready"})
+				return &msg, nil
+			case 5:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-4", ToolName: "ask_human", Args: map[string]any{"question": "Proceed?", "reason": "confirm"}},
+					},
+				})
+				return &msg, nil
+			case 6:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-5", ToolName: "confirm_plan", Args: map[string]any{"status": "doing", "plan_id": latestPlanID()}},
+					},
+				})
+				return &msg, nil
+			case 7:
+				// End ConfirmedState ReAct loop
+				msg := core.NewAssistantMessage(core.TextContent{Text: "confirmed"})
+				return &msg, nil
+			case 8:
+				return nil, errors.New("worker failure")
+			case 9:
+				// UpdatingState: task_insert (plan_id not needed, LLM has it from context)
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-6", ToolName: "task_insert", Args: map[string]any{"goal": "Fix and retry", "plan_id": latestPlanID()}},
+					},
+				})
+				return &msg, nil
+			case 10:
+				// End UpdatingState ReAct loop with text
+				msg := core.NewAssistantMessage(core.TextContent{Text: "plan updated"})
+				return &msg, nil
+			case 11:
+				// ConfirmedState round 2: ask_human
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-7", ToolName: "ask_human", Args: map[string]any{"question": "Retry?", "reason": "retry_confirm"}},
+					},
+				})
+				return &msg, nil
+			case 12:
+				// confirm_plan
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-8", ToolName: "confirm_plan", Args: map[string]any{"status": "doing", "plan_id": latestPlanID()}},
+					},
+				})
+				return &msg, nil
+			case 13:
+				// End ConfirmedState round 2 with text
+				msg := core.NewAssistantMessage(core.TextContent{Text: "reconfirmed"})
+				return &msg, nil
+			default:
+				msg := core.NewAssistantMessage(core.TextContent{Text: "retry succeeded"})
+				msg.FinishReason = "stop"
+				return &msg, nil
+			}
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	al := NewAgentLoop(testCfg(provider))
+	hitlCh := make(chan struct{}, 3)
+	al.RegisterEventHooks(core.AgentEventHooks{
+		OnWaitForHumanAction: func(id constants.AgentIdentity, reason, prompt string) {
+			hitlCh <- struct{}{}
+		},
+	})
+	al.Run(ctx, "complex task")
+
+	select {
+	case <-hitlCh:
+	case <-time.After(10 * time.Second):
+		t.Fatal("first HITL")
+	}
+	require.NoError(t, al.ResumeWithHumanResponse("yes"))
+	select {
+	case <-hitlCh:
+	case <-time.After(10 * time.Second):
+		t.Fatal("second HITL")
+	}
+	require.NoError(t, al.ResumeWithHumanResponse("yes, retry"))
+	<-al.Done()
+
+	plans := working.ListPlans()
+	if len(plans) > 0 {
+		assert.GreaterOrEqual(t, plans[0].Version, 2, "plan should have been versioned >= 2")
+		assert.Equal(t, constants.PlanStateDone, plans[0].State)
+	}
+}
+
+func TestAgentLoop_AbandonPath_FailReplanThenReject(t *testing.T) {
+	core.GetToolRegistry().Reset()
+	working.ResetPlans()
+	internals.RegisterAll()
+	persist.SetManager(persist.NewFileManager(t.TempDir()))
+
+	var mu sync.Mutex
+	callCount := 0
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			mu.Lock()
+			callCount++
+			c := callCount
+			mu.Unlock()
+			switch c {
+			case 1:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-1", ToolName: "set_work_mode", Args: map[string]any{"mode": "plan"}},
+					},
+				})
+				return &msg, nil
+			case 2:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-2", ToolName: "plan_create", Args: map[string]any{"name": "Abandoned Plan"}},
+					},
+				})
+				return &msg, nil
+			case 3:
+				pid := latestPlanID()
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-3", ToolName: "task_insert", Args: map[string]any{"plan_id": pid, "goal": "Task"}},
+					},
+				})
+				return &msg, nil
+			case 4:
+				msg := core.NewAssistantMessage(core.TextContent{Text: "plan ready"})
+				return &msg, nil
+			case 5:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-4", ToolName: "ask_human", Args: map[string]any{"question": "Go?", "reason": "confirm"}},
+					},
+				})
+				return &msg, nil
+			case 6:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-5", ToolName: "confirm_plan", Args: map[string]any{"status": "doing", "plan_id": latestPlanID()}},
+					},
+				})
+				return &msg, nil
+			case 7:
+				msg := core.NewAssistantMessage(core.TextContent{Text: "confirmed"})
+				return &msg, nil
+			case 8:
+				return nil, errors.New("worker failure")
+			case 9:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-6", ToolName: "task_insert", Args: map[string]any{"goal": "Fix task", "plan_id": latestPlanID()}},
+					},
+				})
+				return &msg, nil
+			case 10:
+				msg := core.NewAssistantMessage(core.TextContent{Text: "plan updated"})
+				return &msg, nil
+			case 11:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-7", ToolName: "ask_human", Args: map[string]any{"question": "Retry?", "reason": "retry"}},
+					},
+				})
+				return &msg, nil
+			case 12:
+				msg := core.NewAssistantMessage(core.ToolCallContent{
+					Details: []core.ToolCallDetail{
+						{ID: "tc-8", ToolName: "confirm_plan", Args: map[string]any{"status": "rejected", "plan_id": latestPlanID()}},
+					},
+				})
+				return &msg, nil
+			case 13:
+				msg := core.NewAssistantMessage(core.TextContent{Text: "abandoned"})
+				return &msg, nil
+			default:
+				msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+				return &msg, nil
+			}
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	al := NewAgentLoop(testCfg(provider))
+	hitlCh := make(chan struct{}, 3)
+	al.RegisterEventHooks(core.AgentEventHooks{
+		OnWaitForHumanAction: func(id constants.AgentIdentity, reason, prompt string) {
+			hitlCh <- struct{}{}
+		},
+	})
+	al.Run(ctx, "abandoned task")
+
+	select {
+	case <-hitlCh:
+	case <-time.After(10 * time.Second):
+		t.Fatal("first HITL")
+	}
+	require.NoError(t, al.ResumeWithHumanResponse("yes"))
+	select {
+	case <-hitlCh:
+	case <-time.After(10 * time.Second):
+		t.Fatal("second HITL")
+	}
+	require.NoError(t, al.ResumeWithHumanResponse("no, abandon"))
+	<-al.Done()
+
+	plans := working.ListPlans()
+	require.Len(t, plans, 1)
+	assert.Equal(t, constants.PlanStateRejected, plans[0].State, "plan should be rejected")
 }
