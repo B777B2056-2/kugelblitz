@@ -57,7 +57,7 @@ func TestHandleGetSession(t *testing.T) {
 	createRec := httptest.NewRecorder()
 	srv.mux.ServeHTTP(createRec, createReq)
 	var created map[string]string
-	json.NewDecoder(createRec.Body).Decode(&created)
+	_ = json.NewDecoder(createRec.Body).Decode(&created)
 
 	req := httptest.NewRequest("GET", "/api/session/"+created["session_id"], nil)
 	rec := httptest.NewRecorder()
@@ -90,7 +90,7 @@ func TestHandleDeleteSession(t *testing.T) {
 	createRec := httptest.NewRecorder()
 	srv.mux.ServeHTTP(createRec, createReq)
 	var created map[string]string
-	json.NewDecoder(createRec.Body).Decode(&created)
+	_ = json.NewDecoder(createRec.Body).Decode(&created)
 
 	delReq := httptest.NewRequest("DELETE", "/api/session/"+created["session_id"], nil)
 	delRec := httptest.NewRecorder()
