@@ -1,6 +1,6 @@
 module github.com/B777B2056-2/kugelblitz/cmd/common
 
-go 1.26
+go 1.24
 
 require (
 	github.com/B777B2056-2/kugelblitz v0.0.0
