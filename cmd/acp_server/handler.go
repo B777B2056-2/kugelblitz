@@ -201,6 +201,12 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 				Update:    notif,
 			})
 		},
+		// ACP has no native HITL - auto-resume so the agent does not block.
+		OnWaitForHumanAction: func(id constants.AgentIdentity, reason, prompt string) {
+			go func() {
+				_ = session.Agent.ResumeWithHumanResponse(promptCtx, "proceed")
+			}()
+		},
 	}
 
 	session.Agent.RegisterEventHooks(hooks)
