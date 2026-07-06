@@ -89,6 +89,7 @@ func (h *Handler) Dispatch(ctx context.Context, msg *JSONRPCMessage) error {
 		})
 
 	default:
+		core.Warn("ACP: unknown method", "method", msg.Method)
 		h.writeError(id, ErrCodeMethodNotFound, fmt.Sprintf("Method not found: %s", msg.Method), nil)
 	}
 
@@ -96,15 +97,17 @@ func (h *Handler) Dispatch(ctx context.Context, msg *JSONRPCMessage) error {
 }
 
 // invoke runs a handler function and writes the response or error.
-func (h *Handler) invoke(_ context.Context, id json.RawMessage, rawParams json.RawMessage, fn func(json.RawMessage) (any, error)) {
+func (h *Handler) invoke(ctx context.Context, id json.RawMessage, rawParams json.RawMessage, fn func(json.RawMessage) (any, error)) {
 	result, err := fn(rawParams)
 	if err != nil {
+		core.Warn("ACP: handler error", "err", err)
 		h.writeError(id, ErrCodeInternalError, err.Error(), nil)
 		return
 	}
 	if result != nil {
 		resp, marshalErr := NewResponse(id, result)
 		if marshalErr != nil {
+			core.Error("ACP: marshal error", "err", marshalErr)
 			h.writeError(id, ErrCodeInternalError, marshalErr.Error(), nil)
 			return
 		}
@@ -124,6 +127,11 @@ func (h *Handler) handleInitialize(_ context.Context, p json.RawMessage) (any, e
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
 
+	core.Info("ACP: client initialized",
+		"client", params.ClientInfo.Name,
+		"client_version", params.ClientInfo.Version,
+		"protocol", params.ProtocolVersion)
+
 	return InitializeResult{
 		ProtocolVersion: ProtocolVersion,
 		ServerInfo:      h.serverInfo,
@@ -140,6 +148,7 @@ func (h *Handler) handleInitialize(_ context.Context, p json.RawMessage) (any, e
 func (h *Handler) handleSessionNew(_ context.Context, params SessionNewParams) (any, error) {
 	agent := h.agent
 	session := h.sessions.Create(params.Cwd, agent)
+	core.Info("ACP: session created", "session", session.ID, "cwd", params.Cwd)
 	return SessionNewResult{SessionID: session.ID}, nil
 }
 
@@ -150,6 +159,15 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 	if err != nil {
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
 	}
+
+	promptPreview := ""
+	if len(params.Prompt) > 0 && params.Prompt[0].Text != "" {
+		promptPreview = params.Prompt[0].Text
+		if len(promptPreview) > 80 {
+			promptPreview = promptPreview[:80] + "..."
+		}
+	}
+	core.Info("ACP: prompt started", "session", params.SessionID, "cwd", session.Cwd, "blocks", len(params.Prompt))
 
 	promptCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -185,6 +203,7 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 			})
 		},
 		OnFunctionCall: func(id constants.AgentIdentity, detail core.ToolCallDetail) {
+			core.Debug("ACP: tool call", "session", sid, "tool", detail.ToolName, "tool_call_id", detail.ID)
 			notif := NewToolCallNotification(detail.ID, detail.ToolName, detail.Args)
 			_ = h.transport.SendNotification("session/update", SessionUpdateParams{
 				SessionID: sid, Update: notif,
@@ -194,7 +213,9 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 			status := ToolCallStatusCompleted
 			if _, hasErr := result.Outputs["error"]; hasErr {
 				status = ToolCallStatusError
+				core.Warn("ACP: tool call error", "session", params.SessionID, "tool", result.ToolName, "tool_call_id", result.ToolCallID)
 			}
+			core.Debug("ACP: tool call end", "session", params.SessionID, "tool", result.ToolName, "status", status)
 			notif := NewToolCallUpdateNotification(result.ToolCallID, status, result.Outputs)
 			_ = h.transport.SendNotification("session/update", SessionUpdateParams{
 				SessionID: params.SessionID,
@@ -203,9 +224,16 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 		},
 		// ACP has no native HITL - auto-resume so the agent does not block.
 		OnWaitForHumanAction: func(id constants.AgentIdentity, reason, prompt string) {
+			core.Info("ACP: hitl auto-resume", "session", sid, "reason", reason)
 			go func() {
 				_ = session.Agent.ResumeWithHumanResponse(promptCtx, "proceed")
 			}()
+		},
+		OnUsageUpdated: func(id constants.AgentIdentity, usage core.Usage) {
+			core.Debug("ACP: usage", "session", sid, "identity", string(id), "total", usage.TotalTokens)
+		},
+		OnError: func(id constants.AgentIdentity, err error) {
+			core.Error("ACP: agent error", "session", sid, "identity", string(id), "err", err)
 		},
 	}
 
@@ -213,6 +241,7 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 
 	assistantMessages, err := session.Agent.Execute(promptCtx, systemMsg, userMessages)
 	if err != nil {
+		core.Error("ACP: prompt execution error", "session", params.SessionID, "err", err)
 		_ = h.transport.SendNotification("session/update", SessionUpdateParams{
 			SessionID: params.SessionID,
 			Update:    NewAgentMessageChunk(fmt.Sprintf("Error: %v", err)),
@@ -227,11 +256,13 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 		_ = h.sessions.AppendMessage(params.SessionID, msg)
 	}
 
+	core.Info("ACP: prompt completed", "session", params.SessionID, "stop_reason", StopReasonEndTurn)
 	return SessionPromptResult{StopReason: StopReasonEndTurn}, nil
 }
 
 // handleSessionCancel cancels the active prompt execution in a session.
 func (h *Handler) handleSessionCancel(_ context.Context, params SessionCancelParams) error {
+	core.Info("ACP: session cancel", "session", params.SessionID)
 	return h.sessions.Cancel(params.SessionID)
 }
 
@@ -242,6 +273,7 @@ func (h *Handler) handleSessionLoad(_ context.Context, params SessionLoadParams)
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
 	}
 
+	core.Info("ACP: session load", "session", params.SessionID, "messages", len(session.Messages))
 	blocks := MessagesToContentBlocks(session.Messages)
 	for _, block := range blocks {
 		_ = h.transport.SendNotification("session/update", SessionUpdateParams{
@@ -255,11 +287,14 @@ func (h *Handler) handleSessionLoad(_ context.Context, params SessionLoadParams)
 
 // handleSessionList returns information about all sessions.
 func (h *Handler) handleSessionList(_ context.Context) (any, error) {
-	return h.sessions.List(), nil
+	sessions := h.sessions.List()
+	core.Debug("ACP: session list", "count", len(sessions))
+	return sessions, nil
 }
 
 // handleSessionDelete deletes a session.
 func (h *Handler) handleSessionDelete(_ context.Context, params SessionDeleteParams) error {
+	core.Info("ACP: session delete", "session", params.SessionID)
 	return h.sessions.Delete(params.SessionID)
 }
 

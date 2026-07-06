@@ -816,7 +816,6 @@ kugelblitz/
 │   └── longterm/          # Long-Term Memory (MEMORY.md + ChromaDB + Graph + Dream)
 ├── prompts/           # System prompt templates
 ├── observability/     # Observer interface + Langfuse adapter, PlannerInstrument
-├── acp/               # ACP adapter (JSON-RPC 2.0 stdio transport, session mgmt)
 ├── tools/
 │   ├── mcp/           # MCP server integration (client, manager, tool registry)
 │   └── internals/     # Built-in tools (plan_*, task_*, memory_*, web, file, shell)

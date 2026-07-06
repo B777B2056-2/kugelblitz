@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"sync"
 
@@ -37,7 +36,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	if len(goalPreview) > 80 {
 		goalPreview = goalPreview[:80] + "…"
 	}
-	log.Printf("[chat] session=%q goal=%q", req.SessionID, goalPreview)
+	core.Info("chat started", "session", req.SessionID, "goal", goalPreview)
 
 	session := s.sessions.GetOrCreate(req.SessionID)
 	session.Goal = req.Goal
@@ -120,7 +119,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			writeSSEEvent(w, flusher, SSEEvent{Event: "finished", Data: map[string]string{"reason": reason}})
 		},
 		OnUsageUpdated: func(id constants.AgentIdentity, usage core.Usage) {
-			log.Printf("[sse] id=%s OnUsageUpdated total=%d", id, usage.TotalTokens)
+			core.Debug("sse usage updated", "id", id, "total", usage.TotalTokens)
 			session.addTokenReport(TokenReport{
 				Identity: string(id),
 				Input:    usage.InputTokens,
@@ -139,7 +138,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			}})
 		},
 		OnError: func(id constants.AgentIdentity, err error) {
-			log.Printf("[sse] id=%s OnError err=%v", id, err)
+			core.Error("sse error", "id", id, "err", err)
 			sseMu.Lock()
 			defer sseMu.Unlock()
 			writeSSEEvent(w, flusher, SSEEvent{Event: "error", Data: map[string]string{"message": err.Error()}})
@@ -183,7 +182,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			if len(hitlPreview) > 60 {
 				hitlPreview = hitlPreview[:60] + "…"
 			}
-			log.Printf("[chat] hitl paused session=%q question=%q", session.ID, hitlPreview)
+			core.Info("hitl paused", "session", session.ID, "question", hitlPreview)
 
 			sseMu.Lock()
 			defer sseMu.Unlock()
@@ -225,9 +224,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case response := <-session.hitlCh:
-			log.Printf("[chat] hitl resuming session=%q", session.ID)
+			core.Info("hitl resuming", "session", session.ID)
 			if err := loop.ResumeWithHumanResponse(response); err != nil {
-				log.Printf("[chat] hitl resume error session=%q err=%v", session.ID, err)
+				core.Error("hitl resume failed", "session", session.ID, "err", err)
 				writeSSEEvent(w, flusher, SSEEvent{Event: "error", Data: map[string]string{
 					"message": "HITL resume failed: " + err.Error(),
 				}})
@@ -265,7 +264,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 			s.sessions.ArchiveTurn(session)
 
-			log.Printf("[chat] completed session=%q total_tokens=%d", session.ID, tt.Total)
+			core.Info("chat completed", "session", session.ID, "total_tokens", tt.Total)
 			return
 		case <-r.Context().Done():
 			loop.Cancel()

@@ -45,8 +45,10 @@ func (sm *SessionManager) Create(cwd string, agent core.IAgent) *Session {
 
 	sm.mu.Lock()
 	sm.sessions[session.ID] = session
+	count := len(sm.sessions)
 	sm.mu.Unlock()
 
+	core.Debug("ACP: session manager created", "id", session.ID, "cwd", cwd, "active_sessions", count)
 	return session
 }
 
@@ -86,6 +88,7 @@ func (sm *SessionManager) Delete(sessionID string) error {
 		return fmt.Errorf("session: not found: %s", sessionID)
 	}
 	delete(sm.sessions, sessionID)
+	core.Debug("ACP: session manager deleted", "id", sessionID, "active_sessions", len(sm.sessions))
 	return nil
 }
 
@@ -111,6 +114,7 @@ func (sm *SessionManager) Cancel(sessionID string) error {
 		return fmt.Errorf("session: not found: %s", sessionID)
 	}
 	if session.cancelFn != nil {
+		core.Debug("ACP: session manager cancelling execution", "id", sessionID)
 		session.cancelFn()
 	}
 	return nil

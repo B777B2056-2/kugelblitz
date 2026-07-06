@@ -785,7 +785,6 @@ kugelblitz/
 │   └── longterm/          # 长期记忆（MEMORY.md + ChromaDB + Graph + Dream）
 ├── prompts/           # 系统提示词模板
 ├── observability/     # Observer 接口 + Langfuse Adapter, PlannerInstrument
-├── acp/               # ACP 适配器（JSON-RPC 2.0 stdio 传输、会话管理）
 ├── tools/
 │   ├── mcp/           # MCP 服务集成（客户端、管理器、工具注册）
 │   └── internals/     # 内置工具（plan_*, task_*, memory_*, web, file, shell）
