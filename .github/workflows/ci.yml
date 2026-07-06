@@ -148,6 +148,7 @@ jobs:
     name: MSI (${{ matrix.bin }})
     runs-on: windows-latest
     if: github.event_name == 'push'
+    timeout-minutes: 15
     strategy:
       matrix:
         bin: ["acp_server", "kugelblitz-ui"]
@@ -159,6 +160,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.24"
+          cache: true
 
       - name: Install WiX
         run: dotnet tool install --global wix
@@ -169,6 +171,8 @@ jobs:
           go build -o ${{ matrix.bin }}.exe .
 
       - name: Build MSI
+        env:
+          WIX_EULA_ACCEPTED: true
         run: |
           cd cmd/${{ matrix.bin }}
           wix build -o ${{ matrix.bin }}-windows-amd64.msi installer.wxs
