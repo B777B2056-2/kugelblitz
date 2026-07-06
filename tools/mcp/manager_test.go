@@ -63,7 +63,6 @@ func newTestManager(t *testing.T) *Manager {
 }
 
 func TestManager_DiscoverAndRegisterTools(t *testing.T) {
-	core.GetToolRegistry().Reset()
 
 	m := newTestManager(t)
 	defer func() { _ = m.Shutdown(context.Background()) }()
@@ -80,7 +79,6 @@ func TestManager_DiscoverAndRegisterTools(t *testing.T) {
 }
 
 func TestManager_CallMCPTool(t *testing.T) {
-	core.GetToolRegistry().Reset()
 
 	m := newTestManager(t)
 	defer func() { _ = m.Shutdown(context.Background()) }()
@@ -122,7 +120,6 @@ func TestManager_CallMCPTool_Error(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = session.Close() }()
 
-	core.GetToolRegistry().Reset()
 	m := &Manager{
 		servers:  map[string]config.MCPServerConfig{"errsrv": {Command: "err"}},
 		sessions: map[string]entry{"errsrv": {session: session, client: client}},

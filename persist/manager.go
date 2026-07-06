@@ -57,19 +57,3 @@ func GetManager() *Manager {
 	})
 	return globalManager
 }
-
-// SetManager replaces the global Manager (for testing).
-func SetManager(m *Manager) {
-	globalManager = m
-}
-
-// NewFileManager creates a Manager backed by local files for testing.
-func NewFileManager(dir string) *Manager {
-	fp := NewFilePersist(dir)
-	return NewManager(
-		dir,
-		NewMarkdownPersist(fp),
-		NewJSONLPersist(fp),
-		NewVectorPersist(fp, nil), // no ChromaDB in tests
-	)
-}

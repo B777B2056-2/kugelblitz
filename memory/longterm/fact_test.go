@@ -50,6 +50,7 @@ func TestLongTermMemory_StoreConflictNewWins(t *testing.T) {
 		Section: "prefs", Key: "lang", Value: "Python",
 		Version: 1, Confidence: 0.2, UpdatedAt: time.Now().Add(-30 * 24 * time.Hour),
 	})
+	ltm.rebuildIndex()
 
 	// New fact has confidence 1.0 — should win over decayed 0.2
 	// conflict is non-nil (holds the displaced old fact)
@@ -68,6 +69,7 @@ func TestLongTermMemory_StoreConflictOldWins(t *testing.T) {
 		Section: "prefs", Key: "lang", Value: "Python",
 		Version: 1, Confidence: 1.0, UpdatedAt: time.Now().Add(time.Hour),
 	})
+	ltm.rebuildIndex()
 
 	// New fact also has confidence 1.0. With no decay on old, 1.0 > 1.0 is
 	// false → falls to default → old wins (kept as winner, new returned as conflict).
@@ -91,6 +93,7 @@ func TestLongTermMemory_GetReturnsDecayed(t *testing.T) {
 		Section: "prefs", Key: "lang", Value: "Go",
 		Version: 1, Confidence: 1.0, UpdatedAt: time.Now().Add(-10 * 24 * time.Hour),
 	})
+	ltm.rebuildIndex()
 
 	f, ok := ltm.Get("prefs", "lang")
 	assert.True(t, ok)
@@ -223,6 +226,7 @@ func TestLongTermMemory_StoreSemanticMismatch(t *testing.T) {
 		Section: "prefs", Key: "lang", Value: "Python",
 		Version: 1, Confidence: 1.0, UpdatedAt: time.Now(),
 	})
+	ltm.rebuildIndex()
 
 	// Different values, old has high confidence — should be a conflict
 	_, conflict, _ := ltm.Store("prefs", "lang", "Go")
@@ -290,8 +294,7 @@ func TestLongTermMemory_Stats(t *testing.T) {
 }
 
 func TestLongTermMemory_ConcurrentStoreAndGet(t *testing.T) {
-	ltm := &LongTermMemory{}
-	ltm.initIndex()
+	ltm := newTestLTM(t)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
@@ -312,8 +315,7 @@ func TestLongTermMemory_ConcurrentStoreAndGet(t *testing.T) {
 }
 
 func TestLongTermMemory_ConcurrentBulkAndRemove(t *testing.T) {
-	ltm := &LongTermMemory{}
-	ltm.initIndex()
+	ltm := newTestLTM(t)
 
 	items := make([]MemoryItem, 10)
 	for i := 0; i < 10; i++ {
@@ -352,8 +354,7 @@ func TestLongTermMemory_ConcurrentBulkAndRemove(t *testing.T) {
 }
 
 func TestLongTermMemory_ConcurrentSameKeyStore(t *testing.T) {
-	ltm := &LongTermMemory{}
-	ltm.initIndex()
+	ltm := newTestLTM(t)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {

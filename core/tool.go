@@ -126,14 +126,6 @@ func (tr *ToolRegistry) CustomToolNames() []string {
 	return result
 }
 
-// Reset clears all registered tools. Primarily intended for testing.
-func (tr *ToolRegistry) Reset() {
-	tr.mu.Lock()
-	defer tr.mu.Unlock()
-	tr.tools = make(map[string]registryEntry)
-	tr.internalNames = make(map[string]bool)
-}
-
 // RegisterTool registers a tool on the global ToolRegistry.
 func RegisterTool(def ToolDefinition, fn ToolCallFunc) {
 	GetToolRegistry().Register(def, fn)

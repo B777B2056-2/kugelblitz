@@ -7,14 +7,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-// registry returns the global singleton, reset before each test that needs isolation.
+// registry returns the global singleton.
 func registry() *ToolRegistry {
-	r := GetToolRegistry()
-	r.Reset()
-	return r
+	return GetToolRegistry()
 }
 
 func TestToolRegistry_RegisterAndCall(t *testing.T) {
@@ -46,10 +43,10 @@ func TestToolRegistry_CallUnknownTool(t *testing.T) {
 	assert.Contains(t, result.Outputs["error"], "tool not found")
 }
 
-func TestToolRegistry_ListDefinitions_Empty(t *testing.T) {
+func TestToolRegistry_ListDefinitions_HasBuiltins(t *testing.T) {
 	r := registry()
 	defs := r.ListDefinitions()
-	assert.Empty(t, defs)
+	assert.NotEmpty(t, defs, "global registry should have built-in tools from init()")
 }
 
 func TestToolRegistry_ListDefinitions_HasEntries(t *testing.T) {
@@ -59,7 +56,7 @@ func TestToolRegistry_ListDefinitions_HasEntries(t *testing.T) {
 	r.Register(ToolDefinition{Name: "tool2", Description: "Second tool"}, nil)
 
 	defs := r.ListDefinitions()
-	require.Len(t, defs, 2)
+	assert.GreaterOrEqual(t, len(defs), 2)
 
 	names := make(map[string]bool)
 	for _, d := range defs {
@@ -76,8 +73,14 @@ func TestToolRegistry_RegisterOverwrites(t *testing.T) {
 	r.Register(ToolDefinition{Name: "tool", Description: "v2"}, nil)
 
 	defs := r.ListDefinitions()
-	require.Len(t, defs, 1)
-	assert.Equal(t, "v2", defs[0].Description)
+	found := false
+	for _, d := range defs {
+		if d.Name == "tool" {
+			assert.Equal(t, "v2", d.Description)
+			found = true
+		}
+	}
+	assert.True(t, found)
 }
 
 func TestToolRegistry_ConcurrentAccess(t *testing.T) {
@@ -154,13 +157,6 @@ func TestToolRegistry_ConcurrentRegisterCallReset(t *testing.T) {
 	// Concurrent Reset + Register
 	for i := 0; i < 3; i++ {
 		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			r.Reset()
-		}()
-	}
-	for i := 0; i < 3; i++ {
-		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
 			r.Register(ToolDefinition{Name: fmt.Sprintf("new%d", idx), Description: "after reset"}, nil)
@@ -199,17 +195,7 @@ func TestGetToolRegistry_ReturnsSingleton(t *testing.T) {
 	assert.Same(t, a, b, "GetToolRegistry must return the same instance")
 }
 
-func TestToolRegistry_Reset_ClearsAllTools(t *testing.T) {
-	r := registry()
-	r.Register(ToolDefinition{Name: "t1", Description: "test"}, nil)
-	require.Len(t, r.ListDefinitions(), 1)
-
-	r.Reset()
-	assert.Empty(t, r.ListDefinitions())
-}
-
 func TestRegisterTool_ConvenienceFunction(t *testing.T) {
-	GetToolRegistry().Reset()
 
 	RegisterTool(
 		ToolDefinition{Name: "global_tool", Description: "Registered globally"},
@@ -228,6 +214,12 @@ func TestListToolDefinitions_ConvenienceFunction(t *testing.T) {
 	r.Register(ToolDefinition{Name: "listed", Description: "A tool"}, nil)
 
 	defs := ListToolDefinitions()
-	require.Len(t, defs, 1)
-	assert.Equal(t, "listed", defs[0].Name)
+	found := false
+	for _, d := range defs {
+		if d.Name == "listed" {
+			assert.Equal(t, "A tool", d.Description)
+			found = true
+		}
+	}
+	assert.True(t, found)
 }

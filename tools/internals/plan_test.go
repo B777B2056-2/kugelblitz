@@ -7,16 +7,15 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
-	"github.com/B777B2056-2/kugelblitz/persist"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// resetStore creates a fresh in-memory store by setting up a new temp-dir persist manager.
+// resetStore points the workspace to a temp dir for isolated test storage.
 func resetStore(t *testing.T) {
 	t.Helper()
-	persist.SetManager(persist.NewFileManager(t.TempDir()))
+	core.GetWorkspace().SetDir(t.TempDir())
 }
 
 func TestPlanCreate(t *testing.T) {
@@ -151,10 +150,6 @@ func TestTaskStatusUpdate(t *testing.T) {
 
 func TestPlanPersistAndLoad(t *testing.T) {
 	resetStore(t)
-	oldPM := persist.GetManager()
-	persist.SetManager(persist.NewFileManager(t.TempDir()))
-	defer persist.SetManager(oldPM)
-
 	pc := &PlanCreate{}
 	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "Test"}})
 	planID := pres.Outputs["id"].(string)

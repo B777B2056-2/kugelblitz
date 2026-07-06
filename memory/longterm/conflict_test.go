@@ -9,7 +9,7 @@ import (
 )
 
 func TestConflictResolver_NoConflict_NewFact(t *testing.T) {
-	ltm := &LongTermMemory{}
+	ltm := &LongTermMemory{index: make(map[string]int)}
 	cr := NewConflictResolver(ltm, 0.15)
 
 	candidates := []MemoryItemCandidate{
@@ -22,7 +22,7 @@ func TestConflictResolver_NoConflict_NewFact(t *testing.T) {
 }
 
 func TestConflictResolver_SemanticMatch_NoConflict(t *testing.T) {
-	ltm := &LongTermMemory{}
+	ltm := newTestLTM(t)
 	_, _, _ = ltm.Store("prefs", "lang", "Go")
 	oldJudge := semanticJudge
 	semanticJudge = func(old, new string) bool { return true }
@@ -38,11 +38,12 @@ func TestConflictResolver_SemanticMatch_NoConflict(t *testing.T) {
 }
 
 func TestConflictResolver_ClearWinner_NewWins(t *testing.T) {
-	ltm := &LongTermMemory{}
+	ltm := &LongTermMemory{index: make(map[string]int)}
 	ltm.items = append(ltm.items, MemoryItem{
 		Section: "prefs", Key: "lang", Value: "Python",
 		Version: 1, Confidence: 0.3, UpdatedAt: ltmTimeNow(),
 	})
+	ltm.rebuildIndex()
 
 	cr := NewConflictResolver(ltm, 0.15)
 	candidates := []MemoryItemCandidate{
@@ -54,11 +55,12 @@ func TestConflictResolver_ClearWinner_NewWins(t *testing.T) {
 }
 
 func TestConflictResolver_ClearWinner_OldWins(t *testing.T) {
-	ltm := &LongTermMemory{}
+	ltm := &LongTermMemory{index: make(map[string]int)}
 	ltm.items = append(ltm.items, MemoryItem{
 		Section: "prefs", Key: "lang", Value: "Python",
 		Version: 1, Confidence: 0.95, UpdatedAt: ltmTimeNow(),
 	})
+	ltm.rebuildIndex()
 
 	cr := NewConflictResolver(ltm, 0.15)
 	candidates := []MemoryItemCandidate{
@@ -70,11 +72,12 @@ func TestConflictResolver_ClearWinner_OldWins(t *testing.T) {
 }
 
 func TestConflictResolver_NarrowGap_KeepsExisting(t *testing.T) {
-	ltm := &LongTermMemory{}
+	ltm := &LongTermMemory{index: make(map[string]int)}
 	ltm.items = append(ltm.items, MemoryItem{
 		Section: "prefs", Key: "lang", Value: "Python",
 		Version: 1, Confidence: 0.6, UpdatedAt: ltmTimeNow(),
 	})
+	ltm.rebuildIndex()
 
 	cr := NewConflictResolver(ltm, 0.15)
 	candidates := []MemoryItemCandidate{
@@ -87,7 +90,7 @@ func TestConflictResolver_NarrowGap_KeepsExisting(t *testing.T) {
 }
 
 func TestConflictResolver_MultipleCandidates(t *testing.T) {
-	ltm := &LongTermMemory{}
+	ltm := &LongTermMemory{index: make(map[string]int)}
 	cr := NewConflictResolver(ltm, 0.15)
 
 	candidates := []MemoryItemCandidate{
@@ -100,11 +103,12 @@ func TestConflictResolver_MultipleCandidates(t *testing.T) {
 }
 
 func TestConflictResolver_SameConfidence_KeepsExisting(t *testing.T) {
-	ltm := &LongTermMemory{}
+	ltm := &LongTermMemory{index: make(map[string]int)}
 	ltm.items = append(ltm.items, MemoryItem{
 		Section: "prefs", Key: "lang", Value: "Python",
 		Version: 1, Confidence: 0.8, UpdatedAt: ltmTimeNow(),
 	})
+	ltm.rebuildIndex()
 
 	cr := NewConflictResolver(ltm, 0.15)
 	candidates := []MemoryItemCandidate{
@@ -116,12 +120,12 @@ func TestConflictResolver_SameConfidence_KeepsExisting(t *testing.T) {
 }
 
 func TestConflictResolver_DefaultGap(t *testing.T) {
-	cr := NewConflictResolver(&LongTermMemory{}, 0)
+	cr := NewConflictResolver(&LongTermMemory{index: make(map[string]int)}, 0)
 	assert.Equal(t, 0.15, cr.confidenceGap)
 }
 
 func TestResolveResult_AcceptNewWins(t *testing.T) {
-	cr := NewConflictResolver(&LongTermMemory{}, 0.15)
+	cr := NewConflictResolver(&LongTermMemory{index: make(map[string]int)}, 0.15)
 	result := cr.resolveOne(MemoryItemCandidate{
 		Section: "prefs", Key: "lang", Value: "Go", SuggestedConfidence: 0.9,
 	})

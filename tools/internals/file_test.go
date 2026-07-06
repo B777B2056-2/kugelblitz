@@ -152,8 +152,6 @@ func TestDirCopy_CopiesDirectory(t *testing.T) {
 }
 
 func TestRegisterAll_RegistersAllTools(t *testing.T) {
-	core.GetToolRegistry().Reset()
-	RegisterAll()
 
 	defs := core.ListToolDefinitions()
 	names := make(map[string]bool)
