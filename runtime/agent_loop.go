@@ -174,6 +174,11 @@ func (a *AgentLoop) Run(ctx context.Context, goal string) {
 	go func() {
 		defer close(a.done)
 		defer a.Cancel()
+		defer func() {
+			if a.dreamScheduler != nil {
+				a.dreamScheduler.Stop()
+			}
+		}()
 		_, _ = a.execute(ctx, goal)
 	}()
 }
