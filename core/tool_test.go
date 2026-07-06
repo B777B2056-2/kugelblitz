@@ -69,13 +69,19 @@ func TestToolRegistry_ListDefinitions_HasEntries(t *testing.T) {
 func TestToolRegistry_RegisterOverwrites(t *testing.T) {
 	r := registry()
 
-	r.Register(ToolDefinition{Name: "tool", Description: "v1"}, nil)
-	r.Register(ToolDefinition{Name: "tool", Description: "v2"}, nil)
+	r.Register(ToolDefinition{Name: "test_overwrite", Description: "v1"},
+		func(ctx context.Context, detail ToolCallDetail) ToolCallResult {
+			return ToolCallResult{ToolCallID: detail.ID}
+		})
+	r.Register(ToolDefinition{Name: "test_overwrite", Description: "v2"},
+		func(ctx context.Context, detail ToolCallDetail) ToolCallResult {
+			return ToolCallResult{ToolCallID: detail.ID}
+		})
 
 	defs := r.ListDefinitions()
 	found := false
 	for _, d := range defs {
-		if d.Name == "tool" {
+		if d.Name == "test_overwrite" {
 			assert.Equal(t, "v2", d.Description)
 			found = true
 		}
@@ -87,13 +93,13 @@ func TestToolRegistry_ConcurrentAccess(t *testing.T) {
 	r := registry()
 	var wg sync.WaitGroup
 
-	// Concurrent registrations
+	// Concurrent registrations — use unique name to avoid conflict with init()-registered tools
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
 			r.Register(
-				ToolDefinition{Name: "tool", Description: "concurrent"},
+				ToolDefinition{Name: "tool_concurrent", Description: "concurrent"},
 				func(ctx context.Context, detail ToolCallDetail) ToolCallResult {
 					return ToolCallResult{ToolCallID: detail.ID}
 				},
@@ -106,7 +112,7 @@ func TestToolRegistry_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			_ = r.Call(context.Background(), ToolCallDetail{ID: "tc", ToolName: "tool"})
+			_ = r.Call(context.Background(), ToolCallDetail{ID: "tc", ToolName: "tool_concurrent"})
 		}(i)
 	}
 
