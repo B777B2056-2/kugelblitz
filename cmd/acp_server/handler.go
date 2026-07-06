@@ -167,7 +167,7 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 			promptPreview = promptPreview[:80] + "..."
 		}
 	}
-	core.Info("ACP: prompt started", "session", params.SessionID, "cwd", session.Cwd, "blocks", len(params.Prompt))
+	core.Info("ACP: prompt started", "session", params.SessionID, "cwd", session.Cwd, "blocks", len(params.Prompt), "preview", promptPreview)
 
 	promptCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
