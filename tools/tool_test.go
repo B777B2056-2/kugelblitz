@@ -22,7 +22,6 @@ func (t *testTool) Execute(ctx context.Context, detail core.ToolCallDetail) core
 }
 
 func TestRegister_AddsToGlobalRegistry(t *testing.T) {
-	core.GetToolRegistry().Reset()
 
 	Register(&testTool{})
 
@@ -32,7 +31,6 @@ func TestRegister_AddsToGlobalRegistry(t *testing.T) {
 }
 
 func TestRegisterAll_MultipleTools(t *testing.T) {
-	core.GetToolRegistry().Reset()
 
 	t1 := &testTool{}
 	t2 := &toolWithName{name: "other", desc: "Another tool"}

@@ -74,9 +74,9 @@ func TestSessionMemory_Compress_NoopWhenOldTooFew(t *testing.T) {
 }
 
 func TestManager_ReloadAfterRestart(t *testing.T) {
-	oldPM := persist.GetManager()
-	persist.SetManager(persist.NewFileManager(t.TempDir()))
-	defer persist.SetManager(oldPM)
+	oldDir := core.GetWorkspace().Dir()
+	core.GetWorkspace().SetDir(t.TempDir())
+	defer core.GetWorkspace().SetDir(oldDir)
 
 	// Simulate: create session, add messages, persist, then "restart"
 	mgr := GetSessionMemoryManager()
@@ -119,9 +119,9 @@ func TestManager_GetNonexistent(t *testing.T) {
 
 func TestPersistAndLoad_RoundTrip(t *testing.T) {
 	// Use temp dir to avoid cluttering project
-	oldPM := persist.GetManager()
-	persist.SetManager(persist.NewFileManager(t.TempDir()))
-	defer persist.SetManager(oldPM)
+	oldDir := core.GetWorkspace().Dir()
+	core.GetWorkspace().SetDir(t.TempDir())
+	defer core.GetWorkspace().SetDir(oldDir)
 
 	mem := newSessionMemory("persist-test")
 	mem.AppendMessage(core.NewUserMessage(core.TextContent{Text: "hello"}))
@@ -143,9 +143,9 @@ func TestPersistAndLoad_RoundTrip(t *testing.T) {
 }
 
 func TestPersistAndLoad_FullFidelity(t *testing.T) {
-	oldPM := persist.GetManager()
-	persist.SetManager(persist.NewFileManager(t.TempDir()))
-	defer persist.SetManager(oldPM)
+	oldDir := core.GetWorkspace().Dir()
+	core.GetWorkspace().SetDir(t.TempDir())
+	defer core.GetWorkspace().SetDir(oldDir)
 
 	mem := newSessionMemory("fidelity-test")
 
@@ -205,9 +205,9 @@ func TestPersistAndLoad_FullFidelity(t *testing.T) {
 }
 
 func TestPersist_ThenDeleteFile(t *testing.T) {
-	oldPM := persist.GetManager()
-	persist.SetManager(persist.NewFileManager(t.TempDir()))
-	defer persist.SetManager(oldPM)
+	oldDir := core.GetWorkspace().Dir()
+	core.GetWorkspace().SetDir(t.TempDir())
+	defer core.GetWorkspace().SetDir(oldDir)
 
 	mem := newSessionMemory("tmp-session")
 	mem.AppendMessage(core.NewUserMessage(core.TextContent{Text: "hi"}))

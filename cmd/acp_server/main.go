@@ -11,13 +11,15 @@
 //
 //	acp_server                     # uses ~/.kugelblitz/kugelblitz.yaml
 //	acp_server -workspace /path    # custom workspace
-//	acp_server -v                  # verbose logging
+//	acp_server                     # logs to stderr + ~/.kugelblitz/acp_server/acp_server.log
 package main
 
 import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -29,7 +31,6 @@ import (
 
 func main() {
 	workspaceDir := flag.String("workspace", "", "Workspace directory (default: ~/.kugelblitz)")
-	verbose := flag.Bool("v", false, "Verbose logging to stderr")
 	flag.Parse()
 
 	if *workspaceDir != "" {
@@ -37,9 +38,7 @@ func main() {
 	}
 	_ = core.GetWorkspace().MkdirAll()
 
-	if !*verbose {
-		core.SetLogger(core.DiscardLogger())
-	}
+	initLogging("acp_server")
 
 	// Load config from kugelblitz.yaml (same as Web UI)
 	cfg, err := common.Load(filepath.Join(core.GetWorkspace().Dir(), "kugelblitz.yaml"))
@@ -63,4 +62,23 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// initLogging configures the global logger to write to both stderr and a log file
+// under ~/.kugelblitz/<subdir>/<subdir>.log.
+func initLogging(subdir string) {
+	logDir := filepath.Join(core.GetWorkspace().Dir(), subdir)
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: cannot create log dir %s: %v\n", logDir, err)
+		return
+	}
+	logFile, err := os.OpenFile(filepath.Join(logDir, subdir+".log"),
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: cannot open log file: %v\n", err)
+		return
+	}
+	handler := slog.NewTextHandler(io.MultiWriter(os.Stderr, logFile),
+		&slog.HandlerOptions{Level: slog.LevelInfo})
+	core.SetLogger(slog.New(handler))
 }

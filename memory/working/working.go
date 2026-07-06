@@ -73,7 +73,7 @@ var (
 	planStoreMu sync.RWMutex
 )
 
-// ResetPlans clears the in-memory plan store. Primarily for tests.
+// ResetPlans clears the in-memory plan store.
 func ResetPlans() {
 	planStoreMu.Lock()
 	defer planStoreMu.Unlock()
@@ -321,22 +321,6 @@ func LoadPlan(planID string) (*Plan, error) {
 	planStoreMu.Unlock()
 	return &p, nil
 }
-
-// ---- Workers ----
-
-// WorkerFactory creates workers. Set by runtime at startup to avoid
-// circular imports between the tools and runtime packages.
-type WorkerFactory func(goal, action string) (output string, usage *core.Usage, err error)
-
-var workerFactory WorkerFactory
-
-// RegisterWorkerFactory sets the factory used to create workers.
-func RegisterWorkerFactory(fn WorkerFactory) {
-	workerFactory = fn
-}
-
-// GetWorkerFactory returns the current worker factory.
-func GetWorkerFactory() WorkerFactory { return workerFactory }
 
 // ---- Helpers ----
 

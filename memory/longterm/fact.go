@@ -56,6 +56,7 @@ func NewLongTermMemory(mdStore *persist.MarkdownPersist) (*LongTermMemory, error
 	ltm := &LongTermMemory{
 		mdStore: mdStore,
 		path:    "MEMORY.md",
+		index:   make(map[string]int),
 	}
 	if err := ltm.load(); err != nil {
 		return nil, err
@@ -74,14 +75,6 @@ func (ltm *LongTermMemory) indexKey(section, key string) string {
 	return ltm.normalize(section) + "\x00" + key
 }
 
-// initIndex lazily initializes the index map if nil (for tests that don't use NewLongTermMemory).
-// Must be called with mu held.
-func (ltm *LongTermMemory) initIndex() {
-	if ltm.index == nil {
-		ltm.index = make(map[string]int)
-	}
-}
-
 // rebuildIndex rebuilds the in-memory index from the items slice.
 // Must be called with mu held.
 func (ltm *LongTermMemory) rebuildIndex() {
@@ -98,18 +91,11 @@ func (ltm *LongTermMemory) rebuildIndex() {
 func (ltm *LongTermMemory) Store(section, key, value string) (winner MemoryItem, conflict *MemoryItem, _ error) {
 	ltm.mu.Lock()
 	defer ltm.mu.Unlock()
-	ltm.initIndex()
 	now := time.Now()
 
 	section = ltm.normalize(section)
 	idxKey := ltm.indexKey(section, key)
 	curIdx, exists := ltm.index[idxKey]
-
-	// Fallback: rebuild index if items were populated externally (e.g. tests)
-	if !exists && len(ltm.index) == 0 && len(ltm.items) > 0 {
-		ltm.rebuildIndex()
-		curIdx, exists = ltm.index[idxKey]
-	}
 
 	newFact := MemoryItem{Section: section, Key: key, Value: value, Version: 1, Confidence: 1.0, UpdatedAt: now}
 
@@ -154,7 +140,6 @@ func (ltm *LongTermMemory) Store(section, key, value string) (winner MemoryItem,
 func (ltm *LongTermMemory) BulkStore(items []MemoryItem) error {
 	ltm.mu.Lock()
 	defer ltm.mu.Unlock()
-	ltm.initIndex()
 
 	now := time.Now()
 	for _, newFact := range items {
@@ -178,20 +163,8 @@ func (ltm *LongTermMemory) Get(section, key string) (MemoryItem, bool) {
 	ltm.mu.RLock()
 	defer ltm.mu.RUnlock()
 
-	// Use index when available for O(1) lookup
-	if ltm.index != nil {
-		if idx, ok := ltm.index[ltm.indexKey(section, key)]; ok {
-			return ltm.decayConfidence(ltm.items[idx]), true
-		}
-		return MemoryItem{}, false
-	}
-
-	// Fallback linear scan (for tests that populate items directly)
-	section = ltm.normalize(section)
-	for _, f := range ltm.items {
-		if ltm.normalize(f.Section) == section && f.Key == key {
-			return ltm.decayConfidence(f), true
-		}
+	if idx, ok := ltm.index[ltm.indexKey(section, key)]; ok {
+		return ltm.decayConfidence(ltm.items[idx]), true
 	}
 	return MemoryItem{}, false
 }
@@ -200,7 +173,6 @@ func (ltm *LongTermMemory) Get(section, key string) (MemoryItem, bool) {
 func (ltm *LongTermMemory) Remove(section, key string) error {
 	ltm.mu.Lock()
 	defer ltm.mu.Unlock()
-	ltm.initIndex()
 
 	idxKey := ltm.indexKey(section, key)
 	idx, ok := ltm.index[idxKey]
@@ -332,9 +304,6 @@ func (ltm *LongTermMemory) load() error {
 }
 
 func (ltm *LongTermMemory) write() error {
-	if ltm.mdStore == nil {
-		return nil // read-only instance (e.g. tests)
-	}
 	var entries []persist.MarkdownEntry
 	for _, f := range ltm.items {
 		entries = append(entries, itemToMarkdown(f))

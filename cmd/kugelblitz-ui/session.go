@@ -3,13 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/google/uuid"
 )
 
@@ -157,7 +157,7 @@ func NewSessionManager(storageDir string) *SessionManager {
 		}
 	}
 
-	log.Printf("[session] manager ready, loaded %d sessions", len(sm.sessions))
+	core.Info("session manager ready", "count", len(sm.sessions))
 	return sm
 }
 
@@ -207,7 +207,7 @@ func (sm *SessionManager) Create() *ChatSession {
 	}
 	_ = sm.saveStoredSession(ss)
 
-	log.Printf("[session] created %s", id)
+	core.Debug("session created", "id", id)
 	return s
 }
 
@@ -264,7 +264,7 @@ func (sm *SessionManager) Delete(id string) {
 	defer sm.mu.Unlock()
 	delete(sm.sessions, id)
 	_ = os.Remove(sm.sessionPath(id))
-	log.Printf("[session] deleted %s", id)
+	core.Info("session deleted", "id", id)
 }
 
 // GetOrCreate returns the session by ID, or creates a new one.

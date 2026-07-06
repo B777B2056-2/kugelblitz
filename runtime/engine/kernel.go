@@ -8,7 +8,6 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/memory"
-	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/dag"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/fsm"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
@@ -113,6 +112,3 @@ func (sm *Kernel) ResumeWithHumanResponse(ctx context.Context, response string) 
 	}
 	return sm.dagExec.ResumeAnyWorkerWithHumanResponse(ctx, response)
 }
-
-// Ensure unused imports are kept for backward compatibility.
-var _ = working.PutPlan

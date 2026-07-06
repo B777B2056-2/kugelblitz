@@ -4,7 +4,6 @@ import (
 	"embed"
 	"encoding/json"
 	"io/fs"
-	"log"
 	"net/http"
 
 	"github.com/B777B2056-2/kugelblitz/core"
@@ -63,7 +62,7 @@ func (s *Server) routes() {
 
 // ListenAndServe starts the HTTP server.
 func (s *Server) ListenAndServe(addr string) error {
-	log.Printf("[server] kugelblitz-ui starting on http://localhost%s", addr)
+	core.Info("server starting", "addr", addr)
 	return http.ListenAndServe(addr, s.mux)
 }
 
@@ -89,7 +88,7 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	}
 	ss, err := s.sessions.LoadHistory(id)
 	if err != nil {
-		log.Printf("[server] session not found: %q", id)
+		core.Warn("session not found", "id", id)
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
 		return
 	}

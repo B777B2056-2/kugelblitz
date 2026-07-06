@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -46,7 +45,7 @@ func (s *Server) handleSettingsGetFile(w http.ResponseWriter, r *http.Request) {
 
 	sf := findSettingsFile(name)
 	if sf == nil {
-		log.Printf("[settings] file not in editable list: %q", name)
+		core.Warn("file not in editable list", "name", name)
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "file not found"})
 		return
 	}
@@ -62,7 +61,7 @@ func (s *Server) handleSettingsGetFile(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		log.Printf("[settings] read error %q: %v", sf.Name, err)
+		core.Error("settings read error", "name", sf.Name, "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -108,12 +107,12 @@ func (s *Server) handleSettingsPutFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := os.WriteFile(fullPath, []byte(req.Content), 0644); err != nil {
-		log.Printf("[settings] save error %q: %v", sf.Name, err)
+		core.Error("settings save error", "name", sf.Name, "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	log.Printf("[settings] file saved: %q", sf.Name)
+	core.Info("settings file saved", "name", sf.Name)
 
 	// Reload runtime config if kugelblitz.yaml was saved
 	if strings.EqualFold(sf.Name, "kugelblitz.yaml") {

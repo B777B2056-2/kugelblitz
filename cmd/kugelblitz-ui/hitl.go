@@ -2,8 +2,9 @@ package main
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
+
+	"github.com/B777B2056-2/kugelblitz/core"
 )
 
 // handleHITL processes a human-in-the-loop response.
@@ -16,13 +17,13 @@ func (s *Server) handleHITL(w http.ResponseWriter, r *http.Request) {
 
 	session := s.sessions.Get(sessionID)
 	if session == nil {
-		log.Printf("[hitl] unknown session %q", sessionID)
+		core.Warn("hitl unknown session", "session", sessionID)
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
 		return
 	}
 
 	if !session.IsHITLWaiting() {
-		log.Printf("[hitl] session %q not waiting", sessionID)
+		core.Warn("hitl session not waiting", "session", sessionID)
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "session is not waiting for human input"})
 		return
 	}
@@ -53,7 +54,7 @@ func (s *Server) handleHITLStatus(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("session_id")
 	session := s.sessions.Get(sessionID)
 	if session == nil {
-		log.Printf("[hitl] status for unknown session %q", sessionID)
+		core.Warn("hitl unknown session status", "session", sessionID)
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
 		return
 	}
@@ -86,6 +87,6 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 	session.cancelFn = nil
 	session.mu.Unlock()
 
-	log.Printf("[hitl] cancelled session %q", sessionID)
+	core.Info("hitl cancelled", "session", sessionID)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }

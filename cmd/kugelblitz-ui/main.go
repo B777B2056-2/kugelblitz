@@ -13,8 +13,11 @@ package main
 
 import (
 	"flag"
-	"log"
+	"fmt"
+	"io"
+	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/B777B2056-2/kugelblitz/core"
 )
@@ -29,18 +32,40 @@ func main() {
 	}
 	_ = core.GetWorkspace().MkdirAll()
 
+	// Initialize logging: stderr + file
+	initLogging("webui")
+
 	// Load config from kugelblitz.yaml (auto-creates with defaults if missing)
 	cfg := LoadConfig()
 
 	srv := NewServer()
-	log.Printf("[main] kugelblitz-ui starting workspace=%s", core.GetWorkspace().Dir())
+	core.Info("kugelblitz-ui starting", "workspace", core.GetWorkspace().Dir())
 	if cfg.Model.APIKey == "" {
-		log.Printf("[main] WARNING: api key not configured, set via Settings UI or kugelblitz.yaml")
+		core.Warn("api key not configured, set via Settings UI or kugelblitz.yaml")
 	} else {
-		log.Printf("[main] provider=%q model=%q", cfg.Model.ProviderName, cfg.Model.Model)
+		core.Info("provider configured", "provider", cfg.Model.ProviderName, "model", cfg.Model.Model)
 	}
 	if err := srv.ListenAndServe(*addr); err != nil {
-		log.Printf("[main] FATAL: %v", err)
+		core.Error("server listen failed", "err", err)
 		os.Exit(1)
 	}
+}
+
+// initLogging configures the global logger to write to both stderr and a log file
+// under ~/.kugelblitz/<subdir>/<subdir>.log.
+func initLogging(subdir string) {
+	logDir := filepath.Join(core.GetWorkspace().Dir(), subdir)
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: cannot create log dir %s: %v\n", logDir, err)
+		return
+	}
+	logFile, err := os.OpenFile(filepath.Join(logDir, subdir+".log"),
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: cannot open log file: %v\n", err)
+		return
+	}
+	handler := slog.NewTextHandler(io.MultiWriter(os.Stderr, logFile),
+		&slog.HandlerOptions{Level: slog.LevelInfo})
+	core.SetLogger(slog.New(handler))
 }
