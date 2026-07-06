@@ -94,3 +94,117 @@ jobs:
         with:
           name: ${{ matrix.bin }}-${{ matrix.os }}-${{ matrix.arch }}
           path: cmd/${{ matrix.bin }}/${{ matrix.bin }}-${{ matrix.os }}-${{ matrix.arch }}*
+
+  build-pkg:
+    name: PKG (${{ matrix.bin }})
+    runs-on: macos-latest
+    if: github.event_name == 'push'
+    strategy:
+      matrix:
+        bin: ["acp_server", "kugelblitz-ui"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Build universal binary
+        run: |
+          cd cmd/${{ matrix.bin }}
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o ${{ matrix.bin }}-amd64 .
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o ${{ matrix.bin }}-arm64 .
+          lipo -create ${{ matrix.bin }}-amd64 ${{ matrix.bin }}-arm64 -output ${{ matrix.bin }}
+
+      - name: Build PKG (amd64)
+        run: |
+          mkdir -p pkg-root/usr/local/bin
+          cp cmd/${{ matrix.bin }}/${{ matrix.bin }}-amd64 pkg-root/usr/local/bin/${{ matrix.bin }}
+          pkgbuild --root pkg-root \
+            --identifier com.kugelblitz.${{ matrix.bin }} \
+            --version 0.1.0 \
+            --install-location / \
+            ${{ matrix.bin }}-darwin-amd64.pkg
+
+      - name: Build PKG (arm64)
+        run: |
+          mkdir -p pkg-root/usr/local/bin
+          cp cmd/${{ matrix.bin }}/${{ matrix.bin }}-arm64 pkg-root/usr/local/bin/${{ matrix.bin }}
+          pkgbuild --root pkg-root \
+            --identifier com.kugelblitz.${{ matrix.bin }} \
+            --version 0.1.0 \
+            --install-location / \
+            ${{ matrix.bin }}-darwin-arm64.pkg
+
+      - name: Upload PKG artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.bin }}-pkg
+          path: ${{ matrix.bin }}-darwin-*.pkg
+
+  build-msi:
+    name: MSI (${{ matrix.bin }})
+    runs-on: windows-latest
+    if: github.event_name == 'push'
+    strategy:
+      matrix:
+        bin: ["acp_server", "kugelblitz-ui"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Install WiX
+        run: dotnet tool install --global wix
+
+      - name: Build Go binary
+        run: |
+          cd cmd/${{ matrix.bin }}
+          go build -o ${{ matrix.bin }}.exe .
+
+      - name: Build MSI
+        run: |
+          cd cmd/${{ matrix.bin }}
+          wix build -o ${{ matrix.bin }}-windows-amd64.msi installer.wxs
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.bin }}-msi
+          path: cmd/${{ matrix.bin }}/${{ matrix.bin }}-windows-amd64.msi
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [build, build-pkg, build-msi, test, lint]
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Nightly ${{ github.sha }}
+          tag_name: nightly
+          prerelease: true
+          files: artifacts/**/*
+          body: |
+            Automated nightly build from commit ${{ github.sha }}.
+
+            | Binary | Platform | Installer |
+            |--------|----------|-----------|
+            | acp_server | Windows (amd64, arm64) | .msi |
+            | acp_server | macOS (amd64, arm64) | .pkg |
+            | kugelblitz-ui | Windows (amd64, arm64) | .msi |
+            | kugelblitz-ui | macOS (amd64, arm64) | .pkg |

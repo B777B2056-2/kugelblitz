@@ -1,0 +1,36 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="Kugelblitz Web UI"
+           Manufacturer="Kugelblitz"
+           Version="0.1.0"
+           UpgradeCode="C3D4E5F6-A7B8-9012-CDEF-123456789012"
+           Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Installation wizard: Welcome → License → Folder → Progress → Finish -->
+    <ui:WixUI Id="WixUI_InstallDir" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="Kugelblitz">
+        <Component Id="MainExecutable" Guid="D4E5F6A7-B8C9-0123-DEF1-234567890123">
+          <File Id="kugelblitz-ui.exe"
+                Source="kugelblitz-ui.exe"
+                KeyPath="yes" />
+          <Environment Id="PathEnv"
+                       Action="set"
+                       Name="PATH"
+                       Part="last"
+                       System="yes"
+                       Value="[INSTALLFOLDER]" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <ComponentRef Id="MainExecutable" />
+    </Feature>
+  </Package>
+</Wix>
