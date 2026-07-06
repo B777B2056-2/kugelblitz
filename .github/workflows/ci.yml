@@ -173,7 +173,7 @@ jobs:
       - name: Build MSI
         run: |
           cd cmd/${{ matrix.bin }}
-          wix build -ext WixToolset.UI.wixext -o ${{ matrix.bin }}-windows-amd64.msi installer.wxs
+          wix build -o ${{ matrix.bin }}-windows-amd64.msi installer.wxs
 
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
