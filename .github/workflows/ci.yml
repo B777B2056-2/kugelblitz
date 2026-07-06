@@ -163,7 +163,7 @@ jobs:
           cache: true
 
       - name: Install WiX
-        run: dotnet tool install --global wix
+        run: dotnet tool install --global wix --version 5.0.2
 
       - name: Build Go binary
         run: |
@@ -171,8 +171,6 @@ jobs:
           go build -o ${{ matrix.bin }}.exe .
 
       - name: Build MSI
-        env:
-          WIX_EULA_ACCEPTED: true
         run: |
           cd cmd/${{ matrix.bin }}
           wix build -o ${{ matrix.bin }}-windows-amd64.msi installer.wxs
