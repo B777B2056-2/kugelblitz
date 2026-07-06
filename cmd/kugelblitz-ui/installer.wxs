@@ -16,7 +16,7 @@
     <StandardDirectory Id="ProgramFiles6432Folder">
       <Directory Id="INSTALLFOLDER" Name="Kugelblitz">
         <Component Id="MainExecutable" Guid="D4E5F6A7-B8C9-0123-DEF1-234567890123">
-          <File Id="kugelblitz-ui.exe"
+          <File Id="kugelblitz_ui_exe"
                 Source="kugelblitz-ui.exe"
                 KeyPath="yes" />
           <Environment Id="PathEnv"
