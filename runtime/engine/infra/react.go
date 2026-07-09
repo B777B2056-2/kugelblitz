@@ -26,6 +26,7 @@ type humanLoopState struct {
 
 type ReactAgent struct {
 	provider        core.ILMProvider
+	providerMu      sync.RWMutex
 	toolRegistry    *core.ToolRegistry
 	StreamMode      bool
 	EventHooks      core.AgentEventHooks
@@ -71,7 +72,9 @@ func (a *ReactAgent) SetAgentIdentity(agentIdentity constants.AgentIdentity) {
 
 // SetProvider replaces the LLM provider used for subsequent ExecuteWithTools calls.
 func (a *ReactAgent) SetProvider(p core.ILMProvider) {
+	a.providerMu.Lock()
 	a.provider = p
+	a.providerMu.Unlock()
 }
 
 func (a *ReactAgent) GetAgentIdentity() constants.AgentIdentity {
@@ -133,7 +136,10 @@ func (a *ReactAgent) ExecuteWithTools(ctx context.Context, systemMessage core.Me
 			ReasoningEffort: a.ReasoningEffort,
 		}
 
-		assistantMessage, err := a.provider.Generate(ctx, params)
+		a.providerMu.RLock()
+		p := a.provider
+		a.providerMu.RUnlock()
+		assistantMessage, err := p.Generate(ctx, params)
 		if err != nil {
 			return assistantMessages, err
 		}
