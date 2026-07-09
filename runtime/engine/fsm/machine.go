@@ -43,11 +43,11 @@ func (m *Machine) registerStates() {
 }
 
 // Run executes the state machine main loop.
-func (m *Machine) Run(ctx context.Context, goal string) ([]core.Message, error) {
+func (m *Machine) Run(ctx context.Context, input core.AgentInput) ([]core.Message, error) {
 	fsmCtx := &Context{
-		Ctx:  ctx,
-		Goal: goal,
-		Deps: m.deps,
+		Ctx:   ctx,
+		Input: input,
+		Deps:  m.deps,
 	}
 	// Wire up drift handling
 	fsmCtx.Deps.HandleDrift = func(c *Context, reason string) {

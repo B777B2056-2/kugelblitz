@@ -122,6 +122,16 @@ func (s *Server) handleSettingsPutFile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
+// handleGetMultimodalConfig returns which media types are available
+// based on whether the corresponding model is configured.
+func (s *Server) handleGetMultimodalConfig(w http.ResponseWriter, r *http.Request) {
+	cfg := GetConfig()
+	writeJSON(w, http.StatusOK, map[string]bool{
+		"image_available": cfg.Multimodal.ImageModel != nil,
+		"audio_available": cfg.Multimodal.AudioModel != nil,
+	})
+}
+
 func findSettingsFile(name string) *SettingsFile {
 	for i := range editableFiles {
 		if strings.EqualFold(editableFiles[i].Name, name) {

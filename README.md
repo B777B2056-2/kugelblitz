@@ -20,6 +20,7 @@ task orchestration that keep LLM agents predictable, auditable, and controllable
 - **Unified Usage Callback** — single callback for all LLM token consumption, tagged by source identity
 - **ACP (Agent Client Protocol)** — JSON-RPC 2.0 over stdio, compatible with Zed / JetBrains / VS Code / Neovim
 - **MCP (Model Context Protocol)** — connect external MCP servers as subprocesses, auto-discover and register their tools with `mcp_<server>_<tool>` naming
+- **🖼️ Multimodal** — image/audio input support with per-type model routing (e.g. GPT-4o for images, DeepSeek for text). Auto-describe media for Compressor/Extractor compatibility. Web UI `@` button for file attachment.
 
 ## Architecture
 

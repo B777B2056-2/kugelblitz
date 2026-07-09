@@ -55,7 +55,7 @@ func TestPlanner_ContextError_TriggersRetry(t *testing.T) {
 	}
 
 	planner := NewAgentLoop(testCfg(provider))
-	_, err := planner.execute(context.Background(), "test goal")
+	_, err := planner.execute(context.Background(), core.AgentInput{Text: "test goal"})
 	assert.NoError(t, err)
 	assert.GreaterOrEqual(t, callCount, 2, "should have retried after compress")
 }
@@ -70,7 +70,7 @@ func TestPlanner_NonContextError_NoRetry(t *testing.T) {
 	}
 
 	planner := NewAgentLoop(testCfg(provider))
-	_, err := planner.execute(context.Background(), "test")
+	_, err := planner.execute(context.Background(), core.AgentInput{Text: "test"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "some other error")
 }
@@ -86,10 +86,10 @@ func TestPlanner_SecondCallSeesHistory(t *testing.T) {
 
 	planner := NewAgentLoop(testCfg(provider))
 
-	_, err := planner.execute(context.Background(), "goal 1")
+	_, err := planner.execute(context.Background(), core.AgentInput{Text: "goal 1"})
 	require.NoError(t, err)
 
-	_, err = planner.execute(context.Background(), "goal 2")
+	_, err = planner.execute(context.Background(), core.AgentInput{Text: "goal 2"})
 	require.NoError(t, err)
 }
 
@@ -249,7 +249,7 @@ func TestPlanner_Execute_CompressThenReview(t *testing.T) {
 	}
 
 	planner := NewAgentLoop(testCfg(provider))
-	_, err := planner.execute(context.Background(), "test goal")
+	_, err := planner.execute(context.Background(), core.AgentInput{Text: "test goal"})
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, callCount, 2)
 }
@@ -262,7 +262,7 @@ func TestPlanner_LLMUsageCallback_NilSafe(t *testing.T) {
 		},
 	}
 	planner := NewAgentLoop(testCfg(provider))
-	_, err := planner.execute(context.Background(), "test")
+	_, err := planner.execute(context.Background(), core.AgentInput{Text: "test"})
 	require.NoError(t, err)
 }
 
@@ -299,7 +299,7 @@ func TestPlanner_LLMUsageCallback_FiresWithIdentity(t *testing.T) {
 			reports = append(reports, usage)
 		},
 	})
-	_, err := planner.execute(context.Background(), "test")
+	_, err := planner.execute(context.Background(), core.AgentInput{Text: "test"})
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, reports)
@@ -328,7 +328,7 @@ func TestPlanner_LLMUsageCallback_NoCallback_NoPanic(t *testing.T) {
 		})
 
 	planner := NewAgentLoop(testCfg(provider))
-	msgs, err := planner.execute(context.Background(), "test")
+	msgs, err := planner.execute(context.Background(), core.AgentInput{Text: "test"})
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(msgs), 1)
 }
@@ -481,7 +481,7 @@ func TestAgentLoop_IntentToDirect_SimpleTask(t *testing.T) {
 	defer cancel()
 
 	al := NewAgentLoop(testCfg(provider))
-	al.Run(ctx, "echo hello")
+	al.Run(ctx, core.AgentInput{Text: "echo hello"})
 	<-al.Done()
 
 	assert.Empty(t, working.ListPlans(), "simple task should not create a plan")
@@ -562,7 +562,7 @@ func TestAgentLoop_RejectPath_UserRejectsPlan(t *testing.T) {
 			hitlCh <- struct{}{}
 		},
 	})
-	al.Run(ctx, "build a web app")
+	al.Run(ctx, core.AgentInput{Text: "build a web app"})
 
 	select {
 	case <-hitlCh:
@@ -650,7 +650,7 @@ func TestAgentLoop_HappyPath_IntentToDone(t *testing.T) {
 			hitlCh <- struct{}{}
 		},
 	})
-	al.Run(ctx, "build a web app")
+	al.Run(ctx, core.AgentInput{Text: "build a web app"})
 
 	select {
 	case <-hitlCh:
@@ -778,7 +778,7 @@ func TestAgentLoop_RecoveryPath_FailReplanRetry(t *testing.T) {
 			hitlCh <- struct{}{}
 		},
 	})
-	al.Run(ctx, "complex task")
+	al.Run(ctx, core.AgentInput{Text: "complex task"})
 
 	select {
 	case <-hitlCh:
@@ -902,7 +902,7 @@ func TestAgentLoop_AbandonPath_FailReplanThenReject(t *testing.T) {
 			hitlCh <- struct{}{}
 		},
 	})
-	al.Run(ctx, "abandoned task")
+	al.Run(ctx, core.AgentInput{Text: "abandoned task"})
 
 	select {
 	case <-hitlCh:

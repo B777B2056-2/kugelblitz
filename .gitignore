@@ -4,4 +4,4 @@
 .mcp.json
 .kugelblitz
 *.sqllite
-bin
+bindocs/

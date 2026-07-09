@@ -28,6 +28,9 @@ func NewReviewer(provider core.ILMProvider) *Reviewer {
 // SetHooks sets the event hooks for the reviewer.
 func (r *Reviewer) SetHooks(hooks core.AgentEventHooks) { r.Hooks = hooks }
 
+// SetProvider replaces the LLM provider used for drift review.
+func (r *Reviewer) SetProvider(p core.ILMProvider) { r.Provider = p }
+
 // Review does a single Generate call with a reviewer_report tool to get
 // structured drift assessment via function calling.
 func (r *Reviewer) Review(ctx context.Context, originalGoal, planSummary, recentActivity string) ReviewResult {

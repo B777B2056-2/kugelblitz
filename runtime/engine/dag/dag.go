@@ -40,6 +40,11 @@ func (d *DAGTaskExecutor) SetWorkerHooks(hooks core.AgentEventHooks) {
 	d.workerHooks = hooks
 }
 
+// SetProvider replaces the LLM provider used for subsequently spawned workers.
+func (d *DAGTaskExecutor) SetProvider(p core.ILMProvider) {
+	d.provider = p
+}
+
 // AnyWorkerInHumanLoopWaiting returns true if any worker is waiting for human input.
 func (d *DAGTaskExecutor) AnyWorkerInHumanLoopWaiting() bool {
 	for _, gate := range d.hitlAgents {

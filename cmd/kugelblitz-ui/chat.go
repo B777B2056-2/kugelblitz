@@ -10,6 +10,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/memory"
 	"github.com/B777B2056-2/kugelblitz/runtime"
 )
 
@@ -53,6 +54,53 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	if session.FrameworkSessionID != "" {
 		opts = append(opts, runtime.WithExistingSessionID(session.FrameworkSessionID))
 	}
+	// ── Media preprocessing ──
+	var inputMedia []core.MultiModalDetail
+	if len(req.Media) > 0 {
+		preprocessor := core.NewMediaPreprocessor(core.NewDefaultRegistry())
+
+		var imageProv, audioProv core.ILMProvider
+		if appCfg.Multimodal.AutoDescribeMedia {
+			if appCfg.Multimodal.ImageModel != nil {
+				imageProv = appCfg.Multimodal.ImageModel.Provider
+			}
+			if appCfg.Multimodal.AudioModel != nil {
+				audioProv = appCfg.Multimodal.AudioModel.Provider
+			}
+		}
+		describer := memory.NewMediaDescriber(imageProv, audioProv)
+
+		for _, m := range req.Media {
+			mediaType := constants.MultiModalTypeImage
+			if m.Type == "audio" {
+				mediaType = constants.MultiModalTypeAudio
+			}
+
+			detail, err := preprocessor.Normalize(r.Context(), core.MultiModalDetail{
+				Type:     mediaType,
+				Base64:   m.Base64,
+				MimeType: m.MimeType,
+				Path:     m.Filename,
+			})
+			if err != nil {
+				core.Warn("media normalize failed", "file", m.Filename, "err", err)
+				continue
+			}
+
+			inputMedia = append(inputMedia, *detail)
+
+			// Record for history rendering
+			desc := describer.Describe(r.Context(), *detail)
+			session.addTurnMessage(StoredMessage{
+				Role:      "user",
+				Content:   desc,
+				MediaType: m.Type,
+				MediaPath: detail.Path,
+				MimeType:  detail.MimeType,
+			})
+		}
+	}
+
 	loop := runtime.NewAgentLoop(appCfg, opts...)
 
 	// ── Cancellable context ──
@@ -218,7 +266,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// ── Run AgentLoop ──
-	loop.Run(chatCtx, req.Goal)
+	loop.Run(chatCtx, core.AgentInput{Text: req.Goal, Media: inputMedia})
 
 	// ── HITL / Done event loop ──
 	for {
@@ -399,9 +447,18 @@ func (p *UIPlanState) toStored() StoredPlan {
 
 // ── SSE event types ──
 
+// MediaInput describes a single media attachment from the frontend.
+type MediaInput struct {
+	Type     string `json:"type"`      // "image" | "audio"
+	Base64   string `json:"base64"`    // raw base64, without data: prefix
+	Filename string `json:"filename"`  // original filename
+	MimeType string `json:"mime_type"` // MIME type detected by browser
+}
+
 type ChatRequest struct {
-	SessionID string `json:"session_id"`
-	Goal      string `json:"goal"`
+	SessionID string       `json:"session_id"`
+	Goal      string       `json:"goal"`
+	Media     []MediaInput `json:"media,omitempty"`
 }
 
 type SSEEvent struct {

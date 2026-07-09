@@ -20,6 +20,7 @@
 - **统一 Usage 回调** — 所有 LLM token 消耗通过单一回调上报，按来源标识
 - **ACP 协议** — JSON-RPC 2.0 over stdio，接入 Zed / JetBrains / VS Code / Neovim
 - **MCP 协议** — 连接外部 MCP 服务器作为子进程，自动发现工具并以 `mcp_<server>_<tool>` 命名注册
+- **🖼️ 多模态** — 支持图片/音频输入，按媒体类型路由模型（如图片→GPT-4o，文本→DeepSeek）；自动生成媒体文本描述以兼容 Compressor/Extractor；Web UI 提供 `@` 按钮附件上传
 
 ## 架构概览
 

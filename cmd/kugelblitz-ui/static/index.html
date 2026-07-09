@@ -61,7 +61,29 @@
 
         <!-- Input Area -->
         <div id="input-area">
+            <!-- Media preview chips -->
+            <div id="media-preview" class="media-preview" style="display:none"></div>
+
             <div class="input-wrapper">
+                <!-- @ attach button -->
+                <button id="attach-btn" class="attach-btn" onclick="toggleMediaPopover()" title="附加媒体">@</button>
+
+                <!-- Media type popover -->
+                <div id="media-popover" class="media-popover" style="display:none">
+                    <div id="popover-image" class="media-popover-item" onclick="pickMedia('image')">
+                        <span class="media-icon">📷</span>
+                        <span>图片</span>
+                    </div>
+                    <div id="popover-audio" class="media-popover-item" onclick="pickMedia('audio')">
+                        <span class="media-icon">🎵</span>
+                        <span>音频</span>
+                    </div>
+                </div>
+
+                <!-- Hidden file input -->
+                <input type="file" id="media-file-input" style="display:none"
+                       onchange="onMediaFileSelected(event)">
+
                 <input type="text" id="goal-input" placeholder="输入任务目标，Agent 将自动规划并执行…"
                        onkeydown="if(event.key==='Enter')sendMessage()">
                 <button id="send-btn" onclick="sendMessage()" title="发送">→</button>
@@ -209,6 +231,42 @@
                     <div class="config-form">
                         <div id="mcp-servers"></div>
                         <button class="btn-add-server" onclick="addMCPServer()">+ 添加服务器</button>
+                    </div>
+                </div>
+                <!-- 多模态模型 -->
+                <div class="config-section" id="cfg-section-multimodal">
+                    <div class="config-title">🖼️ 多模态</div>
+                    <div class="config-form">
+                        <label class="subsection-label">📷 图像模型</label>
+                        <label>提供商</label>
+                        <select id="cfg-image-provider">
+                            <option value="">不使用</option>
+                            <option value="deepseek">DeepSeek</option>
+                            <option value="openai">OpenAI</option>
+                        </select>
+                        <label>模型</label>
+                        <input type="text" id="cfg-image-model" placeholder="gpt-4o">
+                        <label>Base URL</label>
+                        <input type="text" id="cfg-image-baseurl" placeholder="https://api.openai.com/v1">
+                        <label>API Key</label>
+                        <input type="password" id="cfg-image-apikey" placeholder="sk-…">
+
+                        <label class="subsection-label" style="margin-top:16px;">🎵 音频模型</label>
+                        <label>提供商</label>
+                        <select id="cfg-audio-provider">
+                            <option value="">不使用</option>
+                            <option value="deepseek">DeepSeek</option>
+                            <option value="openai">OpenAI</option>
+                        </select>
+                        <label>模型</label>
+                        <input type="text" id="cfg-audio-model" placeholder="gpt-4o-audio-preview">
+                        <label>Base URL</label>
+                        <input type="text" id="cfg-audio-baseurl" placeholder="https://api.openai.com/v1">
+                        <label>API Key</label>
+                        <input type="password" id="cfg-audio-apikey" placeholder="sk-…">
+
+                        <label class="checkbox-label"><input type="checkbox" id="cfg-auto-describe"> 自动生成媒体文本描述</label>
+                        <span class="config-hint">开启后每次上传媒体会调用对应模型生成描述，有额外 token 开销</span>
                     </div>
                 </div>
             </div>

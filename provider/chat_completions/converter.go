@@ -57,11 +57,7 @@ func (c *Converter) convertMessage(message core.Message) (openai.ChatCompletionM
 		return openai.SystemMessage(text), nil
 
 	case constants.RoleUser:
-		text, err := extractText(message.Content)
-		if err != nil {
-			return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("user message: %w", err)
-		}
-		return openai.UserMessage(text), nil
+		return c.convertUserMessage(message)
 
 	case constants.RoleAssistant:
 		return c.convertAssistantMessage(message)
@@ -84,6 +80,103 @@ func extractText(content core.Content) (string, error) {
 	default:
 		return "", fmt.Errorf("expected TextContent, got %T", content)
 	}
+}
+
+// convertUserMessage converts a user message, supporting text, multimodal, and composite content.
+func (c *Converter) convertUserMessage(message core.Message) (openai.ChatCompletionMessageParamUnion, error) {
+	switch ct := message.Content.(type) {
+	case core.TextContent:
+		return openai.UserMessage(ct.Text), nil
+
+	case core.MultiModalContent:
+		part, err := c.mediaContentPart(ct.Detail)
+		if err != nil {
+			return openai.ChatCompletionMessageParamUnion{}, err
+		}
+		return openai.ChatCompletionMessageParamUnion{
+			OfUser: &openai.ChatCompletionUserMessageParam{
+				Content: openai.ChatCompletionUserMessageParamContentUnion{
+					OfArrayOfContentParts: []openai.ChatCompletionContentPartUnionParam{part},
+				},
+			},
+		}, nil
+
+	case core.CompositeContent:
+		parts, err := c.convertUserContentParts(ct.Parts)
+		if err != nil {
+			return openai.ChatCompletionMessageParamUnion{}, err
+		}
+		return openai.ChatCompletionMessageParamUnion{
+			OfUser: &openai.ChatCompletionUserMessageParam{
+				Content: openai.ChatCompletionUserMessageParamContentUnion{
+					OfArrayOfContentParts: parts,
+				},
+			},
+		}, nil
+
+	default:
+		return openai.ChatCompletionMessageParamUnion{},
+			fmt.Errorf("unsupported user content type: %T", message.Content)
+	}
+}
+
+// mediaContentPart maps a MultiModalDetail to the correct OpenAI ContentPart based on media type.
+func (c *Converter) mediaContentPart(detail core.MultiModalDetail) (openai.ChatCompletionContentPartUnionParam, error) {
+	dataURL := fmt.Sprintf("data:%s;base64,%s", detail.MimeType, detail.Base64)
+
+	switch detail.Type {
+	case constants.MultiModalTypeImage:
+		return openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
+			URL:    dataURL,
+			Detail: "auto",
+		}), nil
+
+	case constants.MultiModalTypeAudio:
+		return openai.InputAudioContentPart(openai.ChatCompletionContentPartInputAudioInputAudioParam{
+			Data:   detail.Base64,
+			Format: audioFormat(detail.MimeType),
+		}), nil
+
+	case constants.MultiModalTypeVideo:
+		// No native video ContentPart — send first frame as image
+		return openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
+			URL:    dataURL,
+			Detail: "low",
+		}), nil
+
+	default:
+		return openai.ChatCompletionContentPartUnionParam{},
+			fmt.Errorf("unsupported media type: %s", detail.Type)
+	}
+}
+
+// convertUserContentParts converts a slice of Content to OpenAI ContentPart array.
+func (c *Converter) convertUserContentParts(parts []core.Content) ([]openai.ChatCompletionContentPartUnionParam, error) {
+	var result []openai.ChatCompletionContentPartUnionParam
+	for _, p := range parts {
+		switch pt := p.(type) {
+		case core.TextContent:
+			result = append(result, openai.TextContentPart(pt.Text))
+		case core.MultiModalContent:
+			part, err := c.mediaContentPart(pt.Detail)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, part)
+		default:
+			return nil, fmt.Errorf("unsupported content part type: %T", p)
+		}
+	}
+	return result, nil
+}
+
+// audioFormat extracts the format suffix from a MIME type for OpenAI audio input.
+// e.g. "audio/wav" → "wav", "audio/mpeg" → "mpeg".
+func audioFormat(mimeType string) string {
+	if after, ok := strings.CutPrefix(mimeType, "audio/"); ok {
+		return after
+	}
+	return "wav" // safe fallback
 }
 
 func (c *Converter) convertAssistantMessage(message core.Message) (openai.ChatCompletionMessageParamUnion, error) {

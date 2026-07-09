@@ -187,6 +187,30 @@ body {
 #input-area button { background:linear-gradient(135deg,var(--accent),#a78bfa); color:#fff; border:none; border-radius:var(--radius); width:42px; height:42px; cursor:pointer; font-size:16px; font-weight:700; transition:all .2s; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 10px var(--accent-glow); flex-shrink:0; }
 #input-area button:hover { transform:translateY(-1px); box-shadow:0 4px 20px var(--accent-glow); }
 #input-area button:disabled { opacity:0.4; transform:none; cursor:not-allowed; box-shadow:none; }
+
+/* — Media attach — */
+.attach-btn { background:var(--bg-input) !important; color:var(--text-secondary) !important; border:1px solid var(--border-default) !important; border-radius:var(--radius) !important; width:42px; height:42px; cursor:pointer; font-size:18px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:all .2s; box-shadow:none !important; font-family:var(--mono); }
+.attach-btn:hover { border-color:var(--accent) !important; color:var(--accent) !important; transform:none !important; box-shadow:none !important; }
+
+/* Media popover */
+.media-popover { position:absolute; bottom:56px; left:12px; background:var(--bg-surface); border:1px solid var(--border-default); border-radius:var(--radius); box-shadow:0 8px 32px rgba(0,0,0,0.4); z-index:100; min-width:130px; overflow:hidden; }
+.media-popover-item { display:flex; align-items:center; gap:10px; padding:10px 16px; cursor:pointer; font-size:14px; color:var(--text-primary); transition:background .15s; }
+.media-popover-item:hover { background:var(--bg-hover); }
+.media-popover-item.disabled { color:var(--text-tertiary); cursor:not-allowed; }
+.media-popover-item.disabled:hover { background:transparent; }
+.media-popover-item .media-icon { font-size:18px; }
+
+/* Media preview chips */
+.media-preview { display:flex; flex-wrap:wrap; gap:6px; padding:6px 0 2px; }
+.media-chip { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; background:var(--bg-hover); border:1px solid var(--border-default); border-radius:20px; font-size:12px; color:var(--text-secondary); }
+.media-chip-icon { font-size:14px; }
+.media-chip-name { max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.media-chip-size { color:var(--text-tertiary); font-size:11px; }
+.media-chip-remove { cursor:pointer; font-weight:700; color:var(--text-tertiary); padding:0 2px; }
+.media-chip-remove:hover { color:var(--red, #ef4444); }
+
+/* Media chip in history */
+.msg-media-chip { display:inline-flex; align-items:center; gap:6px; margin-top:6px; padding:4px 10px; background:var(--bg-hover); border:1px solid var(--border-default); border-radius:8px; font-size:12px; color:var(--text-secondary); }
 #stop-btn { background:var(--red) !important; box-shadow:0 2px 10px rgba(248,113,113,.3) !important; }
 
 /* Mode Select */
@@ -235,6 +259,8 @@ body {
 .config-form select option { background:var(--bg-card); color:var(--text-primary); }
 .config-form .checkbox-label { display:flex; align-items:center; gap:8px; margin:12px 0; cursor:pointer; font-size:12px; font-weight:500; text-transform:none; letter-spacing:0; color:var(--text-secondary); }
 .config-form .checkbox-label input[type="checkbox"] { accent-color:var(--accent); width:15px; height:15px; cursor:pointer; }
+.config-form .subsection-label { display:block; font-size:12px; font-weight:600; color:var(--text-secondary); margin:6px 0 4px; text-transform:none; letter-spacing:0; }
+.config-form .config-hint { display:block; font-size:10px; color:var(--text-tertiary); margin:2px 0 0 2px; }
 .apikey-row { display:flex; gap:6px; }
 .apikey-row input { flex:1; }
 .apikey-row .btn-toggle-key { background:var(--bg-card); border:1px solid var(--border-default); color:var(--text-secondary); padding:7px 10px; border-radius:var(--radius-sm); cursor:pointer; font-size:13px; transition:all .15s; }
