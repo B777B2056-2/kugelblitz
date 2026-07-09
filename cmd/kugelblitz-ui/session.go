@@ -38,11 +38,14 @@ type StoredTurn struct {
 
 // StoredMessage is a simplified message for UI rendering.
 type StoredMessage struct {
-	Role     string `json:"role"`    // user | assistant | think | tool_call | tool_result | system | error
-	Content  string `json:"content"` // rendered markdown/HTML
-	ToolName string `json:"tool_name,omitempty"`
-	ToolArgs any    `json:"tool_args,omitempty"`
-	ToolOut  any    `json:"tool_out,omitempty"`
+	Role      string `json:"role"`                 // user | assistant | think | tool_call | tool_result | system | error
+	Content   string `json:"content"`              // rendered markdown/HTML
+	MediaType string `json:"media_type,omitempty"` // "image" | "audio"
+	MediaPath string `json:"media_path,omitempty"` // file path reference
+	MimeType  string `json:"mime_type,omitempty"`  // "image/png", "audio/mp3"
+	ToolName  string `json:"tool_name,omitempty"`
+	ToolArgs  any    `json:"tool_args,omitempty"`
+	ToolOut   any    `json:"tool_out,omitempty"`
 }
 
 // StoredPlan records a plan that existed during a turn.
@@ -390,6 +393,12 @@ func (s *ChatSession) addTokenReport(report TokenReport) {
 }
 
 // ═══ Turn message builders ═══
+
+func (s *ChatSession) addTurnMessage(msg StoredMessage) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.turnMessages = append(s.turnMessages, msg)
+}
 
 func (s *ChatSession) addTurnPlan(plan StoredPlan) {
 	s.mu.Lock()

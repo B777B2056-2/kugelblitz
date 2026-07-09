@@ -14,7 +14,7 @@ import (
 // a single Machine.Run invocation.
 type Context struct {
 	Ctx     context.Context
-	Goal    string
+	Input   core.AgentInput
 	Results []core.Message
 
 	Plan     *working.Plan

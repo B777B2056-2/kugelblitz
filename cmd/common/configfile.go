@@ -31,6 +31,25 @@ func Load(path string) (config.Config, error) {
 		return cfg, err
 	}
 	cfg.Model.Provider = p
+
+	// Resolve image model provider (if configured)
+	if cfg.Multimodal.ImageModel != nil && cfg.Multimodal.ImageModel.ProviderName != "" {
+		im := cfg.Multimodal.ImageModel
+		ip, err := config.NewProvider(im.ProviderName, im.APIKey, im.BaseURL, im.Model)
+		if err == nil {
+			im.Provider = ip
+		}
+	}
+
+	// Resolve audio model provider (if configured)
+	if cfg.Multimodal.AudioModel != nil && cfg.Multimodal.AudioModel.ProviderName != "" {
+		am := cfg.Multimodal.AudioModel
+		ap, err := config.NewProvider(am.ProviderName, am.APIKey, am.BaseURL, am.Model)
+		if err == nil {
+			am.Provider = ap
+		}
+	}
+
 	return cfg, nil
 }
 
@@ -52,6 +71,19 @@ func Save(path string, cfg config.Config) error {
 		"compress_min_messages":          cfg.ContextCompress.MinMessagesToCompress,
 		"review_interval":                cfg.TargetDrift.ReviewInterval,
 		"max_failures_before_review":     cfg.TargetDrift.MaxFailuresBeforeReview,
+		"auto_describe_media":            cfg.Multimodal.AutoDescribeMedia,
+	}
+	if cfg.Multimodal.ImageModel != nil {
+		out["image_provider_name"] = cfg.Multimodal.ImageModel.ProviderName
+		out["image_model"] = cfg.Multimodal.ImageModel.Model
+		out["image_base_url"] = cfg.Multimodal.ImageModel.BaseURL
+		out["image_api_key"] = cfg.Multimodal.ImageModel.APIKey
+	}
+	if cfg.Multimodal.AudioModel != nil {
+		out["audio_provider_name"] = cfg.Multimodal.AudioModel.ProviderName
+		out["audio_model"] = cfg.Multimodal.AudioModel.Model
+		out["audio_base_url"] = cfg.Multimodal.AudioModel.BaseURL
+		out["audio_api_key"] = cfg.Multimodal.AudioModel.APIKey
 	}
 	if len(cfg.MCP) > 0 {
 		out["mcp_servers"] = cfg.MCP
@@ -158,10 +190,60 @@ func applyRaw(raw map[string]any, cfg *config.Config) {
 		}
 	}
 
+	// — Multimodal —
+	if _, ok := raw["auto_describe_media"]; ok {
+		cfg.Multimodal.AutoDescribeMedia = toBool(raw["auto_describe_media"])
+	}
+
+	// Image model (optional — only populated when explicitly configured)
+	if hasAnyKey(raw, "image_provider_name", "image_model", "image_base_url", "image_api_key") {
+		im := &config.ModelConfig{}
+		if v, ok := raw["image_provider_name"].(string); ok && v != "" {
+			im.ProviderName = v
+		}
+		if v, ok := raw["image_model"].(string); ok && v != "" {
+			im.Model = v
+		}
+		if v, ok := raw["image_base_url"].(string); ok && v != "" {
+			im.BaseURL = v
+		}
+		if v, ok := raw["image_api_key"].(string); ok && v != "" {
+			im.APIKey = v
+		}
+		cfg.Multimodal.ImageModel = im
+	}
+
+	// Audio model (optional — only populated when explicitly configured)
+	if hasAnyKey(raw, "audio_provider_name", "audio_model", "audio_base_url", "audio_api_key") {
+		am := &config.ModelConfig{}
+		if v, ok := raw["audio_provider_name"].(string); ok && v != "" {
+			am.ProviderName = v
+		}
+		if v, ok := raw["audio_model"].(string); ok && v != "" {
+			am.Model = v
+		}
+		if v, ok := raw["audio_base_url"].(string); ok && v != "" {
+			am.BaseURL = v
+		}
+		if v, ok := raw["audio_api_key"].(string); ok && v != "" {
+			am.APIKey = v
+		}
+		cfg.Multimodal.AudioModel = am
+	}
+
 	// — MCP —
 	if v, ok := raw["mcp_servers"].(map[string]any); ok {
 		cfg.MCP = parseMCPServers(v)
 	}
+}
+
+func hasAnyKey(raw map[string]any, keys ...string) bool {
+	for _, k := range keys {
+		if _, ok := raw[k]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func parseMCPServers(raw map[string]any) map[string]config.MCPServerConfig {

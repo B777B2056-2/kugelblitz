@@ -64,6 +64,17 @@ async function loadConfigForm() {
         // MCP
         loadMCPConfig(cfg.mcp_servers || {});
 
+        // Multimodal
+        setVal('cfg-image-provider', cfg.image_provider_name, '');
+        setVal('cfg-image-model', cfg.image_model, '');
+        setVal('cfg-image-baseurl', cfg.image_base_url, '');
+        setVal('cfg-image-apikey', cfg.image_api_key, '');
+        setVal('cfg-audio-provider', cfg.audio_provider_name, '');
+        setVal('cfg-audio-model', cfg.audio_model, '');
+        setVal('cfg-audio-baseurl', cfg.audio_base_url, '');
+        setVal('cfg-audio-apikey', cfg.audio_api_key, '');
+        setBool('cfg-auto-describe', cfg.auto_describe_media, false);
+
         document.getElementById('config-status').textContent = '';
         document.getElementById('config-status').className = 'config-status';
     } catch (e) { /* ignore */ }
@@ -118,6 +129,17 @@ async function saveConfig() {
         review_interval:            parseInt(document.getElementById('cfg-review-interval').value) || 12,
         max_failures_before_review: parseInt(document.getElementById('cfg-max-failures').value) || 5,
         mcp_servers:                collectMCPServers(),
+
+        // Multimodal
+        image_provider_name:        document.getElementById('cfg-image-provider').value,
+        image_model:                document.getElementById('cfg-image-model').value.trim(),
+        image_base_url:             document.getElementById('cfg-image-baseurl').value.trim(),
+        image_api_key:              document.getElementById('cfg-image-apikey').value.trim(),
+        audio_provider_name:        document.getElementById('cfg-audio-provider').value,
+        audio_model:                document.getElementById('cfg-audio-model').value.trim(),
+        audio_base_url:             document.getElementById('cfg-audio-baseurl').value.trim(),
+        audio_api_key:              document.getElementById('cfg-audio-apikey').value.trim(),
+        auto_describe_media:        document.getElementById('cfg-auto-describe').checked,
     };
 
     try {

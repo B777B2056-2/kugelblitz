@@ -69,6 +69,11 @@ func (a *ReactAgent) SetAgentIdentity(agentIdentity constants.AgentIdentity) {
 	a.agentIdentity = agentIdentity
 }
 
+// SetProvider replaces the LLM provider used for subsequent ExecuteWithTools calls.
+func (a *ReactAgent) SetProvider(p core.ILMProvider) {
+	a.provider = p
+}
+
 func (a *ReactAgent) GetAgentIdentity() constants.AgentIdentity {
 	return a.agentIdentity
 }

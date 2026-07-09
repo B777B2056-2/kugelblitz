@@ -84,8 +84,16 @@ func (sm *Kernel) Compressor() *memory.Compressor {
 }
 
 // Run executes the state machine main loop.
-func (sm *Kernel) Run(ctx context.Context, goal string) ([]core.Message, error) {
-	return sm.machine.Run(ctx, goal)
+func (sm *Kernel) Run(ctx context.Context, input core.AgentInput) ([]core.Message, error) {
+	return sm.machine.Run(ctx, input)
+}
+
+// SetProvider replaces the LLM provider for the main ReAct loop, DAG workers,
+// and reviewer. Call before Run() to dynamically switch models per input type.
+func (sm *Kernel) SetProvider(p core.ILMProvider) {
+	sm.mainReact.SetProvider(p)
+	sm.dagExec.SetProvider(p)
+	sm.reviewer.SetProvider(p)
 }
 
 // Cancel stops the main ReAct loop, all workers, and marks the current plan as cancelled.

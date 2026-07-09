@@ -41,8 +41,8 @@ type AgentLoop struct {
 	eventHooks core.AgentEventHooks
 
 	// config
-	cfg  config.Config
-	goal string
+	cfg   config.Config
+	input core.AgentInput
 
 	// lifecycle
 	done     chan struct{}
@@ -168,7 +168,7 @@ func (a *AgentLoop) RegisterEventHooks(hooks core.AgentEventHooks) {
 }
 
 // Run starts the agent loop in a background goroutine.
-func (a *AgentLoop) Run(ctx context.Context, goal string) {
+func (a *AgentLoop) Run(ctx context.Context, input core.AgentInput) {
 	ctx, a.cancelFn = context.WithCancel(ctx)
 	a.done = make(chan struct{})
 	go func() {
@@ -179,7 +179,7 @@ func (a *AgentLoop) Run(ctx context.Context, goal string) {
 				a.dreamScheduler.Stop()
 			}
 		}()
-		_, _ = a.execute(ctx, goal)
+		_, _ = a.execute(ctx, input)
 	}()
 }
 
@@ -200,6 +200,26 @@ func (a *AgentLoop) ResumeWithHumanResponse(response string) error {
 // Done returns a channel that closes when execution completes.
 func (a *AgentLoop) Done() <-chan struct{} { return a.done }
 
+// resolveProvider selects the LLM provider based on the current input.
+// If input has media and the matching multimodal model is configured, use it.
+// Otherwise fall back to the main text model.
+func (a *AgentLoop) resolveProvider() core.ILMProvider {
+	if a.input.IsTextOnly() {
+		return a.cfg.Model.Provider
+	}
+	switch a.input.Media[0].Type {
+	case constants.MultiModalTypeImage:
+		if a.cfg.Multimodal.ImageModel != nil {
+			return a.cfg.Multimodal.ImageModel.Provider
+		}
+	case constants.MultiModalTypeAudio:
+		if a.cfg.Multimodal.AudioModel != nil {
+			return a.cfg.Multimodal.AudioModel.Provider
+		}
+	}
+	return a.cfg.Model.Provider
+}
+
 // HumanLoopWaiting reports whether the agent is waiting for human input.
 func (a *AgentLoop) HumanLoopWaiting() bool {
 	return a.planner.HumanLoopWaiting()
@@ -210,15 +230,18 @@ func (a *AgentLoop) Agent() core.IAgent { return a.planner.Agent() }
 
 // ---- Execution ----
 
-func (a *AgentLoop) execute(ctx context.Context, goal string) ([]core.Message, error) {
-	a.goal = goal
+func (a *AgentLoop) execute(ctx context.Context, input core.AgentInput) ([]core.Message, error) {
+	if err := input.Validate(); err != nil {
+		return nil, err
+	}
+	a.input = input
 	if a.dreamScheduler != nil {
 		a.dreamScheduler.NotifyActivity()
 	}
 
 	// observability
 	traceName := a.sessionMem.SessionID()
-	ctx, a.currentTrace = a.obs.StartTrace(ctx, traceName, goal)
+	ctx, a.currentTrace = a.obs.StartTrace(ctx, traceName, a.input.Text)
 	defer func() {
 		if a.instr != nil {
 			a.instr.Flush()
@@ -236,11 +259,14 @@ func (a *AgentLoop) execute(ctx context.Context, goal string) ([]core.Message, e
 		return longterm.ExtractionInput{
 			Conversation:   a.sessionMem.GetHistoryMessages(),
 			SessionSummary: a.sessionMem.Summary(),
-			Goal:           a.goal,
+			Goal:           a.input.Text,
 		}
 	})
 
-	result, err := a.planner.Run(ctx, goal)
+	// Resolve provider: if input has media, switch to configured multimodal model
+	a.planner.SetProvider(a.resolveProvider())
+
+	result, err := a.planner.Run(ctx, a.input)
 	a.sessionMem.AppendMessages(result)
 	_ = a.sessionMem.Persist()
 	return result, err
@@ -297,7 +323,7 @@ func (a *AgentLoop) extractMemories() {
 	input := longterm.ExtractionInput{
 		Conversation:   a.sessionMem.GetHistoryMessages(),
 		SessionSummary: a.sessionMem.Summary(),
-		Goal:           a.goal,
+		Goal:           a.input.Text,
 	}
 	result, _ := a.writePipeline.ExtractFromSession(context.Background(), input)
 	if result != nil && a.currentTrace != nil {

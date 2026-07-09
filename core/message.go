@@ -18,10 +18,22 @@ type Usage struct {
 
 // MultiModalDetail describes non-text media content.
 type MultiModalDetail struct {
-	ID     string                   `json:"id"`
-	Type   constants.MultiModalType `json:"type"`
-	Path   string                   `json:"path,omitempty"`
-	Base64 string                   `json:"base64,omitempty"`
+	ID       string                   `json:"id"`
+	Type     constants.MultiModalType `json:"type"`
+	Path     string                   `json:"path,omitempty"`
+	Base64   string                   `json:"base64,omitempty"`
+	MimeType string                   `json:"mime_type,omitempty"`
+	Meta     map[string]any           `json:"meta,omitempty"`
+}
+
+// MarshalJSON strips Base64 before serialization to avoid embedding large
+// binary payloads in persistent storage (JSONL). Path + Meta are preserved
+// so the session can be restored via MediaConverter.FileToBase64.
+func (m MultiModalDetail) MarshalJSON() ([]byte, error) {
+	type safe MultiModalDetail
+	s := safe(m)
+	s.Base64 = ""
+	return json.Marshal(s)
 }
 
 // ToolCallDetail represents a single tool call requested by the LLM.

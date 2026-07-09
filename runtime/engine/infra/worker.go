@@ -54,6 +54,9 @@ func (w *WorkerAgent) SetHooks(hooks core.AgentEventHooks) { w.hooks = hooks }
 // SetPauseGate sets the shared DAG pause gate.
 func (w *WorkerAgent) SetPauseGate(g *sync.RWMutex) { w.pauseGate = g }
 
+// SetProvider replaces the LLM provider used for subsequent task execution.
+func (w *WorkerAgent) SetProvider(p core.ILMProvider) { w.provider = p }
+
 // SetOnHITL sets the callback fired when the worker enters HITL.
 func (w *WorkerAgent) SetOnHITL(fn func(agent *ReactAgent, reason, prompt string)) { w.onHITL = fn }
 

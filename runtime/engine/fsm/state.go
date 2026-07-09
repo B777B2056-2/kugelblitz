@@ -71,8 +71,8 @@ func (s *IntentState) Name() constants.PlanState { return constants.PlanStateInt
 func (s *IntentState) AvailableTools() []string  { return ToolsForState(constants.PlanStateIntent) }
 func (s *IntentState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
-		State:      constants.PlanStateIntent,
-		UserPrompt: ctx.Goal,
+		State: constants.PlanStateIntent,
+		Input: ctx.Input,
 	}
 	result, err := action.Execute(ctx)
 	if err != nil {
@@ -93,8 +93,8 @@ func (s *DirectState) Name() constants.PlanState { return constants.PlanStateDir
 func (s *DirectState) AvailableTools() []string  { return ToolsForState(constants.PlanStateDirect) }
 func (s *DirectState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
-		State:      constants.PlanStateDirect,
-		UserPrompt: ctx.Goal,
+		State: constants.PlanStateDirect,
+		Input: ctx.Input,
 	}
 	result, err := action.Execute(ctx)
 	if err != nil {
@@ -111,8 +111,8 @@ func (s *InitState) Name() constants.PlanState { return constants.PlanStateInit 
 func (s *InitState) AvailableTools() []string  { return ToolsForState(constants.PlanStateInit) }
 func (s *InitState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
-		State:      constants.PlanStateInit,
-		UserPrompt: ctx.Goal,
+		State: constants.PlanStateInit,
+		Input: ctx.Input,
 	}
 	result, err := action.Execute(ctx)
 	if err != nil {
@@ -152,8 +152,8 @@ func (s *ConfirmedState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateConfirmed,
 		Plan:  ctx.Plan,
-		UserPrompt: "The plan has been created. Present it to the user for approval via ask_human. " +
-			"After the user responds, call confirm_plan with the appropriate status.",
+		Input: core.AgentInput{Text: "The plan has been created. Present it to the user for approval via ask_human. " +
+			"After the user responds, call confirm_plan with the appropriate status."},
 	}
 	_, err := action.Execute(ctx)
 	if err != nil {
@@ -197,9 +197,9 @@ func (s *UpdatingState) Name() constants.PlanState { return constants.PlanStateU
 func (s *UpdatingState) AvailableTools() []string  { return ToolsForState(constants.PlanStateUpdating) }
 func (s *UpdatingState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
-		State:      constants.PlanStateUpdating,
-		Plan:       ctx.Plan,
-		UserPrompt: "Some tasks have failed. Review the failed tasks and update the plan as needed.",
+		State: constants.PlanStateUpdating,
+		Plan:  ctx.Plan,
+		Input: core.AgentInput{Text: "Some tasks have failed. Review the failed tasks and update the plan as needed."},
 	}
 	_, err := action.Execute(ctx)
 	if err != nil {
@@ -229,9 +229,9 @@ func (s *DoneState) Name() constants.PlanState { return constants.PlanStateDone 
 func (s *DoneState) AvailableTools() []string  { return ToolsForState(constants.PlanStateDone) }
 func (s *DoneState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
-		State:      constants.PlanStateDone,
-		Plan:       ctx.Plan,
-		UserPrompt: "All tasks have completed. Review the results and summarize what was accomplished.",
+		State: constants.PlanStateDone,
+		Plan:  ctx.Plan,
+		Input: core.AgentInput{Text: "All tasks have completed. Review the results and summarize what was accomplished."},
 	}
 	result, err := action.Execute(ctx)
 	if err != nil {
@@ -248,9 +248,9 @@ func (s *FailedState) Name() constants.PlanState { return constants.PlanStateFai
 func (s *FailedState) AvailableTools() []string  { return ToolsForState(constants.PlanStateFailed) }
 func (s *FailedState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
-		State:      constants.PlanStateFailed,
-		Plan:       ctx.Plan,
-		UserPrompt: "The plan has failed. Review the failed tasks and summarize what went wrong.",
+		State: constants.PlanStateFailed,
+		Plan:  ctx.Plan,
+		Input: core.AgentInput{Text: "The plan has failed. Review the failed tasks and summarize what went wrong."},
 	}
 	result, err := action.Execute(ctx)
 	if err != nil {

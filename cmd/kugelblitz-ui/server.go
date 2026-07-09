@@ -54,6 +54,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/settings/config", s.handleGetConfig)
 	s.mux.HandleFunc("PUT /api/settings/config", s.handlePutConfig)
 
+	// Settings — multimodal availability
+	s.mux.HandleFunc("GET /api/settings/multimodal", s.handleGetMultimodalConfig)
+
 	// Settings — files
 	s.mux.HandleFunc("GET /api/settings/files", s.handleSettingsFiles)
 	s.mux.HandleFunc("GET /api/settings/file/{name}", s.handleSettingsGetFile)

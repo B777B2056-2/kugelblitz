@@ -29,6 +29,17 @@ type ServerConfig struct {
 	ReviewInterval             int                               `json:"review_interval"`
 	MaxFailuresBeforeReview    int                               `json:"max_failures_before_review"`
 	MCPServers                 map[string]config.MCPServerConfig `json:"mcp_servers"`
+
+	// Multimodal
+	ImageProviderName string `json:"image_provider_name,omitempty"`
+	ImageModel        string `json:"image_model,omitempty"`
+	ImageBaseURL      string `json:"image_base_url,omitempty"`
+	ImageAPIKey       string `json:"image_api_key,omitempty"`
+	AudioProviderName string `json:"audio_provider_name,omitempty"`
+	AudioModel        string `json:"audio_model,omitempty"`
+	AudioBaseURL      string `json:"audio_base_url,omitempty"`
+	AudioAPIKey       string `json:"audio_api_key,omitempty"`
+	AutoDescribeMedia bool   `json:"auto_describe_media"`
 }
 
 var (
@@ -78,6 +89,11 @@ func SaveConfig(cfg config.Config) error {
 	return nil
 }
 
+// isRealAPIKey returns true if the key is not empty and not masked (doesn't start with "••••").
+func isRealAPIKey(key string) bool {
+	return key != "" && (len(key) < 4 || key[:4] != "••••")
+}
+
 // reloadConfigFromFile re-reads kugelblitz.yaml into memory.
 func reloadConfigFromFile() {
 	configMu.Lock()
@@ -112,6 +128,30 @@ func toServerConfig(cfg config.Config) ServerConfig {
 	if len(sc.APIKey) > 4 {
 		sc.APIKey = "••••" + sc.APIKey[len(sc.APIKey)-4:]
 	}
+
+	// Multimodal
+	if cfg.Multimodal.ImageModel != nil {
+		sc.ImageProviderName = cfg.Multimodal.ImageModel.ProviderName
+		sc.ImageModel = cfg.Multimodal.ImageModel.Model
+		sc.ImageBaseURL = cfg.Multimodal.ImageModel.BaseURL
+		sc.ImageAPIKey = cfg.Multimodal.ImageModel.APIKey
+	}
+	if cfg.Multimodal.AudioModel != nil {
+		sc.AudioProviderName = cfg.Multimodal.AudioModel.ProviderName
+		sc.AudioModel = cfg.Multimodal.AudioModel.Model
+		sc.AudioBaseURL = cfg.Multimodal.AudioModel.BaseURL
+		sc.AudioAPIKey = cfg.Multimodal.AudioModel.APIKey
+	}
+	sc.AutoDescribeMedia = cfg.Multimodal.AutoDescribeMedia
+
+	// Mask image/audio API keys
+	if len(sc.ImageAPIKey) > 4 {
+		sc.ImageAPIKey = "••••" + sc.ImageAPIKey[len(sc.ImageAPIKey)-4:]
+	}
+	if len(sc.AudioAPIKey) > 4 {
+		sc.AudioAPIKey = "••••" + sc.AudioAPIKey[len(sc.AudioAPIKey)-4:]
+	}
+
 	return sc
 }
 
@@ -140,6 +180,49 @@ func fromServerConfig(sc ServerConfig, existingCfg config.Config) config.Config 
 	cfg.TargetDrift.ReviewInterval = sc.ReviewInterval
 	cfg.TargetDrift.MaxFailuresBeforeReview = sc.MaxFailuresBeforeReview
 	cfg.MCP = sc.MCPServers
+
+	// Multimodal — preserve existing config unless explicitly overridden.
+	// Starting from DefaultConfig() would lose previously saved image/audio models
+	// when the frontend sends empty fields (user didn't touch multimodal settings).
+	cfg.Multimodal.AutoDescribeMedia = sc.AutoDescribeMedia
+	cfg.Multimodal.ImageModel = existingCfg.Multimodal.ImageModel
+	cfg.Multimodal.AudioModel = existingCfg.Multimodal.AudioModel
+
+	if sc.ImageProviderName != "" || sc.ImageModel != "" {
+		im := &config.ModelConfig{
+			ProviderName: sc.ImageProviderName,
+			Model:        sc.ImageModel,
+			BaseURL:      sc.ImageBaseURL,
+			APIKey:       sc.ImageAPIKey,
+		}
+		if isRealAPIKey(sc.ImageAPIKey) {
+			// plain key provided by user
+		} else if existingCfg.Multimodal.ImageModel != nil {
+			im.APIKey = existingCfg.Multimodal.ImageModel.APIKey
+		}
+		if ip, err := config.NewProvider(im.ProviderName, im.APIKey, im.BaseURL, im.Model); err == nil {
+			im.Provider = ip
+		}
+		cfg.Multimodal.ImageModel = im
+	}
+
+	if sc.AudioProviderName != "" || sc.AudioModel != "" {
+		am := &config.ModelConfig{
+			ProviderName: sc.AudioProviderName,
+			Model:        sc.AudioModel,
+			BaseURL:      sc.AudioBaseURL,
+			APIKey:       sc.AudioAPIKey,
+		}
+		if isRealAPIKey(sc.AudioAPIKey) {
+			// plain key provided by user
+		} else if existingCfg.Multimodal.AudioModel != nil {
+			am.APIKey = existingCfg.Multimodal.AudioModel.APIKey
+		}
+		if ap, err := config.NewProvider(am.ProviderName, am.APIKey, am.BaseURL, am.Model); err == nil {
+			am.Provider = ap
+		}
+		cfg.Multimodal.AudioModel = am
+	}
 
 	// Re-create provider
 	p, _ := config.NewProvider(cfg.Model.ProviderName, cfg.Model.APIKey, cfg.Model.BaseURL, cfg.Model.Model)

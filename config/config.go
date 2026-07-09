@@ -51,12 +51,30 @@ type MCPServerConfig struct {
 	Env     map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
 }
 
+// MultimodalConfig controls how the framework handles multimodal media (image, audio, video).
+type MultimodalConfig struct {
+	// ImageModel is the model used for image understanding (description generation).
+	// When nil, falls back to the main model (Config.Model).
+	ImageModel *ModelConfig `json:"image_model,omitempty"`
+
+	// AudioModel is the model used for audio understanding (description generation).
+	// When nil, falls back to the main model (Config.Model).
+	AudioModel *ModelConfig `json:"audio_model,omitempty"`
+
+	// AutoDescribeMedia controls whether an LLM is automatically called to generate
+	// a text description when media enters SessionMemory.
+	// false (default): only a metadata summary is produced (e.g. "[image: image/png 1920×1080]").
+	// true: the model generates a natural-language description of the media content.
+	AutoDescribeMedia bool `json:"auto_describe_media"`
+}
+
 // Config is the top-level configuration for AgentLoop + Kernel.
 type Config struct {
 	Model           ModelConfig                `json:"model"`
 	Runtime         RuntimeConfig              `json:"runtime"`
 	ContextCompress ContextCompressConfig      `json:"context_compress"`
 	TargetDrift     TargetDriftConfig          `json:"target_drift"`
+	Multimodal      MultimodalConfig           `json:"multimodal"`
 	MCP             map[string]MCPServerConfig `json:"mcp_servers"`
 }
 

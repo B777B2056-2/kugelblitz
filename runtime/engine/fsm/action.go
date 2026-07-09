@@ -25,9 +25,9 @@ type ActionResult struct {
 // ReactAction executes a ReAct agent cycle: build prompt → get history →
 // call LLM → handle context exceeded → append messages.
 type ReactAction struct {
-	State      constants.PlanState
-	UserPrompt string
-	Plan       *working.Plan
+	State constants.PlanState
+	Input core.AgentInput // user input (text + optional media); use BuildUserMessage()
+	Plan  *working.Plan
 }
 
 func (a *ReactAction) Execute(ctx *Context) (*ActionResult, error) {
@@ -38,7 +38,7 @@ func (a *ReactAction) Execute(ctx *Context) (*ActionResult, error) {
 	})
 	sessionCtx := core.WithSessionID(ctx.Ctx, deps.Session.SessionID())
 
-	userMsg := core.NewUserMessage(core.TextContent{Text: a.UserPrompt})
+	userMsg := a.Input.BuildUserMessage()
 	deps.Session.AppendMessage(userMsg)
 	history := deps.Session.GetHistoryMessages()
 
@@ -85,7 +85,7 @@ func (a *DAGAction) Execute(ctx *Context) (*ActionResult, error) {
 			plan, _ := working.GetPlan(ctx.PlanID)
 			if plan != nil {
 				summary := fmtPlanSummary(plan)
-				reviewResult := deps.Reviewer.Review(ctx.Ctx, ctx.Goal, summary, reason)
+				reviewResult := deps.Reviewer.Review(ctx.Ctx, ctx.Input.Text, summary, reason)
 				if reviewResult.Drift && deps.HandleDrift != nil {
 					deps.HandleDrift(ctx, reason)
 				}

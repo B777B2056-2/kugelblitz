@@ -201,3 +201,147 @@ func TestParseReasoningFromChunkRaw_Present(t *testing.T) {
 func TestParseReasoningFromChunkRaw_Absent(t *testing.T) {
 	assert.Empty(t, parseReasoningFromChunkRaw(`{"choices":[{"delta":{"content":"hello"}}]}`))
 }
+
+// --- Multimodal conversion ---
+
+func TestConvertMessages_UserImageMessage(t *testing.T) {
+	c := newConverter()
+	msgs := []core.Message{
+		core.NewUserMessage(core.MultiModalContent{
+			Detail: core.MultiModalDetail{
+				ID:       "img-1",
+				Type:     constants.MultiModalTypeImage,
+				Base64:   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk",
+				MimeType: "image/png",
+			},
+		}),
+	}
+	result, err := c.ConvertMessages(msgs)
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+
+	// Should produce a user message with image content parts
+	param := result[0]
+	require.NotNil(t, param.OfUser)
+	userMsg := param.OfUser
+
+	// Content should be an array of content parts
+	parts := userMsg.Content.OfArrayOfContentParts
+	require.NotEmpty(t, parts)
+
+	// First part should be image_url
+	imagePart := parts[0]
+	require.NotNil(t, imagePart.OfImageURL)
+	assert.Contains(t, imagePart.OfImageURL.ImageURL.URL, "data:image/png;base64,iVBORw0KGgo")
+}
+
+func TestConvertMessages_UserAudioMessage(t *testing.T) {
+	c := newConverter()
+	msgs := []core.Message{
+		core.NewUserMessage(core.MultiModalContent{
+			Detail: core.MultiModalDetail{
+				ID:       "aud-1",
+				Type:     constants.MultiModalTypeAudio,
+				Base64:   "ZGF0YQ==", // "data" in base64
+				MimeType: "audio/wav",
+			},
+		}),
+	}
+	result, err := c.ConvertMessages(msgs)
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+
+	param := result[0]
+	require.NotNil(t, param.OfUser)
+	parts := param.OfUser.Content.OfArrayOfContentParts
+	require.NotEmpty(t, parts)
+
+	// First part should be input_audio
+	audioPart := parts[0]
+	require.NotNil(t, audioPart.OfInputAudio)
+	assert.Equal(t, "ZGF0YQ==", audioPart.OfInputAudio.InputAudio.Data)
+	assert.Equal(t, "wav", audioPart.OfInputAudio.InputAudio.Format)
+}
+
+func TestConvertMessages_UserCompositeTextAndImage(t *testing.T) {
+	c := newConverter()
+	msgs := []core.Message{
+		core.NewUserMessage(core.CompositeContent{
+			Parts: []core.Content{
+				core.TextContent{Text: "请描述这张图片"},
+				core.MultiModalContent{
+					Detail: core.MultiModalDetail{
+						ID:       "img-1",
+						Type:     constants.MultiModalTypeImage,
+						Base64:   "iVBORw0KGgo=",
+						MimeType: "image/png",
+					},
+				},
+			},
+		}),
+	}
+	result, err := c.ConvertMessages(msgs)
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+
+	param := result[0]
+	require.NotNil(t, param.OfUser)
+	parts := param.OfUser.Content.OfArrayOfContentParts
+	require.Len(t, parts, 2)
+
+	// First part: text
+	textPart := parts[0]
+	require.NotNil(t, textPart.OfText)
+	assert.Equal(t, "请描述这张图片", textPart.OfText.Text)
+
+	// Second part: image
+	imagePart := parts[1]
+	require.NotNil(t, imagePart.OfImageURL)
+}
+
+func TestConvertMessages_UserVideoMessage(t *testing.T) {
+	c := newConverter()
+	msgs := []core.Message{
+		core.NewUserMessage(core.MultiModalContent{
+			Detail: core.MultiModalDetail{
+				ID:       "vid-1",
+				Type:     constants.MultiModalTypeVideo,
+				Base64:   "iVBORw0KGgo=",
+				MimeType: "video/mp4",
+			},
+		}),
+	}
+	result, err := c.ConvertMessages(msgs)
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+
+	// Video → image_url (first frame)
+	param := result[0]
+	require.NotNil(t, param.OfUser)
+	parts := param.OfUser.Content.OfArrayOfContentParts
+	require.NotEmpty(t, parts)
+	assert.NotNil(t, parts[0].OfImageURL)
+}
+
+func TestConvertMessages_UnsupportedMediaType(t *testing.T) {
+	c := newConverter()
+	msgs := []core.Message{
+		core.NewUserMessage(core.MultiModalContent{
+			Detail: core.MultiModalDetail{
+				ID:   "pdf-1",
+				Type: constants.MultiModalTypePDF,
+			},
+		}),
+	}
+	_, err := c.ConvertMessages(msgs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported media type")
+}
+
+func TestAudioFormat(t *testing.T) {
+	assert.Equal(t, "wav", audioFormat("audio/wav"))
+	assert.Equal(t, "mpeg", audioFormat("audio/mpeg"))
+	assert.Equal(t, "mp4", audioFormat("audio/mp4"))
+	assert.Equal(t, "webm", audioFormat("audio/webm"))
+	assert.Equal(t, "wav", audioFormat("image/unknown")) // fallback
+}

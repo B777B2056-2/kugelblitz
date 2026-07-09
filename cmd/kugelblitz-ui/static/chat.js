@@ -14,6 +14,8 @@ const state = {
     tokenReports: [],
     tokenCumulative: { input:0, output:0, reasoning:0, total:0 },
     maxSourceTokens: 1,
+    pendingMedia: [],
+    multimodalCfg: { image_available: false, audio_available: false },
 };
 
 const welcomeEl = document.getElementById('welcome');
@@ -23,6 +25,7 @@ const sendBtn = document.getElementById('send-btn');
 
 document.addEventListener('DOMContentLoaded', () => {
     loadSessions();
+    loadMultimodalConfig();
     updateWelcome();
 });
 
@@ -107,7 +110,12 @@ async function switchSession(id) {
 function renderStoredMessage(m) {
     switch (m.role) {
         case 'user':
-            appendMessage('user', '👤', 'You', `<p>${escapeHtml(m.content)}</p>`);
+            var uHtml = `<p>${escapeHtml(m.content)}</p>`;
+            if (m.media_type && m.media_path) {
+                const uIcon = m.media_type === 'image' ? '🖼' : '🎵';
+                uHtml += `<div class="msg-media-chip"><span>${uIcon}</span> ${escapeHtml(m.media_path)}</div>`;
+            }
+            appendMessage('user', '👤', 'You', uHtml);
             break;
         case 'assistant':
             appendMessage('assistant', '🤖', 'Agent', `<div class="content">${marked.parse(m.content || '')}</div>`);
@@ -195,16 +203,25 @@ async function sendMessage() {
     state.thinkingId = null;
     state.replyId = null;
 
-    appendMessage('user', '👤', 'You', `<p>${escapeHtml(goal)}</p>`);
+    var userHtml = `<p>${escapeHtml(goal)}</p>`;
+    if (state.pendingMedia && state.pendingMedia.length > 0) {
+        userHtml += state.pendingMedia.map(m => `<div class="msg-media-chip"><span>${m.type==='image'?'🖼':'🎵'}</span> ${escapeHtml(m.filename)}</div>`).join('');
+    }
+    appendMessage('user', '👤', 'You', userHtml);
     updateStatus('处理中…', 'processing');
     document.getElementById('current-session').textContent = state.sessionId || '';
 
     state.abortController = new AbortController();
+    const body = { session_id: state.sessionId, goal: goal };
+    if (state.pendingMedia && state.pendingMedia.length > 0) { body.media = state.pendingMedia; }
+    state.pendingMedia = [];
+    renderMediaPreview();
+
     try {
         const res = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_id: state.sessionId, goal }),
+            body: JSON.stringify(body),
             signal: state.abortController.signal,
         });
         if (!res.ok) {
@@ -626,6 +643,54 @@ function showToast(msg, type) {
 }
 
 // ═══ Tab Switch ═══
+// ═══ Multimodal Config ═══
+async function loadMultimodalConfig() {
+    try { const res = await fetch('/api/settings/multimodal'); state.multimodalCfg = await res.json(); updatePopoverTabs(); } catch (e) {}
+}
+function updatePopoverTabs() { updatePopoverTab('popover-image', state.multimodalCfg.image_available); updatePopoverTab('popover-audio', state.multimodalCfg.audio_available); }
+function updatePopoverTab(id, avail) {
+    const el = document.getElementById(id); if (!el) return;
+    if (avail) { el.classList.remove('disabled'); el.querySelector('span:last-child').textContent = el.querySelector('span:last-child').textContent.replace(' (不可用)', ''); }
+    else { el.classList.add('disabled'); const lbl = el.querySelector('span:last-child'); if (!lbl.textContent.includes('(不可用)')) lbl.textContent += ' (不可用)'; }
+}
+
+// ═══ Media Attachment ═══
+function toggleMediaPopover() {
+    const p = document.getElementById('media-popover');
+    if (p.style.display === 'block') { p.style.display = 'none'; return; }
+    updatePopoverTabs(); p.style.display = 'block';
+    setTimeout(() => document.addEventListener('click', function close(e) {
+        const btn = document.getElementById('attach-btn');
+        if (e.target !== p && e.target !== btn && !p.contains(e.target)) p.style.display = 'none';
+    }, {once: true}), 0);
+}
+function pickMedia(type) {
+    if (type === 'image' && !state.multimodalCfg.image_available) return;
+    if (type === 'audio' && !state.multimodalCfg.audio_available) return;
+    document.getElementById('media-popover').style.display = 'none';
+    const inp = document.getElementById('media-file-input');
+    inp.accept = type === 'image' ? 'image/*' : 'audio/*';
+    inp.dataset.mediaType = type; inp.click();
+}
+function onMediaFileSelected(event) {
+    const file = event.target.files[0]; if (!file) return;
+    const type = event.target.dataset.mediaType || 'image';
+    const reader = new FileReader();
+    reader.onload = () => {
+        const dataUrl = reader.result, commaIdx = dataUrl.indexOf(',');
+        state.pendingMedia.push({ type, base64: commaIdx >= 0 ? dataUrl.substring(commaIdx + 1) : dataUrl, filename: file.name, mimeType: file.type || (type === 'image' ? 'image/png' : 'audio/mpeg') });
+        renderMediaPreview();
+    };
+    reader.readAsDataURL(file); event.target.value = '';
+}
+function renderMediaPreview() {
+    const container = document.getElementById('media-preview');
+    if (!state.pendingMedia || state.pendingMedia.length === 0) { container.style.display = 'none'; container.innerHTML = ''; return; }
+    container.style.display = 'flex';
+    container.innerHTML = state.pendingMedia.map((m, i) => `<div class="media-chip"><span class="media-chip-icon">${m.type==='image'?'🖼':'🎵'}</span><span class="media-chip-name">${escapeHtml(m.filename)}</span><span class="media-chip-size">${m.base64.length>1024?(m.base64.length/1024).toFixed(0)+'KB':m.base64.length+'B'}</span><span class="media-chip-remove" onclick="removeMedia(${i})">✕</span></div>`).join('');
+}
+function removeMedia(idx) { state.pendingMedia.splice(idx, 1); renderMediaPreview(); }
+
 function switchTab(tab) {
     const chat=document.getElementById('chat-panel'), settings=document.getElementById('settings-panel');
     const right=document.getElementById('right-panel');

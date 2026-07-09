@@ -184,6 +184,61 @@ func TestMessage_JSONRoundTrip_MultiModal(t *testing.T) {
 	assert.Equal(t, "img-1", mm.Detail.ID)
 }
 
+func TestMultiModalDetail_NewFields(t *testing.T) {
+	detail := MultiModalDetail{
+		ID:       "img-1",
+		Type:     constants.MultiModalTypeImage,
+		Path:     "/tmp/a.png",
+		MimeType: "image/png",
+		Meta:     map[string]any{"width": 1920, "height": 1080},
+	}
+	assert.Equal(t, "image/png", detail.MimeType)
+	assert.Equal(t, 1920, detail.Meta["width"])
+}
+
+func TestMultiModalDetail_MarshalJSON_StripsBase64(t *testing.T) {
+	// 持久化时不应写入 Base64
+	detail := MultiModalDetail{
+		ID:       "img-1",
+		Type:     constants.MultiModalTypeImage,
+		Path:     "media/sess_abc/img_001.png",
+		Base64:   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk",
+		MimeType: "image/png",
+		Meta:     map[string]any{"width": 1, "height": 1},
+	}
+
+	data, err := json.Marshal(detail)
+	require.NoError(t, err)
+
+	// Base64 不应出现在 JSON 中
+	assert.NotContains(t, string(data), "iVBORw0")
+	assert.NotContains(t, string(data), "base64")
+
+	// 但 Path、MimeType、Meta 应保留
+	assert.Contains(t, string(data), "media/sess_abc/img_001.png")
+	assert.Contains(t, string(data), "image/png")
+	assert.Contains(t, string(data), "width")
+}
+
+func TestMultiModalDetail_UnmarshalJSON_PreservesPathAndMeta(t *testing.T) {
+	raw := `{"id":"img-1","type":"image","path":"media/sess_abc/img_001.png","mime_type":"image/png","meta":{"height":1080,"width":1920}}`
+
+	var detail MultiModalDetail
+	require.NoError(t, json.Unmarshal([]byte(raw), &detail))
+
+	assert.Equal(t, "img-1", detail.ID)
+	assert.Equal(t, "media/sess_abc/img_001.png", detail.Path)
+	assert.Equal(t, "image/png", detail.MimeType)
+	assert.Empty(t, detail.Base64)                // 从持久化格式反序列化时 Base64 应为空
+	assert.Equal(t, 1920.0, detail.Meta["width"]) // JSON numbers → float64
+}
+
+func TestMultiModalDetail_MetaIsNilByDefault(t *testing.T) {
+	detail := MultiModalDetail{ID: "a", Type: constants.MultiModalTypeImage}
+	assert.Nil(t, detail.Meta)
+	assert.Empty(t, detail.MimeType)
+}
+
 func TestMessage_JSONRoundTrip_EmptyContent(t *testing.T) {
 	original := NewAssistantMessage(nil)
 	data, err := json.Marshal(original)
