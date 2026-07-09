@@ -1,0 +1,20 @@
+[project]
+name = "kugelblitz-eval"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "docker>=7.0",
+    "langfuse>=3.0",
+    "openai>=1.0",
+    "pyyaml>=6.0",
+    "rich>=13.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+openhands = ["openhands-agent>=0.1"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0",
+]

@@ -1,0 +1,9 @@
+pyproject.toml
+src/kugelblitz_eval/__init__.py
+src/kugelblitz_eval.egg-info/PKG-INFO
+src/kugelblitz_eval.egg-info/SOURCES.txt
+src/kugelblitz_eval.egg-info/dependency_links.txt
+src/kugelblitz_eval.egg-info/requires.txt
+src/kugelblitz_eval.egg-info/top_level.txt
+src/kugelblitz_eval/adapters/base.py
+src/kugelblitz_eval/adapters/kugelblitz.py
