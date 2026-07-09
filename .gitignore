@@ -5,3 +5,9 @@
 .kugelblitz
 *.sqllite
 bindocs/
+
+# Python / uv
+eval/.venv/
+eval/src/*.egg-info/
+eval/src/**/__pycache__/
+eval/cli/eval-cli
