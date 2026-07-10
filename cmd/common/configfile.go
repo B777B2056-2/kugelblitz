@@ -72,6 +72,10 @@ func Save(path string, cfg config.Config) error {
 		"review_interval":                cfg.TargetDrift.ReviewInterval,
 		"max_failures_before_review":     cfg.TargetDrift.MaxFailuresBeforeReview,
 		"auto_describe_media":            cfg.Multimodal.AutoDescribeMedia,
+		"otel_enabled":                    cfg.Observability.Enabled,
+		"otel_endpoint":                   cfg.Observability.Endpoint,
+		"otel_auth_header":                cfg.Observability.AuthHeader,
+		"otel_service_name":               cfg.Observability.ServiceName,
 	}
 	if cfg.Multimodal.ImageModel != nil {
 		out["image_provider_name"] = cfg.Multimodal.ImageModel.ProviderName
@@ -193,6 +197,20 @@ func applyRaw(raw map[string]any, cfg *config.Config) {
 	// — Multimodal —
 	if _, ok := raw["auto_describe_media"]; ok {
 		cfg.Multimodal.AutoDescribeMedia = toBool(raw["auto_describe_media"])
+	}
+
+	// — Observability (OTel) —
+	if _, ok := raw["otel_enabled"]; ok {
+		cfg.Observability.Enabled = toBool(raw["otel_enabled"])
+	}
+	if v, ok := raw["otel_endpoint"].(string); ok && v != "" {
+		cfg.Observability.Endpoint = v
+	}
+	if v, ok := raw["otel_auth_header"].(string); ok && v != "" {
+		cfg.Observability.AuthHeader = v
+	}
+	if v, ok := raw["otel_service_name"].(string); ok && v != "" {
+		cfg.Observability.ServiceName = v
 	}
 
 	// Image model (optional — only populated when explicitly configured)

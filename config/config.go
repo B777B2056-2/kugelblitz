@@ -68,6 +68,17 @@ type MultimodalConfig struct {
 	AutoDescribeMedia bool `json:"auto_describe_media"`
 }
 
+// ObservabilityConfig groups OpenTelemetry tracing parameters.
+// When Enabled is false (default), OTel is not initialized and all spans are no-op.
+// The OTel SDK will also read standard environment variables
+// (OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_HEADERS) as fallback.
+type ObservabilityConfig struct {
+	Enabled     bool   `json:"otel_enabled"`      // enable OTel tracing
+	Endpoint    string `json:"otel_endpoint"`     // OTLP/HTTP endpoint
+	AuthHeader  string `json:"otel_auth_header"`  // "Basic base64(pk:sk)" for Langfuse
+	ServiceName string `json:"otel_service_name"` // default "kugelblitz"
+}
+
 // Config is the top-level configuration for AgentLoop + Kernel.
 type Config struct {
 	Model           ModelConfig                `json:"model"`
@@ -75,6 +86,7 @@ type Config struct {
 	ContextCompress ContextCompressConfig      `json:"context_compress"`
 	TargetDrift     TargetDriftConfig          `json:"target_drift"`
 	Multimodal      MultimodalConfig           `json:"multimodal"`
+	Observability   ObservabilityConfig        `json:"observability"`
 	MCP             map[string]MCPServerConfig `json:"mcp_servers"`
 }
 
@@ -106,5 +118,6 @@ func DefaultConfig() Config {
 		Runtime:         RuntimeConfig{MaxStateMachineCycles: 30},
 		ContextCompress: ContextCompressConfig{MaxAttempts: 1, MaxToolResultChars: 4000, KeepLastN: 20, MinMessagesToCompress: 10},
 		TargetDrift:     TargetDriftConfig{ReviewInterval: 12, MaxFailuresBeforeReview: 5},
+		Observability:   ObservabilityConfig{Enabled: false, ServiceName: "kugelblitz"},
 	}
 }

@@ -75,6 +75,12 @@ async function loadConfigForm() {
         setVal('cfg-audio-apikey', cfg.audio_api_key, '');
         setBool('cfg-auto-describe', cfg.auto_describe_media, false);
 
+        // Observability (OTel)
+        setBool('cfg-otel-enabled', cfg.otel_enabled, false);
+        setVal('cfg-otel-endpoint', cfg.otel_endpoint, '');
+        setVal('cfg-otel-auth-header', cfg.otel_auth_header, '');
+        setVal('cfg-otel-service-name', cfg.otel_service_name, 'kugelblitz');
+
         document.getElementById('config-status').textContent = '';
         document.getElementById('config-status').className = 'config-status';
     } catch (e) { /* ignore */ }
@@ -140,6 +146,12 @@ async function saveConfig() {
         audio_base_url:             document.getElementById('cfg-audio-baseurl').value.trim(),
         audio_api_key:              document.getElementById('cfg-audio-apikey').value.trim(),
         auto_describe_media:        document.getElementById('cfg-auto-describe').checked,
+
+        // Observability (OTel)
+        otel_enabled:                document.getElementById('cfg-otel-enabled').checked,
+        otel_endpoint:               document.getElementById('cfg-otel-endpoint').value.trim(),
+        otel_auth_header:            document.getElementById('cfg-otel-auth-header').value.trim(),
+        otel_service_name:           document.getElementById('cfg-otel-service-name').value.trim(),
     };
 
     try {

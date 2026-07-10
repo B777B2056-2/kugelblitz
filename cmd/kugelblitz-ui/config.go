@@ -40,6 +40,12 @@ type ServerConfig struct {
 	AudioBaseURL      string `json:"audio_base_url,omitempty"`
 	AudioAPIKey       string `json:"audio_api_key,omitempty"`
 	AutoDescribeMedia bool   `json:"auto_describe_media"`
+
+	// Observability (OTel)
+	OtelEnabled     bool   `json:"otel_enabled"`
+	OtelEndpoint    string `json:"otel_endpoint,omitempty"`
+	OtelAuthHeader  string `json:"otel_auth_header,omitempty"`
+	OtelServiceName string `json:"otel_service_name,omitempty"`
 }
 
 var (
@@ -144,6 +150,12 @@ func toServerConfig(cfg config.Config) ServerConfig {
 	}
 	sc.AutoDescribeMedia = cfg.Multimodal.AutoDescribeMedia
 
+	// Observability
+	sc.OtelEnabled = cfg.Observability.Enabled
+	sc.OtelEndpoint = cfg.Observability.Endpoint
+	sc.OtelAuthHeader = cfg.Observability.AuthHeader
+	sc.OtelServiceName = cfg.Observability.ServiceName
+
 	// Mask image/audio API keys
 	if len(sc.ImageAPIKey) > 4 {
 		sc.ImageAPIKey = "••••" + sc.ImageAPIKey[len(sc.ImageAPIKey)-4:]
@@ -180,6 +192,12 @@ func fromServerConfig(sc ServerConfig, existingCfg config.Config) config.Config 
 	cfg.TargetDrift.ReviewInterval = sc.ReviewInterval
 	cfg.TargetDrift.MaxFailuresBeforeReview = sc.MaxFailuresBeforeReview
 	cfg.MCP = sc.MCPServers
+
+	// Observability
+	cfg.Observability.Enabled = sc.OtelEnabled
+	cfg.Observability.Endpoint = sc.OtelEndpoint
+	cfg.Observability.AuthHeader = sc.OtelAuthHeader
+	cfg.Observability.ServiceName = sc.OtelServiceName
 
 	// Multimodal — preserve existing config unless explicitly overridden.
 	// Starting from DefaultConfig() would lose previously saved image/audio models

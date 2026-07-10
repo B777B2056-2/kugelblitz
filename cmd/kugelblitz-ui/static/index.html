@@ -269,6 +269,21 @@
                         <span class="config-hint">开启后每次上传媒体会调用对应模型生成描述，有额外 token 开销</span>
                     </div>
                 </div>
+                <!-- 可观测性 (OpenTelemetry) -->
+                <div class="config-section" id="cfg-section-observability">
+                    <div class="config-title">📊 可观测性 (OpenTelemetry)</div>
+                    <div class="config-form">
+                        <label class="checkbox-label"><input type="checkbox" id="cfg-otel-enabled"> 启用 OTel 链路追踪</label>
+                        <span class="config-hint">开启后所有 LLM 调用和工具执行将导出到 OTLP 后端（如 Langfuse、Jaeger、Datadog）</span>
+                        <label>OTLP Endpoint</label>
+                        <input type="text" id="cfg-otel-endpoint" placeholder="https://cloud.langfuse.com/api/public/otel">
+                        <label>Auth Header</label>
+                        <input type="text" id="cfg-otel-auth-header" placeholder="Basic base64(pk:sk)">
+                        <span class="config-hint">Langfuse: Basic + base64(public_key:secret_key)</span>
+                        <label>Service Name</label>
+                        <input type="text" id="cfg-otel-service-name" placeholder="kugelblitz">
+                    </div>
+                </div>
             </div>
             <div class="save-row">
                 <button class="btn-save-config" onclick="saveConfig()">保存配置</button>
