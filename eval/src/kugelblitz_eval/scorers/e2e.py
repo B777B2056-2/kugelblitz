@@ -1,83 +1,78 @@
 """Dimension ① — End-to-end output scoring (weight: 30%).
 
-Sub-dimensions:
-  a. SWE-bench pass@k (70 pts): apply patch → run FAIL_TO_PASS + PASS_TO_PASS
-  b. Reply quality LLM-judge (30 pts): clarity, verification, diagnostics
+Real implementation:
+  a. pass@k (0-70): extract patch → apply in Docker → run pytest
+  b. reply quality (0-30): GPT-4o structured judge
 """
 
 from dataclasses import dataclass
 
 from ..adapters.base import AgentResult
-from ..datasets.swebench import SWEBenchInstance
+from ..common.docker import Sandbox
+from ..common.llm import LLMJudge
 
 
 @dataclass
 class E2EScore:
-    pass_k: float       # 0-70
-    reply_quality: float # 0-30
-    total: float         # 0-100
+    pass_k: float
+    reply_quality: float
+    total: float
     detail: str = ""
 
 
 def score_e2e(
-    instance: SWEBenchInstance,
+    instance,           # SWEBenchInstance
     result: AgentResult,
-    llm_judge_model: str = "gpt-4o",
+    sandbox: Sandbox,
+    judge: LLMJudge,
 ) -> E2EScore:
-    """
-    Score end-to-end performance for one instance.
+    patch = Sandbox.extract_patch_from_result(result)
 
-    Steps:
-      1. pass_k: check if patch was generated, apply to repo, run tests
-      2. reply_quality: send final reply + issue to LLM judge
-    """
-    pk = _score_pass_k(instance, result)
-    rq = _score_reply_quality(instance, result, llm_judge_model)
-    return E2EScore(pass_k=pk, reply_quality=rq, total=pk + rq)
+    # (a) pass@k
+    if patch:
+        test_results = sandbox.apply_patch_and_test(
+            patch, instance.fail_to_pass, instance.pass_to_pass)
+        ftp_ratio = (test_results["fail_to_pass_passed"] /
+                     max(test_results["fail_to_pass_total"], 1))
+        ptp_ratio = (test_results["pass_to_pass_passed"] /
+                     max(test_results["pass_to_pass_total"], 1))
+        # FAIL_TO_PASS must all pass; PASS_TO_PASS must not regress
+        pk = ftp_ratio * 50.0 + ptp_ratio * 20.0
+    else:
+        pk = 0.0
+        test_results = {"error": "no patch found in agent output"}
 
+    # (b) reply quality — GPT-4o judge
+    rq = _judge_reply(judge, instance.issue, result.final_reply)
 
-def _score_pass_k(instance: SWEBenchInstance, result: AgentResult) -> float:
-    """Check if the agent produced a patch that passes the required tests."""
-    # For now: check if final_reply or any tool output contains test-pass evidence.
-    # Phase 2: apply actual patch via Docker sandbox and run tests.
-    if not result.final_reply:
-        return 0.0
-    # Phase 2 will implement real test execution
-    return _placeholder_pass_k(instance)
-
-
-def _placeholder_pass_k(instance: SWEBenchInstance) -> float:
-    """Placeholder — Phase 2 implements real Docker-based test execution."""
-    # TODO: docker exec in sandbox, apply patch, run pytest
-    return 0.0
+    detail = f"patch={bool(patch)} ftp_ratio={pk/70:.2f} reply={rq:.0f}"
+    return E2EScore(pass_k=pk, reply_quality=rq, total=pk + rq, detail=detail)
 
 
-def _score_reply_quality(
-    instance: SWEBenchInstance,
-    result: AgentResult,
-    model: str,
-) -> float:
-    """LLM-as-judge: evaluate the quality of the agent's final reply."""
-    if not result.final_reply:
+def _judge_reply(judge: LLMJudge, issue: str, reply: str) -> float:
+    """GPT-4o evaluates agent reply: clarity + verification + diagnostics."""
+    if not reply.strip():
         return 0.0
 
-    # Phase 2: call GPT-4o with the scoring prompt
-    # prompt = f"""Evaluate the agent's reply for fixing this GitHub issue...
-    # Output JSON: {{"score": <0-30 int>, "reason": "<brief>"}}"""
-    # score = call_openai(model, prompt)
+    prompt = f"""You are evaluating an AI agent that was asked to fix a GitHub issue.
 
-    return _placeholder_reply_quality(result)
+ISSUE:
+{issue[:3000]}
 
+AGENT FINAL REPLY:
+{reply[:3000]}
 
-def _placeholder_reply_quality(result: AgentResult) -> float:
-    """Placeholder heuristic until LLM judge is wired in Phase 2."""
-    reply = result.final_reply
-    score = 0.0
-    # Very rough heuristic — LLM judge replaces this entirely
-    if len(reply) > 50:
-        score += 10  # has meaningful content
-    if "error" not in reply.lower():
-        score += 10  # doesn't end in error
-    if any(kw in reply.lower() for kw in ["fix", "patch", "change", "modif"]):
-        score += 10  # mentions what was done
-    return min(score, 30.0)
+Score the reply 0-30 across three dimensions (10 points each):
+1. Clarity: Does it clearly explain what was changed and why?
+2. Verification: Does it mention test results or how the fix was verified?
+3. Diagnostics: If the fix failed, does it provide debugging information?
+
+Output ONLY a JSON object: {{"clarity": <0-10>, "verification": <0-10>, "diagnostics": <0-10>}}"""
+
+    try:
+        scores = judge.ask(prompt)
+        return (scores.get("clarity", 0) +
+                scores.get("verification", 0) +
+                scores.get("diagnostics", 0))
+    except Exception:
+        return 0.0

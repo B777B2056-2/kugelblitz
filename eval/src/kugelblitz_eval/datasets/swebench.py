@@ -1,19 +1,11 @@
-"""SWE-Bench dataset loader + Docker sandbox management.
+"""SWE-Bench dataset loader.
 
-Each SWE-Bench instance has:
-  instance_id, repo, base_commit, issue (text), hints,
-  FAIL_TO_PASS (tests that must pass after fix),
-  PASS_TO_PASS (tests that must still pass after fix).
-
-Workflow:
-  1. Load JSONL → list[SWEBenchInstance]
-  2. For each instance: docker.create(repo, base_commit) → Sandbox
-  3. Agent runs inside sandbox (via eval-cli --workdir <sandbox-path>)
-  4. Collect patch from sandbox, run tests, score
+JSONL format: one JSON object per line.
+  instance_id, repo, base_commit, issue (=problem_statement),
+  hints, FAIL_TO_PASS (JSON array), PASS_TO_PASS (JSON array)
 """
 
 import json
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -30,7 +22,7 @@ class SWEBenchInstance:
 
 
 def load_instances(path: str | Path, max_count: int | None = None) -> list[SWEBenchInstance]:
-    """Load SWE-bench instances from a JSONL file."""
+    """Load SWE-bench instances from JSONL."""
     instances = []
     with open(path) as f:
         for line in f:
@@ -43,37 +35,33 @@ def load_instances(path: str | Path, max_count: int | None = None) -> list[SWEBe
                 base_commit=raw["base_commit"],
                 issue=raw.get("problem_statement", raw.get("issue", "")),
                 hints=raw.get("hints", ""),
-                fail_to_pass=json.loads(raw.get("FAIL_TO_PASS", "[]")),
-                pass_to_pass=json.loads(raw.get("PASS_TO_PASS", "[]")),
+                fail_to_pass=_parse_json_str(raw.get("FAIL_TO_PASS", "[]")),
+                pass_to_pass=_parse_json_str(raw.get("PASS_TO_PASS", "[]")),
             ))
     return instances
 
 
-class DockerSandbox:
-    """Manages a per-instance Docker container with the target repo checked out."""
+def build_goal(instance: SWEBenchInstance) -> str:
+    """Build a natural-language goal for the agent from a SWE-bench instance."""
+    parts = [
+        f"Fix the following issue in the repository {instance.repo}:\n\n{instance.issue}",
+    ]
+    if instance.fail_to_pass:
+        ftp = ", ".join(instance.fail_to_pass)
+        parts.append(
+            f"\nThe failing test(s) are: {ftp}. "
+            "After fixing, run the test(s) to verify they pass."
+        )
+    if instance.hints:
+        parts.append(f"\nHints: {instance.hints}")
+    return "\n".join(parts)
 
-    def __init__(self, instance: SWEBenchInstance, image: str = "ubuntu:22.04"):
-        self.instance = instance
-        self.image = image
-        self.container_id: str | None = None
-        self._workdir = "/workspace"
 
-    def create(self) -> str:
-        """Start container, clone repo, checkout base_commit. Returns host workdir path."""
-        # docker run -d --rm -v ... image sleep infinity
-        # docker exec ... git clone ... && git checkout base_commit
-        # Return host-mounted path for eval-cli --workdir
-        raise NotImplementedError("Phase 2")
-
-    def exec_test(self, test_spec: str) -> bool:
-        """Run a single test in the sandbox. Return True if passed."""
-        raise NotImplementedError("Phase 2")
-
-    def cleanup(self):
-        """Stop and remove container."""
-        if self.container_id:
-            subprocess.run(["docker", "rm", "-f", self.container_id], capture_output=True)
-
-    @property
-    def workdir(self) -> str:
-        return self._workdir
+def _parse_json_str(raw: str | list) -> list[str]:
+    """FAIL_TO_PASS and PASS_TO_PASS can be JSON strings or already parsed."""
+    if isinstance(raw, list):
+        return raw
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return []

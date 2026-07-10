@@ -1,0 +1,22 @@
+# Kugelblitz Evaluation Configuration
+# CLI flags override these values.
+
+# LLM judge settings
+judge_model: gpt-4o
+openai_api_key: ""       # or set OPENAI_API_KEY env var
+openai_base_url: ""      # or set OPENAI_BASE_URL env var
+
+# Langfuse (optional — leave empty to disable)
+langfuse_host: ""
+langfuse_public_key: ""
+langfuse_secret_key: ""
+
+# Execution
+parallel: 4              # concurrent Docker containers
+
+# Scoring weights (must sum to 1.0)
+weights:
+  e2e: 0.30
+  tools: 0.30
+  plan: 0.25
+  memory: 0.15

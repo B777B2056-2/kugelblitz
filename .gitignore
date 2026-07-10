@@ -11,3 +11,5 @@ eval/.venv/
 eval/src/*.egg-info/
 eval/src/**/__pycache__/
 eval/cli/eval-cli
+__pycache__/
+.pytest_cache/
