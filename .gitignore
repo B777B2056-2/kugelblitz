@@ -13,3 +13,4 @@ eval/src/**/__pycache__/
 eval/cli/eval-cli
 __pycache__/
 .pytest_cache/
+eval/config.yaml
