@@ -26,6 +26,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/cmd/common"
 	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/runtime"
 )
 
@@ -46,6 +47,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Initialize OTel tracing (noop if disabled)
+	shutdown, err := observability.InitTracer(context.Background(), cfg.Observability)
+	if err != nil {
+		core.Warn("otel init failed", "err", err)
+	}
+	defer shutdown()
 
 	// AgentLoop wires up MCP, skills, LTM, session — same as Web UI.
 	loop := runtime.NewAgentLoop(cfg)

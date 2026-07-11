@@ -8,6 +8,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/tools/internals"
 )
 
@@ -34,10 +35,11 @@ type ReactAgent struct {
 	abortSignal     chan struct{}
 	EnableThinking  *bool
 	ReasoningEffort string
-	toolNames       []string              // nil=all tools; non-nil=whitelist
-	visibleCache    []core.ToolDefinition // cached filtered tool list; invalidated by WithTools
-	stepCount       int                   // ReAct loop iterations
-	OnToolResult    OnToolResult          // per-tool-execution callback
+	toolNames       []string                  // nil=all tools; non-nil=whitelist
+	visibleCache    []core.ToolDefinition     // cached filtered tool list; invalidated by WithTools
+	stepCount       int                       // ReAct loop iterations
+	OnToolResult    OnToolResult              // per-tool-execution callback
+	stepTracer      *observability.StepTracer // per-step trace instrumentation
 	humanLoop       *humanLoopState
 	pauseGate       *sync.RWMutex // shared gate; nil=no pausing; RLock blocks tool calls
 }
@@ -69,6 +71,9 @@ func (a *ReactAgent) WithTools(names ...string) *ReactAgent {
 func (a *ReactAgent) SetAgentIdentity(agentIdentity constants.AgentIdentity) {
 	a.agentIdentity = agentIdentity
 }
+
+// SetStepTracer attaches a StepTracer for per-step OTel instrumentation.
+func (a *ReactAgent) SetStepTracer(st *observability.StepTracer) { a.stepTracer = st }
 
 // SetProvider replaces the LLM provider used for subsequent ExecuteWithTools calls.
 func (a *ReactAgent) SetProvider(p core.ILMProvider) {
@@ -160,6 +165,10 @@ func (a *ReactAgent) ExecuteWithTools(ctx context.Context, systemMessage core.Me
 		}
 
 		toolCallResults := a.executeTools(ctx, details)
+
+		if a.stepTracer != nil {
+			a.stepTracer.StepSpan(ctx, a.stepCount, toolCallResults)
+		}
 
 		toolMsg := core.NewToolMessage(toolCallResults)
 		assistantMessages = append(assistantMessages, toolMsg)

@@ -24,17 +24,19 @@ class LLMJudge:
 
     def ask(self, prompt: str, schema: dict | None = None) -> dict:
         """Send a scoring prompt, return parsed JSON response.
-        Returns empty dict if LLM is unavailable."""
+        Returns empty dict if LLM is unavailable.
+        Uses text-only prompting (no json_schema) for cross-provider compatibility."""
         if not self._available or self.client is None:
             return {}
 
-        messages = [{"role": "user", "content": prompt}]
+        # Append JSON-only instruction — works with any OpenAI-compatible API
+        full_prompt = prompt + "\n\nReply with ONLY a JSON object, no markdown, no explanation."
+        messages = [{"role": "user", "content": full_prompt}]
         kwargs = {"model": self.model, "messages": messages, "temperature": 0.0}
-        if schema:
-            kwargs["response_format"] = {"type": "json_schema", "json_schema": schema}
 
         resp = self.client.chat.completions.create(**kwargs)
         text = resp.choices[0].message.content or "{}"
+        # Strip markdown code fences if present
         if text.startswith("```"):
             text = text.split("\n", 1)[1]
             if text.endswith("```"):

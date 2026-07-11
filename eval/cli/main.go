@@ -4,7 +4,7 @@
 //
 // Usage:
 //
-//	eval-cli run --session-id <id> --goal <text> [--workdir <dir>]
+//	eval-cli run --session-id <id> --goal <text> [--workdir <dir>] [--config <path>]
 package main
 
 import (
@@ -20,6 +20,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
+	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/runtime"
 )
 
@@ -27,18 +28,23 @@ func main() {
 	sessionID := flag.String("session-id", "", "framework session ID (required)")
 	goal := flag.String("goal", "", "task goal text (required)")
 	workdir := flag.String("workdir", "", "working directory for agent execution")
+	configPath := flag.String("config", "eval/config.yaml", "path to kugelblitz config YAML")
 	flag.Parse()
 
 	if *sessionID == "" || *goal == "" {
-		fmt.Fprintln(os.Stderr, "usage: eval-cli run --session-id <id> --goal <text> [--workdir <dir>]")
+		fmt.Fprintln(os.Stderr, "usage: eval-cli run --session-id <id> --goal <text> [--workdir <dir>] [--config <path>]")
 		os.Exit(2)
 	}
 
-	// Load config from workspace (kugelblitz.yaml)
-	cfg, err := common.Load(core.GetWorkspace().Dir() + "/kugelblitz.yaml")
+	// Load eval-specific config; fall back to defaults if missing
+	cfg, err := common.Load(*configPath)
 	if err != nil {
-		cfg = loadDefaultConfig()
+		cfg = config.DefaultConfig()
 	}
+
+	// Initialize OTel (noop if disabled)
+	shutdown, _ := observability.InitTracer(context.Background(), cfg.Observability)
+	defer shutdown()
 
 	if *workdir != "" {
 		core.GetWorkspace().SetDir(*workdir)
@@ -150,7 +156,3 @@ func jsonEvent(event string, data map[string]any) map[string]any {
 	return data
 }
 
-func loadDefaultConfig() config.Config {
-	// Minimal config for tests — real config should come from kugelblitz.yaml
-	return config.DefaultConfig()
-}

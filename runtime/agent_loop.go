@@ -17,6 +17,8 @@ import (
 	"github.com/B777B2056-2/kugelblitz/tools/internals"
 	"github.com/B777B2056-2/kugelblitz/tools/mcp"
 	"github.com/B777B2056-2/kugelblitz/utils"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type AgentLoop struct {
@@ -32,10 +34,8 @@ type AgentLoop struct {
 	// execution engine
 	planner *engine.Kernel
 
-	// observability
-	obs          core.Observer
-	currentTrace core.TraceSpan
-	instr        *observability.PlannerInstrument
+	// observability (OTel — zero-config: noop if InitTracer not called)
+	stepTracer *observability.StepTracer
 
 	// hooks & callbacks
 	eventHooks core.AgentEventHooks
@@ -52,14 +52,6 @@ type AgentLoop struct {
 // AgentLoopOption configures an AgentLoop at creation time.
 type AgentLoopOption func(*AgentLoop)
 
-// WithObserver sets the observability observer for tracing agent execution.
-func WithObserver(obs core.Observer) AgentLoopOption {
-	return func(a *AgentLoop) {
-		a.obs = obs
-		a.instr = observability.NewPlannerInstrument(nil)
-	}
-}
-
 // WithExistingSessionID resolves or creates a SessionMemory for the given session ID.
 func WithExistingSessionID(sessionID string) AgentLoopOption {
 	return func(a *AgentLoop) {
@@ -70,7 +62,6 @@ func WithExistingSessionID(sessionID string) AgentLoopOption {
 func NewAgentLoop(cfg config.Config, opts ...AgentLoopOption) *AgentLoop {
 	al := &AgentLoop{
 		cfg: cfg,
-		obs: core.NoopObserver{},
 	}
 
 	// Apply opts (session reuse, observer)
@@ -239,18 +230,18 @@ func (a *AgentLoop) execute(ctx context.Context, input core.AgentInput) ([]core.
 		a.dreamScheduler.NotifyActivity()
 	}
 
-	// observability
-	traceName := a.sessionMem.SessionID()
-	ctx, a.currentTrace = a.obs.StartTrace(ctx, traceName, a.input.Text)
+	// observability — zero-config: noop if InitTracer not called
+	tracer := otel.Tracer("kugelblitz")
+	ctx, rootSpan := tracer.Start(ctx, "planner: "+a.input.Text)
 	defer func() {
-		if a.instr != nil {
-			a.instr.Flush()
+		if a.stepTracer != nil {
+			a.stepTracer.Flush()
 		}
-		a.currentTrace.End()
+		rootSpan.End()
 	}()
-	if a.instr != nil {
-		a.instr.SetTrace(a.currentTrace)
-	}
+	a.stepTracer = observability.NewStepTracer()
+	ctx, _ = a.stepTracer.SetTrace(ctx, tracer, a.input.Text)
+	a.planner.SetStepTracer(a.stepTracer)
 
 	a.planner.RegisterEventHooks(a.rewriteEventHooks(a.eventHooks))
 
@@ -287,8 +278,8 @@ func (a *AgentLoop) rewriteEventHooks(userHooks core.AgentEventHooks) core.Agent
 	}
 
 	// Instrumentation: wrap user callbacks so the observer receives events first.
-	if a.instr != nil {
-		instrH := a.instr.EventHandler()
+	if a.stepTracer != nil {
+		instrH := a.stepTracer.EventHandler()
 		sysHooks.OnReplyChunk = func(id constants.AgentIdentity, chunk string) {
 			instrH.OnReplyChunk(chunk)
 		}
@@ -326,11 +317,13 @@ func (a *AgentLoop) extractMemories() {
 		Goal:           a.input.Text,
 	}
 	result, _ := a.writePipeline.ExtractFromSession(context.Background(), input)
-	if result != nil && a.currentTrace != nil {
-		span := a.currentTrace.StartSpan("memory.extract_before_compress", map[string]any{
-			"facts_stored": result.ItemsStored,
-			"needs_human":  result.NeedsHuman,
-		})
+	if result != nil {
+		tracer := otel.Tracer("kugelblitz")
+		_, span := tracer.Start(context.Background(), "memory.extract_before_compress")
+		span.SetAttributes(
+			attribute.Int("facts_stored", result.ItemsStored),
+			attribute.Int("needs_human", result.NeedsHuman),
+		)
 		span.End()
 	}
 }

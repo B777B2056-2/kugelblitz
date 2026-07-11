@@ -12,6 +12,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ import (
 	"path/filepath"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/observability"
 )
 
 func main() {
@@ -37,6 +39,13 @@ func main() {
 
 	// Load config from kugelblitz.yaml (auto-creates with defaults if missing)
 	cfg := LoadConfig()
+
+	// Initialize OTel tracing (noop if disabled or unconfigured)
+	shutdown, err := observability.InitTracer(context.Background(), cfg.Observability)
+	if err != nil {
+		core.Warn("otel init failed", "err", err)
+	}
+	defer shutdown()
 
 	srv := NewServer()
 	core.Info("kugelblitz-ui starting", "workspace", core.GetWorkspace().Dir())

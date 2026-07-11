@@ -1,15 +1,16 @@
-"""Evaluation orchestrator — ties dataset, agent, sandbox, scorers together."""
+"""Evaluation orchestrator — ties dataset, agent, and scorers together.
+No Docker: agent runs in a temp workspace, pass@k is always 0 (no test execution).
+"""
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
+import tempfile
 
 from .adapters.base import AgentAdapter
-from .common.docker import Sandbox
 from .common.llm import LLMJudge
 from .datasets.swebench import SWEBenchInstance, build_goal, load_instances
 from .reporters.langfuse import InstanceScores, LangfuseReporter
 from .reporters.markdown import generate_report
-from .scorers.e2e import score_e2e
+from .scorers.e2e import E2EScore, score_e2e
 from .scorers.memory import score_memory_single_turn
 from .scorers.plan import score_plan
 from .scorers.tools import score_tools
@@ -33,9 +34,9 @@ class Orchestrator:
         self.parallel = parallel
         self.w_e2e, self.w_tools, self.w_plan, self.w_memory = weights
 
-    def run(self, dataset_path: str, max_instances: int | None = None) -> list[InstanceScores]:
-        instances = load_instances(dataset_path, max_instances)
-
+    def run(self, dataset: str = "swebench-lite", split: str = "dev",
+            max_instances: int | None = None) -> list[InstanceScores]:
+        instances = load_instances(dataset=dataset, split=split, max_count=max_instances)
         if self.parallel > 1:
             return self._run_parallel(instances)
         return self._run_sequential(instances)
@@ -55,43 +56,36 @@ class Orchestrator:
         return results
 
     def _eval_one(self, inst: SWEBenchInstance) -> InstanceScores:
-        sandbox = Sandbox(inst.instance_id, inst.repo, inst.base_commit)
-        try:
-            workdir = sandbox.start()
-            goal = build_goal(inst)
-            session_id = f"eval__{inst.instance_id}"
+        workdir = tempfile.mkdtemp(prefix=f"kubeval-{inst.instance_id}-")
+        goal = build_goal(inst)
+        session_id = f"eval__{inst.instance_id}"
 
-            # ── Run agent ──
-            result = self.adapter.run(session_id, goal, workdir)
+        result = self.adapter.run(session_id, goal, workdir)
 
-            # ── Extract patch and run tests ──
-            patch = Sandbox.extract_patch_from_result(result)
-            test_results = {}
-            if patch:
-                test_results = sandbox.apply_patch_and_test(
-                    patch, inst.fail_to_pass, inst.pass_to_pass)
+        # pass@k = 0 without Docker test execution
+        e2e = E2EScore(pass_k=0.0, reply_quality=_judge_reply_only(self.judge, inst, result),
+                        total=0.0)
+        tools = score_tools(result)
+        plan = score_plan(result, self.judge)
+        memory = score_memory_single_turn()
 
-            # ── Score ──
-            e2e = score_e2e(inst, result, sandbox, self.judge)
-            tools = score_tools(result)
-            plan = score_plan(result, self.judge)
-            memory = score_memory_single_turn()
+        total = (e2e.reply_quality * self.w_e2e + tools.total * self.w_tools +
+                 plan.total * self.w_plan + memory.total * self.w_memory)
 
-            total = (e2e.total * self.w_e2e + tools.total * self.w_tools +
-                     plan.total * self.w_plan + memory.total * self.w_memory)
-
-            scores = InstanceScores(
-                instance_id=inst.instance_id,
-                e2e=e2e, tools=tools, plan=plan, memory=memory,
-                total=total, grade=grade(total),
-            )
-
-            self.reporter.report(scores)
-            return scores
-
-        finally:
-            sandbox.stop()
+        scores = InstanceScores(
+            instance_id=inst.instance_id,
+            e2e=e2e, tools=tools, plan=plan, memory=memory,
+            total=total, grade=grade(total),
+        )
+        self.reporter.report(scores)
+        return scores
 
     def generate_report(self, scores: list[InstanceScores],
-                        dataset_name: str, output_path: str = "report.md") -> str:
+                        dataset_name: str, output_path: str = "eval-report.md") -> str:
         return generate_report(scores, dataset_name, self.adapter.name(), output_path)
+
+
+def _judge_reply_only(judge: LLMJudge, inst: SWEBenchInstance, result) -> float:
+    """Score reply quality without pass@k context."""
+    from .scorers.e2e import _judge_reply
+    return _judge_reply(judge, inst.issue, result.final_reply)

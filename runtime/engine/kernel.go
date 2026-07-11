@@ -8,6 +8,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/memory"
+	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/dag"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/fsm"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
@@ -86,6 +87,11 @@ func (sm *Kernel) Compressor() *memory.Compressor {
 // Run executes the state machine main loop.
 func (sm *Kernel) Run(ctx context.Context, input core.AgentInput) ([]core.Message, error) {
 	return sm.machine.Run(ctx, input)
+}
+
+// SetStepTracer attaches the shared StepTracer to the main ReAct agent.
+func (sm *Kernel) SetStepTracer(st *observability.StepTracer) {
+	sm.mainReact.SetStepTracer(st)
 }
 
 // SetProvider replaces the LLM provider for the main ReAct loop, DAG workers,

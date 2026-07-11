@@ -1,8 +1,8 @@
-go 1.24
+go 1.25.0
 
 use (
 	.
-	./cmd/common
 	./cmd/acp_server
+	./cmd/common
 	./cmd/kugelblitz-ui
 )

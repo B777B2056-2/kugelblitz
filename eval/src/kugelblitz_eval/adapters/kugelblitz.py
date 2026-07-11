@@ -4,13 +4,18 @@ import json
 import subprocess
 import time
 from pathlib import Path
-
 from .base import AgentAdapter, AgentResult, ToolCall, PlanUpdate
 
 
 class KugelblitzAdapter(AgentAdapter):
     def __init__(self, cli_path: str = "./cli/eval-cli"):
-        self.cli_path = Path(cli_path)
+        # Windows: try .exe extension if plain path doesn't exist
+        p = Path(cli_path)
+        if not p.exists() and not p.suffix:
+            pex = p.with_suffix(".exe")
+            if pex.exists():
+                p = pex
+        self.cli_path = p
 
     def name(self) -> str:
         return "Kugelblitz"
