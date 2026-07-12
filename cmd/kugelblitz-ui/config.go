@@ -12,7 +12,7 @@ import (
 )
 
 // ServerConfig is the wire format for GET/PUT /api/settings/config.
-// It mirrors config.Config but with a masked API key and no Provider instance.
+// It mirrors config.Config with no Provider instance.
 type ServerConfig struct {
 	ProviderName               string                            `json:"provider_name"`
 	Model                      string                            `json:"model"`
@@ -95,11 +95,6 @@ func SaveConfig(cfg config.Config) error {
 	return nil
 }
 
-// isRealAPIKey returns true if the key is not empty and not masked (doesn't start with "••••").
-func isRealAPIKey(key string) bool {
-	return key != "" && (len(key) < 4 || key[:4] != "••••")
-}
-
 // reloadConfigFromFile re-reads kugelblitz.yaml into memory.
 func reloadConfigFromFile() {
 	configMu.Lock()
@@ -112,7 +107,7 @@ func reloadConfigFromFile() {
 	currentConfig = cfg
 }
 
-// toServerConfig converts config.Config to the JSON wire format with masked API key.
+// toServerConfig converts config.Config to the JSON wire format.
 func toServerConfig(cfg config.Config) ServerConfig {
 	sc := ServerConfig{
 		ProviderName:               cfg.Model.ProviderName,
@@ -130,9 +125,6 @@ func toServerConfig(cfg config.Config) ServerConfig {
 		ReviewInterval:             cfg.TargetDrift.ReviewInterval,
 		MaxFailuresBeforeReview:    cfg.TargetDrift.MaxFailuresBeforeReview,
 		MCPServers:                 cfg.MCP,
-	}
-	if len(sc.APIKey) > 4 {
-		sc.APIKey = "••••" + sc.APIKey[len(sc.APIKey)-4:]
 	}
 
 	// Multimodal
@@ -156,14 +148,6 @@ func toServerConfig(cfg config.Config) ServerConfig {
 	sc.OtelAuthHeader = cfg.Observability.AuthHeader
 	sc.OtelServiceName = cfg.Observability.ServiceName
 
-	// Mask image/audio API keys
-	if len(sc.ImageAPIKey) > 4 {
-		sc.ImageAPIKey = "••••" + sc.ImageAPIKey[len(sc.ImageAPIKey)-4:]
-	}
-	if len(sc.AudioAPIKey) > 4 {
-		sc.AudioAPIKey = "••••" + sc.AudioAPIKey[len(sc.AudioAPIKey)-4:]
-	}
-
 	return sc
 }
 
@@ -178,11 +162,7 @@ func fromServerConfig(sc ServerConfig, existingCfg config.Config) config.Config 
 	cfg.Model.EnableThinking = sc.EnableThinking
 	cfg.Model.ReasoningEffort = sc.ReasoningEffort
 
-	if sc.APIKey != "" && (len(sc.APIKey) < 4 || sc.APIKey[:4] != "••••") {
-		cfg.Model.APIKey = sc.APIKey
-	} else {
-		cfg.Model.APIKey = existingCfg.Model.APIKey
-	}
+	cfg.Model.APIKey = sc.APIKey
 
 	cfg.Runtime.MaxStateMachineCycles = sc.MaxStateMachineCycles
 	cfg.ContextCompress.MaxAttempts = sc.CompressMaxAttempts
@@ -200,8 +180,6 @@ func fromServerConfig(sc ServerConfig, existingCfg config.Config) config.Config 
 	cfg.Observability.ServiceName = sc.OtelServiceName
 
 	// Multimodal — preserve existing config unless explicitly overridden.
-	// Starting from DefaultConfig() would lose previously saved image/audio models
-	// when the frontend sends empty fields (user didn't touch multimodal settings).
 	cfg.Multimodal.AutoDescribeMedia = sc.AutoDescribeMedia
 	cfg.Multimodal.ImageModel = existingCfg.Multimodal.ImageModel
 	cfg.Multimodal.AudioModel = existingCfg.Multimodal.AudioModel
@@ -212,11 +190,6 @@ func fromServerConfig(sc ServerConfig, existingCfg config.Config) config.Config 
 			Model:        sc.ImageModel,
 			BaseURL:      sc.ImageBaseURL,
 			APIKey:       sc.ImageAPIKey,
-		}
-		if isRealAPIKey(sc.ImageAPIKey) {
-			// plain key provided by user
-		} else if existingCfg.Multimodal.ImageModel != nil {
-			im.APIKey = existingCfg.Multimodal.ImageModel.APIKey
 		}
 		if ip, err := config.NewProvider(im.ProviderName, im.APIKey, im.BaseURL, im.Model); err == nil {
 			im.Provider = ip
@@ -230,11 +203,6 @@ func fromServerConfig(sc ServerConfig, existingCfg config.Config) config.Config 
 			Model:        sc.AudioModel,
 			BaseURL:      sc.AudioBaseURL,
 			APIKey:       sc.AudioAPIKey,
-		}
-		if isRealAPIKey(sc.AudioAPIKey) {
-			// plain key provided by user
-		} else if existingCfg.Multimodal.AudioModel != nil {
-			am.APIKey = existingCfg.Multimodal.AudioModel.APIKey
 		}
 		if ap, err := config.NewProvider(am.ProviderName, am.APIKey, am.BaseURL, am.Model); err == nil {
 			am.Provider = ap

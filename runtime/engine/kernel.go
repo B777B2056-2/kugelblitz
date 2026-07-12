@@ -12,6 +12,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/dag"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/fsm"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
+	"go.opentelemetry.io/otel"
 )
 
 // Kernel is the public entry point for the agent runtime. It assembles all
@@ -41,9 +42,10 @@ func NewKernel(
 	}
 	mainReact.EnableHumanInTheLoop()
 
-	compressor := memory.NewCompressor(cfg.Model.Provider)
+	tracer := otel.Tracer("kugelblitz")
+	compressor := memory.NewCompressor(cfg.Model.Provider, tracer)
 	dagExec := dag.NewDAGTaskExecutor(cfg.Model.Provider, cfg.Model.StreamMode)
-	reviewer := infra.NewReviewer(cfg.Model.Provider)
+	reviewer := infra.NewReviewer(cfg.Model.Provider, tracer)
 
 	machine := fsm.NewMachine(fsm.Dependencies{
 		React:      mainReact,
@@ -89,9 +91,10 @@ func (sm *Kernel) Run(ctx context.Context, input core.AgentInput) ([]core.Messag
 	return sm.machine.Run(ctx, input)
 }
 
-// SetStepTracer attaches the shared StepTracer to the main ReAct agent.
+// SetStepTracer propagates the shared StepTracer to the main ReAct agent and DAG workers.
 func (sm *Kernel) SetStepTracer(st *observability.StepTracer) {
 	sm.mainReact.SetStepTracer(st)
+	sm.dagExec.SetStepTracer(st)
 }
 
 // SetProvider replaces the LLM provider for the main ReAct loop, DAG workers,

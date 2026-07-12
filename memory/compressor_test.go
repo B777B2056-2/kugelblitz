@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
 )
 
 func TestBuildSummarizePrompt_NoExistingSummary(t *testing.T) {
@@ -103,7 +104,7 @@ func TestCompressor_Summarize_ReturnsUsage(t *testing.T) {
 			}, nil
 		},
 	}
-	c := NewCompressor(mp)
+	c := NewCompressor(mp, otel.Tracer("test"))
 	summary, gotUsage, err := c.Summarize(context.Background(), []core.Message{
 		core.NewUserMessage(core.TextContent{Text: "hello"}),
 	}, "")
@@ -121,7 +122,7 @@ func TestCompressor_Summarize_NilUsageWhenError(t *testing.T) {
 			return nil, assert.AnError
 		},
 	}
-	c := NewCompressor(mp)
+	c := NewCompressor(mp, otel.Tracer("test"))
 	_, gotUsage, err := c.Summarize(context.Background(), []core.Message{
 		core.NewUserMessage(core.TextContent{Text: "hello"}),
 	}, "")

@@ -38,8 +38,6 @@ func (a *ReactAction) Execute(ctx *Context) (*ActionResult, error) {
 	})
 	sessionCtx := core.WithSessionID(ctx.Ctx, deps.Session.SessionID())
 
-	userMsg := a.Input.BuildUserMessage()
-	deps.Session.AppendMessage(userMsg)
 	history := deps.Session.GetHistoryMessages()
 
 	tools := ToolsForState(a.State)

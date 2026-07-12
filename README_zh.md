@@ -16,7 +16,7 @@
 - **Human-in-the-Loop** — `ask_human` 工具暂停执行，DAG 全局同步暂停，`OnWaitForHumanAction` + `ResumeWithHumanResponse` 恢复
 - **Skills 插件** — 可插拔 YAML/SKILL.md 领域知识模块
 - **内置 Web 工具** — `web_search`（DuckDuckGo 零配置）+ `web_fetch`（HTML→Markdown，可选 JS 渲染）
-- **可观测性** — Observer 接口 + 预置 Langfuse Adapter，完整 trace/span/generation 层级
+- **可观测性** — OpenTelemetry 全链路追踪，完整 trace/span/generation 层级
 - **统一 Usage 回调** — 所有 LLM token 消耗通过单一回调上报，按来源标识
 - **ACP 协议** — JSON-RPC 2.0 over stdio，接入 Zed / JetBrains / VS Code / Neovim
 - **MCP 协议** — 连接外部 MCP 服务器作为子进程，自动发现工具并以 `mcp_<server>_<tool>` 命名注册
@@ -63,8 +63,8 @@
                          │                 │                    │
                          │  ┌──────────────▼─────────────────┐  │
                          │  │  可观测性                      │  │
-                         │  │  Observer 接口                 │  │
-                         │  │  预置 Langfuse Adapter         │  │
+                         │  │  OTel Span 层级                 │  │
+                         │  │  OTel 全链路追踪         │  │
                          │  │  + 统一 usage 回调             │  │
                          │  └────────────────────────────────┘  │
                          └──────────────────────────────────────┘
@@ -124,13 +124,10 @@ func main() {
 }
 ```
 
-可选接入可观测平台（预置 Langfuse Adapter）：
+可选启用 OTel 追踪（在 kugelblitz.yaml 中配置 `otel_*` 键）：
 
 ```bash
-go run . -apikey sk-xxx \
-  -langfuse-host http://localhost:3000 \
-  -langfuse-pk pk-xxx \
-  -langfuse-sk sk-xxx
+go run . -apikey sk-xxx
 ```
 
 ## 核心概念
@@ -657,32 +654,38 @@ type ReviewResult struct {
 
 ## 可观测性
 
-### 可观测性（Observer 接口，预置 Langfuse Adapter）
+### OpenTelemetry 全链路追踪
 
 执行过程自动生成完整层级：
 
 ```
-Trace "session-<uuid>"
+Trace "planner: <目标>"
   ├── Span "react.step" #1
-  │   ├── Generation "step-1-llm"     ← 输入/输出 token
-  │   ├── Span "tool:plan_create"     ← 入参 + 执行结果
+  │   ├── Span "step-1-llm"          ← 输入/输出 token
+  │   ├── Span "tool:plan_create"    ← 入参 + 执行结果
   │   └── Span "tool:task_insert"
-  ├── Span "context.compress"         ← 压缩摘要 + token 用量
+  ├── Span "reviewer.check"          ← 漂移评估 + token 用量
+  ├── Span "compress.summarize"      ← 压缩摘要 + token 用量
   ├── Span "react.step" #2
-  │   ├── Generation "step-2-llm"
+  │   ├── Span "step-2-llm"
   │   └── Span "tool:worker_spawn"
-  └── Span "reviewer.check"           ← 漂移评估 + token 用量
+  └── Span "memory.extract_before_compress"
 ```
 
-一行配置即可接入：
+通过 `kugelblitz.yaml` 配置即可接入：
+
+```yaml
+otel_enabled: true
+otel_endpoint: "https://api.langfuse.com/api/public/otel/v1/traces"
+otel_auth_header: "<base64(pk:sk)>"
+otel_service_name: "kugelblitz"
+```
+
+或在代码中：
 
 ```go
-lfObs := observability.NewLangfuseObserver(observability.LangfuseConfig{
-    Host:      "http://localhost:3000",
-    PublicKey: "pk-xxx",
-    SecretKey: "sk-xxx",
-})
-loop := runtime.NewAgentLoop(cfg, runtime.WithObserver(lfObs))
+shutdown, _ := observability.InitTracer(ctx, cfg.Observability)
+defer shutdown()
 ```
 
 ### 统一 Usage 回调
@@ -785,7 +788,7 @@ kugelblitz/
 │   ├── working/           # 工作记忆（Plan + Task + Checkpoint）
 │   └── longterm/          # 长期记忆（MEMORY.md + ChromaDB + Graph + Dream）
 ├── prompts/           # 系统提示词模板
-├── observability/     # Observer 接口 + Langfuse Adapter, PlannerInstrument
+├── observability/     # OTel Span 层级 + OTel SDK, PlannerInstrument
 ├── tools/
 │   ├── mcp/           # MCP 服务集成（客户端、管理器、工具注册）
 │   └── internals/     # 内置工具（plan_*, task_*, memory_*, web, file, shell）

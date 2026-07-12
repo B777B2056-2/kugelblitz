@@ -16,7 +16,7 @@ task orchestration that keep LLM agents predictable, auditable, and controllable
 - **Human-in-the-Loop** — `ask_human` tool pauses execution; DAG-wide pause gate; `OnWaitForHumanAction` + `ResumeWithHumanResponse` resume
 - **Skills** — pluggable YAML/SKILL.md domain-knowledge modules
 - **Built-in Web Tools** — `web_search` (DuckDuckGo, zero-config) + `web_fetch` (HTML→Markdown, optional JS rendering)
-- **Observability** — Observer interface + built-in Langfuse adapter, full trace/span/generation hierarchy
+- **Observability** — OpenTelemetry tracing with full trace/span/generation hierarchy
 - **Unified Usage Callback** — single callback for all LLM token consumption, tagged by source identity
 - **ACP (Agent Client Protocol)** — JSON-RPC 2.0 over stdio, compatible with Zed / JetBrains / VS Code / Neovim
 - **MCP (Model Context Protocol)** — connect external MCP servers as subprocesses, auto-discover and register their tools with `mcp_<server>_<tool>` naming
@@ -64,8 +64,8 @@ task orchestration that keep LLM agents predictable, auditable, and controllable
                          │                 │                    │
                          │  ┌──────────────▼─────────────────┐  │
                          │  │  Observability                 │  │
-                         │  │  Observer interface            │  │
-                         │  │  built-in Langfuse adapter     │  │
+                         │  │  OTel Span hierarchy            │  │
+                         │  │  OTel tracing     │  │
                          │  │  + unified usage callback      │  │
                          │  └────────────────────────────────┘  │
                          └──────────────────────────────────────┘
@@ -125,13 +125,10 @@ func main() {
 }
 ```
 
-Run with optional observability (built-in Langfuse adapter):
+Run with optional OTel tracing (configure via `otel_*` keys in kugelblitz.yaml):
 
 ```bash
-go run . -apikey sk-xxx \
-  -langfuse-host http://localhost:3000 \
-  -langfuse-pk pk-xxx \
-  -langfuse-sk sk-xxx
+go run . -apikey sk-xxx
 ```
 
 ## Core Concepts
@@ -688,32 +685,38 @@ on irrelevant or scope-crept tasks.
 
 ## Observability
 
-### Observability (Observer Interface, Built-in Langfuse Adapter)
+### OpenTelemetry Tracing
 
-Execution is automatically traced with full hierarchy:
+Execution is automatically traced with full hierarchy via OTel:
 
 ```
-Trace "session-<uuid>"
+Trace "planner: <goal>"
   ├── Span "react.step" #1
-  │   ├── Generation "step-1-llm"     ← prompt/completion tokens
-  │   ├── Span "tool:plan_create"     ← input args + output result
+  │   ├── Span "step-1-llm"          ← prompt/completion tokens
+  │   ├── Span "tool:plan_create"    ← input args + output result
   │   └── Span "tool:task_insert"
-  ├── Span "context.compress"         ← compression summary + token usage
+  ├── Span "reviewer.check"          ← drift assessment + token usage
+  ├── Span "compress.summarize"      ← compression summary + token usage
   ├── Span "react.step" #2
-  │   ├── Generation "step-2-llm"
+  │   ├── Span "step-2-llm"
   │   └── Span "tool:worker_spawn"
-  └── Span "reviewer.check"           ← drift assessment + token usage
+  └── Span "memory.extract_before_compress"
 ```
 
-Enable with a single option:
+Enable via `kugelblitz.yaml`:
+
+```yaml
+otel_enabled: true
+otel_endpoint: "https://api.langfuse.com/api/public/otel/v1/traces"
+otel_auth_header: "<base64(pk:sk)>"
+otel_service_name: "kugelblitz"
+```
+
+Or in code:
 
 ```go
-lfObs := observability.NewLangfuseObserver(observability.LangfuseConfig{
-    Host:      "http://localhost:3000",
-    PublicKey: "pk-xxx",
-    SecretKey: "sk-xxx",
-})
-loop := runtime.NewAgentLoop(cfg, runtime.WithObserver(lfObs))
+shutdown, _ := observability.InitTracer(ctx, cfg.Observability)
+defer shutdown()
 ```
 
 ### Unified Usage Callback
@@ -816,7 +819,7 @@ kugelblitz/
 │   ├── working/           # Working Memory (Plan + Task + Checkpoint)
 │   └── longterm/          # Long-Term Memory (MEMORY.md + ChromaDB + Graph + Dream)
 ├── prompts/           # System prompt templates
-├── observability/     # Observer interface + Langfuse adapter, PlannerInstrument
+├── observability/     # OpenTelemetry tracing + StepTracer instrumentation
 ├── tools/
 │   ├── mcp/           # MCP server integration (client, manager, tool registry)
 │   └── internals/     # Built-in tools (plan_*, task_*, memory_*, web, file, shell)

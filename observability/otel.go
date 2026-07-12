@@ -34,7 +34,7 @@ func InitTracer(ctx context.Context, cfg config.ObservabilityConfig) (_ func(), 
 	opts := []otlptracehttp.Option{otlptracehttp.WithEndpointURL(endpoint)}
 	if cfg.AuthHeader != "" {
 		opts = append(opts, otlptracehttp.WithHeaders(map[string]string{
-			"Authorization": cfg.AuthHeader,
+			"Authorization": fmt.Sprintf("Basic %s", cfg.AuthHeader),
 		}))
 	}
 

@@ -9,6 +9,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
+	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
 	"golang.org/x/sync/errgroup"
 )
@@ -24,6 +25,7 @@ type DAGTaskExecutor struct {
 	workerAgentIdentity constants.AgentIdentity      // set by Kernel
 	PauseMu             sync.RWMutex                 // shared pause gate for all workers
 	hitlAgents          map[string]*infra.ReactAgent // taskID → waiting worker (HITL)
+	stepTracer          *observability.StepTracer    // per-step instrumentation
 }
 
 // NewDAGTaskExecutor creates an executor that spawns WorkerAgents internally.
@@ -43,6 +45,11 @@ func (d *DAGTaskExecutor) SetWorkerHooks(hooks core.AgentEventHooks) {
 // SetProvider replaces the LLM provider used for subsequently spawned workers.
 func (d *DAGTaskExecutor) SetProvider(p core.ILMProvider) {
 	d.provider = p
+}
+
+// SetStepTracer attaches the shared StepTracer, propagated to each worker.
+func (d *DAGTaskExecutor) SetStepTracer(st *observability.StepTracer) {
+	d.stepTracer = st
 }
 
 // AnyWorkerInHumanLoopWaiting returns true if any worker is waiting for human input.
@@ -152,6 +159,7 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 				}
 				worker := infra.NewWorkerAgent(d.provider, d.streamMode)
 				worker.SetHooks(d.workerHooks)
+				worker.SetStepTracer(d.stepTracer)
 				worker.SetPauseGate(&d.PauseMu)
 				worker.SetOnHITL(func(agent *infra.ReactAgent, reason, prompt string) {
 					d.hitlAgents[task.ID] = agent

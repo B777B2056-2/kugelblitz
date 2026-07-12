@@ -7,6 +7,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/core"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -23,7 +24,9 @@ import (
 type StepTracer struct {
 	tracer          trace.Tracer
 	currentStepSpan trace.Span
+	parentSpan      trace.Span // root trace span; used by Flush to maintain parent-child link
 	stepNum         int
+	lastErr         error // collected by OnError, flushed in StepSpan/Flush
 
 	thinkBuf     strings.Builder
 	replyBuf     strings.Builder
@@ -41,6 +44,9 @@ func NewStepTracer() *StepTracer {
 func (st *StepTracer) SetTrace(ctx context.Context, tracer trace.Tracer, goal string) (context.Context, trace.Span) {
 	st.tracer = tracer
 	st.stepNum = 1
+	// Save the parent (root) span so Flush can re-attach gen spans even after
+	// the caller's context is cancelled.
+	st.parentSpan = trace.SpanFromContext(ctx)
 	ctx, st.currentStepSpan = tracer.Start(ctx, "react.step",
 		trace.WithAttributes(attribute.Int("step", 1), attribute.String("goal", goal)),
 	)
@@ -77,17 +83,26 @@ func (st *StepTracer) StepSpan(ctx context.Context, step int, results []core.Too
 			))
 		}
 		_, toolSpan := st.tracer.Start(ctx, "tool:"+r.ToolName, opts...)
-		if _, isErr := r.Outputs["error"]; isErr {
+		if errMsg, isErr := r.Outputs["error"]; isErr {
+			errStr := fmt.Sprint(errMsg)
 			toolSpan.SetAttributes(attribute.String("status", "error"))
+			toolSpan.SetStatus(codes.Error, errStr)
+			toolSpan.RecordError(fmt.Errorf("tool %s: %s", r.ToolName, errStr))
 		}
 		toolSpan.End()
 	}
 
+	// Propagate OnError errors to the step span
+	err := st.lastErr
 	st.reset()
 
 	oldSpan := st.currentStepSpan
 	if hasErr {
 		oldSpan.SetAttributes(attribute.String("status", "error"))
+	}
+	if err != nil {
+		oldSpan.SetStatus(codes.Error, err.Error())
+		oldSpan.RecordError(err)
 	}
 	oldSpan.End()
 
@@ -99,19 +114,34 @@ func (st *StepTracer) StepSpan(ctx context.Context, step int, results []core.Too
 }
 
 // Flush creates the final generation and ends the current step span.
+// It must be called exactly once at the end of execution (typically in a defer).
 func (st *StepTracer) Flush() {
 	if st.currentStepSpan == nil {
 		return
 	}
 	if st.thinkBuf.Len() > 0 || st.replyBuf.Len() > 0 {
 		genName := fmt.Sprintf("step-%d-llm", st.stepNum)
-		// Use a background context since the caller's context may be cancelled
-		_, gen := st.tracer.Start(context.Background(), genName, trace.WithSpanKind(trace.SpanKindInternal))
+		// Use a non-cancellable context that still carries the parent span so the
+		// gen span hangs under the root trace instead of becoming an orphan.
+		var genCtx context.Context
+		if st.parentSpan != nil {
+			genCtx = trace.ContextWithSpan(context.Background(), st.parentSpan)
+		} else {
+			genCtx = context.Background()
+		}
+		_, gen := st.tracer.Start(genCtx, genName, trace.WithSpanKind(trace.SpanKindInternal))
 		st.applyGenAttrs(gen)
 		gen.End()
 	}
-	st.currentStepSpan.End()
+
+	err := st.lastErr
 	st.reset()
+
+	if err != nil {
+		st.currentStepSpan.SetStatus(codes.Error, err.Error())
+		st.currentStepSpan.RecordError(err)
+	}
+	st.currentStepSpan.End()
 }
 
 func (st *StepTracer) applyGenAttrs(span trace.Span) {
@@ -136,6 +166,7 @@ func (st *StepTracer) reset() {
 	st.toolNames = nil
 	st.pendingTools = nil
 	st.usage = core.Usage{}
+	st.lastErr = nil
 }
 
 // ---- ModelEventHandler ----
@@ -148,7 +179,7 @@ func (h *stepTracerHandler) OnThinkingChunk(chunk string)     { h.st.thinkBuf.Wr
 func (h *stepTracerHandler) OnReplyChunk(chunk string)        { h.st.replyBuf.WriteString(chunk) }
 func (h *stepTracerHandler) OnBlockThinking(reasoning string) { h.st.thinkBuf.WriteString(reasoning) }
 func (h *stepTracerHandler) OnBlockReply(text string)         { h.st.replyBuf.WriteString(text) }
-func (h *stepTracerHandler) OnError(err error)                {}
+func (h *stepTracerHandler) OnError(err error)                { h.st.lastErr = err }
 
 func (h *stepTracerHandler) OnFunctionCall(detail core.ToolCallDetail) {
 	h.st.toolNames = append(h.st.toolNames, detail.ToolName)

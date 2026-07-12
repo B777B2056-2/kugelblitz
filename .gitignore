@@ -1,16 +1,9 @@
 .vscode
 .claude
-*.exe
+*.exe*
 .mcp.json
 .kugelblitz
 *.sqllite
-bindocs/
-
-# Python / uv
-eval/.venv/
-eval/src/*.egg-info/
-eval/src/**/__pycache__/
-eval/cli/eval-cli
-__pycache__/
-.pytest_cache/
-eval/config.yaml
+bin/
+docs/
+cmd/eval/

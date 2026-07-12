@@ -19,6 +19,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/utils"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 type AgentLoop struct {
@@ -36,6 +37,7 @@ type AgentLoop struct {
 
 	// observability (OTel — zero-config: noop if InitTracer not called)
 	stepTracer *observability.StepTracer
+	rootCtx    context.Context // carries the root trace span for sub-operations
 
 	// hooks & callbacks
 	eventHooks core.AgentEventHooks
@@ -170,7 +172,10 @@ func (a *AgentLoop) Run(ctx context.Context, input core.AgentInput) {
 				a.dreamScheduler.Stop()
 			}
 		}()
-		_, _ = a.execute(ctx, input)
+		_, err := a.execute(ctx, input)
+		if err != nil && a.eventHooks.OnError != nil {
+			a.eventHooks.OnError(constants.AgentMain, err)
+		}
 	}()
 }
 
@@ -221,7 +226,7 @@ func (a *AgentLoop) Agent() core.IAgent { return a.planner.Agent() }
 
 // ---- Execution ----
 
-func (a *AgentLoop) execute(ctx context.Context, input core.AgentInput) ([]core.Message, error) {
+func (a *AgentLoop) execute(ctx context.Context, input core.AgentInput) (messages []core.Message, err error) {
 	if err := input.Validate(); err != nil {
 		return nil, err
 	}
@@ -233,9 +238,14 @@ func (a *AgentLoop) execute(ctx context.Context, input core.AgentInput) ([]core.
 	// observability — zero-config: noop if InitTracer not called
 	tracer := otel.Tracer("kugelblitz")
 	ctx, rootSpan := tracer.Start(ctx, "planner: "+a.input.Text)
+	a.rootCtx = ctx
 	defer func() {
 		if a.stepTracer != nil {
 			a.stepTracer.Flush()
+		}
+		if err != nil {
+			rootSpan.SetStatus(codes.Error, err.Error())
+			rootSpan.RecordError(err)
 		}
 		rootSpan.End()
 	}()
@@ -319,7 +329,7 @@ func (a *AgentLoop) extractMemories() {
 	result, _ := a.writePipeline.ExtractFromSession(context.Background(), input)
 	if result != nil {
 		tracer := otel.Tracer("kugelblitz")
-		_, span := tracer.Start(context.Background(), "memory.extract_before_compress")
+		_, span := tracer.Start(a.rootCtx, "memory.extract_before_compress")
 		span.SetAttributes(
 			attribute.Int("facts_stored", result.ItemsStored),
 			attribute.Int("needs_human", result.NeedsHuman),

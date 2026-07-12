@@ -8,6 +8,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/prompts"
 )
 
@@ -37,6 +38,7 @@ type WorkerAgent struct {
 	hooks      core.AgentEventHooks                           // set by DAG executor; relayed to worker's ReactAgent
 	pauseGate  *sync.RWMutex                                  // shared DAG pause gate; nil = no pausing
 	onHITL     func(agent *ReactAgent, reason, prompt string) // fire on worker HITL
+	stepTracer *observability.StepTracer                      // per-step OTel instrumentation (shared from DAG)
 }
 
 // NewWorkerAgent creates a WorkerAgent with built-in execution tools plus custom tools.
@@ -56,6 +58,9 @@ func (w *WorkerAgent) SetPauseGate(g *sync.RWMutex) { w.pauseGate = g }
 
 // SetProvider replaces the LLM provider used for subsequent task execution.
 func (w *WorkerAgent) SetProvider(p core.ILMProvider) { w.provider = p }
+
+// SetStepTracer attaches a StepTracer for per-step OTel instrumentation.
+func (w *WorkerAgent) SetStepTracer(st *observability.StepTracer) { w.stepTracer = st }
 
 // SetOnHITL sets the callback fired when the worker enters HITL.
 func (w *WorkerAgent) SetOnHITL(fn func(agent *ReactAgent, reason, prompt string)) { w.onHITL = fn }
@@ -106,6 +111,12 @@ func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (str
 	})
 
 	agent := NewReactAgent(w.provider, w.streamMode)
+
+	// Wire per-step OTel tracing for this task
+	if w.stepTracer != nil {
+		agent.SetStepTracer(w.stepTracer)
+	}
+
 	agent.WithTools(append(workerTools, core.GetToolRegistry().CustomToolNames()...)...)
 	agent.EnableHumanInTheLoop()
 	if w.pauseGate != nil {

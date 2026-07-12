@@ -53,6 +53,10 @@ func (m *Machine) Run(ctx context.Context, input core.AgentInput) ([]core.Messag
 	fsmCtx.Deps.HandleDrift = func(c *Context, reason string) {
 		m.handleDrift(c, reason)
 	}
+
+	// Append user message once at entry, not on every state transition.
+	fsmCtx.Deps.Session.AppendMessage(input.BuildUserMessage())
+
 	m.reset()
 
 	for cycle := 0; cycle < m.deps.Config.MaxCycles; cycle++ {
