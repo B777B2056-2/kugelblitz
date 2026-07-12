@@ -72,10 +72,10 @@ func Save(path string, cfg config.Config) error {
 		"review_interval":                cfg.TargetDrift.ReviewInterval,
 		"max_failures_before_review":     cfg.TargetDrift.MaxFailuresBeforeReview,
 		"auto_describe_media":            cfg.Multimodal.AutoDescribeMedia,
-		"otel_enabled":                    cfg.Observability.Enabled,
-		"otel_endpoint":                   cfg.Observability.Endpoint,
-		"otel_auth_header":                cfg.Observability.AuthHeader,
-		"otel_service_name":               cfg.Observability.ServiceName,
+		"otel_enabled":                   cfg.Observability.Enabled,
+		"otel_endpoint":                  cfg.Observability.Endpoint,
+		"otel_auth_header":               cfg.Observability.AuthHeader,
+		"otel_service_name":              cfg.Observability.ServiceName,
 	}
 	if cfg.Multimodal.ImageModel != nil {
 		out["image_provider_name"] = cfg.Multimodal.ImageModel.ProviderName
