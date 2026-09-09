@@ -37,6 +37,7 @@ function updateWelcome() {
 async function loadSessions() {
     try {
         const res = await fetch('/api/session');
+        if (!res.ok) return;
         const sessions = await res.json();
         const sel = document.getElementById('session-select');
         sel.innerHTML = '<option value="">— 历史会话 —</option>';
@@ -57,6 +58,7 @@ async function loadSessions() {
 async function newSession() {
     try {
         const res = await fetch('/api/session', { method: 'POST' });
+        if (!res.ok) return;
         const data = await res.json();
         state.sessionId = data.session_id;
         resetAll();
@@ -98,7 +100,7 @@ async function switchSession(id) {
                 total: data.total_usage.total || 0
             };
             updateUsagePanel();
-            document.getElementById('token-counter').textContent = fmtNum(state.tokenCumulative.total) + ' tokens';
+            document.getElementById('token-counter').textContent = formatTokens(state.tokenCumulative.total) + ' tokens';
         }
         updateWelcome();
         scrollDown();
@@ -130,7 +132,7 @@ function renderStoredMessage(m) {
             appendMessage('tool_result', '📋', m.tool_name || 'result', `<pre>${escapeHtml(JSON.stringify(m.tool_out, null, 2))}</pre>`);
             break;
         case 'system':
-            appendMessage('system', '📌', 'System', `<p>${m.content}</p>`);
+            appendMessage('system', '📌', 'System', `<p>${escapeHtml(m.content)}</p>`);
             break;
         case 'error':
             appendMessage('error', '❌', 'Error', `<p>${escapeHtml(m.content)}</p>`);
@@ -390,13 +392,13 @@ function onToolResult(data) {
     }
 
     let sum = '';
-    if (isErr) sum = '<span style="color:var(--red)">' + escapeHtml(String(output.error)) + '</span>';
+    if (isErr) sum = '<span class="sum-error">' + escapeHtml(String(output.error)) + '</span>';
     else {
         const keys = Object.keys(output);
-        if (keys.length === 0) sum = '<span style="color:var(--text-tertiary)">(empty)</span>';
+        if (keys.length === 0) sum = '<span class="sum-muted">(empty)</span>';
         else if (keys.length <= 2 && typeof output[keys[0]] === 'string' && output[keys[0]].length < 100)
-            sum = keys.map(k => '<b style="color:var(--text-secondary)">' + k + ':</b> ' + escapeHtml(String(output[k]))).join('<br>');
-        else sum = '<span style="color:var(--text-tertiary)">' + keys.length + ' 字段: ' + keys.slice(0, 4).join(', ') + (keys.length > 4 ? '…' : '') + '</span>';
+            sum = keys.map(k => '<b class="sum-key">' + escapeHtml(k) + ':</b> ' + escapeHtml(String(output[k]))).join('<br>');
+        else sum = '<span class="sum-muted">' + keys.length + ' 字段: ' + keys.slice(0, 4).join(', ') + (keys.length > 4 ? '…' : '') + '</span>';
     }
     const div = document.createElement('div');
     div.className = 'message tool_result' + (isErr ? ' error' : '');
@@ -461,7 +463,7 @@ function onPlanRollback(data) {
     const name = escapeHtml(data.plan_name || '');
     const div = document.createElement('div');
     div.className = 'message system';
-    div.innerHTML = `<div class="content" style="background:var(--yellow-bg, #fff8e1);border-left:3px solid var(--yellow, #f9a825);padding:10px 14px;border-radius:4px;">
+    div.innerHTML = `<div class="content rollback-warning">
         <strong>⚠️ 计划已自动回滚至版本 ${version}</strong><br>
         审查发现执行可能偏离目标 <em>${name}</em>，已恢复到上一版本。Agent 将在下一轮回复中确认是否继续。
     </div>`;
@@ -478,9 +480,9 @@ function onHitl(data) {
         if (!d) { console.error('hitl-dialog missing'); return; }
 
         var el = document.getElementById('hitl-reason');
-        if (el) el.innerHTML = data.reason ? marked.parse('**原因：** '+data.reason) : '';
+        if (el) el.innerHTML = data.reason ? marked.parse('**原因：** ' + escapeHtml(data.reason)) : '';
         el = document.getElementById('hitl-question');
-        if (el) el.innerHTML = marked.parse(data.question||'需要您的输入');
+        if (el) el.innerHTML = marked.parse(escapeHtml(data.question || '需要您的输入'));
 
         var btns = document.getElementById('hitl-buttons');
         if (!btns) { console.error('hitl-buttons missing'); return; }
@@ -525,7 +527,7 @@ function onDone(data) {
     if (data.session_id) state.sessionId = data.session_id;
     if (data.usage) {
         state.totalTokens += data.usage.total || 0;
-        document.getElementById('token-counter').textContent = fmtNum(state.totalTokens)+' tokens';
+        document.getElementById('token-counter').textContent = formatTokens(state.totalTokens)+' tokens';
     }
     updateStatus('完成','connected');
     loadSessions();
@@ -614,16 +616,58 @@ function updateAgentIdentity(id) {
 }
 
 function updateTokenDisplay(input, output, reasoning, total) {
-    var tc = document.querySelector('#token-counter');
-    if (!tc) return;
-    var tin = tc.querySelector('.tok-in');
-    var tout = tc.querySelector('.tok-out');
-    var trea = tc.querySelector('.tok-reason');
-    var ttot = tc.querySelector('.tok-total');
-    if (tin) tin.textContent = '输入 ' + formatTokens(input);
-    if (tout) tout.textContent = '输出 ' + formatTokens(output);
-    if (trea) trea.textContent = '推理 ' + formatTokens(reasoning);
-    if (ttot) ttot.textContent = '总计 ' + formatTokens(total);
+    setText('token-counter', formatTokens(total) + ' tokens');
+    updateUsagePanel();
+}
+
+// Refresh the right-panel usage tab from accumulated state.
+function updateUsagePanel() {
+    const c = state.tokenCumulative;
+    setText('usage-input', formatTokens(c.input));
+    setText('usage-output', formatTokens(c.output));
+    setText('usage-reasoning', formatTokens(c.reasoning));
+    setText('usage-total', formatTokens(c.total));
+
+    const total = c.total || 1;
+    setWidth('bar-input', pct(c.input, total));
+    setWidth('bar-output', pct(c.output, total));
+    setWidth('bar-reasoning', pct(c.reasoning, total));
+
+    renderUsageBySource();
+}
+
+// Render the per-agent token breakdown (from the token_report event).
+function renderUsageBySource() {
+    const container = document.getElementById('usage-by-source');
+    if (!container) return;
+    const reports = state.tokenReports || [];
+    if (reports.length === 0) {
+        container.innerHTML = '<div class="usage-empty">等待用量数据…</div>';
+        return;
+    }
+    container.innerHTML = reports.map(function(r) {
+        var meta = '输入 ' + formatTokens(r.input || 0) + ' · 输出 ' + formatTokens(r.output || 0);
+        if (r.reasoning) meta += ' · 推理 ' + formatTokens(r.reasoning);
+        return '<div class="usage-source-row">' +
+            '<span class="usage-source-id">' + escapeHtml(r.identity || '?') + '</span>' +
+            '<span class="usage-source-meta">' + meta + '</span>' +
+            '<span class="usage-source-total">' + formatTokens(r.total || 0) + '</span>' +
+            '</div>';
+    }).join('');
+}
+
+function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+}
+
+function setWidth(id, w) {
+    const el = document.getElementById(id);
+    if (el) el.style.width = w;
+}
+
+function pct(part, total) {
+    return (total > 0 ? Math.round(part / total * 100) : 0) + '%';
 }
 
 function formatTokens(n) {
@@ -706,4 +750,15 @@ function switchTab(tab) {
         settings.classList.remove('active');
         tChat.classList.add('active'); tSettings.classList.remove('active');
     }
+}
+
+function switchRightTab(tab) {
+    const active = tab === 'usage' ? 'usage' : 'plan';
+    document.querySelectorAll('.right-tab').forEach(function(b) {
+        b.classList.toggle('active', b.dataset.tab === active);
+    });
+    const plan = document.getElementById('right-plan');
+    const usage = document.getElementById('right-usage');
+    if (plan) plan.classList.toggle('active', active === 'plan');
+    if (usage) usage.classList.toggle('active', active === 'usage');
 }
