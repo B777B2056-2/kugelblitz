@@ -68,6 +68,17 @@ func TestFromServerConfig_RoundTrip(t *testing.T) {
 	assert.Equal(t, "sk-real-audio-key-9012ijkl", result.Multimodal.AudioModel.APIKey)
 }
 
+func TestForceMode_RoundTrip(t *testing.T) {
+	existingCfg := config.DefaultConfig()
+	existingCfg.Runtime.ForceMode = "simple"
+
+	sc := toServerConfig(existingCfg)
+	assert.Equal(t, "simple", sc.ForceMode)
+
+	result := fromServerConfig(sc, existingCfg)
+	assert.Equal(t, "simple", result.Runtime.ForceMode)
+}
+
 func TestFromServerConfig_NewAPIKeyAccepted(t *testing.T) {
 	existingCfg := config.DefaultConfig()
 	existingCfg.Model.APIKey = "sk-old-key"

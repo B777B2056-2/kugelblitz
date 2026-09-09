@@ -40,6 +40,13 @@ type TargetDriftConfig struct {
 // RuntimeConfig groups state machine runtime parameters.
 type RuntimeConfig struct {
 	MaxStateMachineCycles int `json:"max_state_machine_cycles"`
+
+	// ForceMode skips the Intent (set_work_mode) classification phase and starts
+	// the state machine directly in the given mode.
+	//   "" or "auto" — default: the LLM classifies the request via set_work_mode.
+	//   "plan"       — always enter plan mode (PlanStateInit).
+	//   "simple"     — always enter direct execution (PlanStateDirect).
+	ForceMode string `json:"force_mode"`
 }
 
 // MCPServerConfig defines how to connect to a single MCP server.

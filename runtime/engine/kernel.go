@@ -58,6 +58,7 @@ func NewKernel(
 			CompressMaxAttempts:     cfg.ContextCompress.MaxAttempts,
 			ReviewInterval:          cfg.TargetDrift.ReviewInterval,
 			MaxFailuresBeforeReview: cfg.TargetDrift.MaxFailuresBeforeReview,
+			ForceMode:               cfg.Runtime.ForceMode,
 		},
 	})
 

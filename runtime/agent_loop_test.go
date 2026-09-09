@@ -487,6 +487,81 @@ func TestAgentLoop_IntentToDirect_SimpleTask(t *testing.T) {
 	assert.Empty(t, working.ListPlans(), "simple task should not create a plan")
 }
 
+// toolNames extracts the tool definition names offered in a Generate call.
+func toolNames(params core.GenerateParams) []string {
+	var names []string
+	for _, td := range params.Tools {
+		names = append(names, td.Name)
+	}
+	return names
+}
+
+func TestAgentLoop_ForceModeSimple_SkipsIntent(t *testing.T) {
+	core.GetWorkspace().SetDir(t.TempDir())
+	working.ResetPlans()
+
+	var firstTools []string
+	var firstSystemPrompt string
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			if firstTools == nil {
+				firstTools = toolNames(params)
+				if len(params.Messages) > 0 {
+					if tc, ok := params.Messages[0].Content.(core.TextContent); ok {
+						firstSystemPrompt = tc.Text
+					}
+				}
+			}
+			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+			msg.FinishReason = "stop"
+			return &msg, nil
+		},
+	}
+
+	cfg := testCfg(provider)
+	cfg.Runtime.ForceMode = "simple"
+	al := NewAgentLoop(cfg)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	al.Run(ctx, core.AgentInput{Text: "echo hello"})
+	<-al.Done()
+
+	assert.Empty(t, working.ListPlans(), "force_mode=simple should not create a plan")
+	assert.NotContains(t, firstSystemPrompt, "intent recognition", "intent prompt should be skipped")
+	assert.Contains(t, firstTools, "shell_exec", "direct mode should expose execution tools")
+	assert.NotContains(t, firstTools, "set_work_mode", "set_work_mode should not be offered when intent is skipped")
+}
+
+func TestAgentLoop_ForceModePlan_SkipsIntent(t *testing.T) {
+	core.GetWorkspace().SetDir(t.TempDir())
+	working.ResetPlans()
+
+	var firstTools []string
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			if firstTools == nil {
+				firstTools = toolNames(params)
+			}
+			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+			msg.FinishReason = "stop"
+			return &msg, nil
+		},
+	}
+
+	cfg := testCfg(provider)
+	cfg.Runtime.ForceMode = "plan"
+	al := NewAgentLoop(cfg)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	al.Run(ctx, core.AgentInput{Text: "build a web app"})
+	<-al.Done()
+
+	assert.Contains(t, firstTools, "plan_create", "plan mode should offer plan_create directly")
+	assert.NotContains(t, firstTools, "set_work_mode", "set_work_mode should not be offered when intent is skipped")
+}
+
 func TestAgentLoop_RejectPath_UserRejectsPlan(t *testing.T) {
 	core.GetWorkspace().SetDir(t.TempDir())
 	working.ResetPlans()

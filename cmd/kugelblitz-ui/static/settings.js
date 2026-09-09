@@ -50,6 +50,7 @@ async function loadConfigForm() {
 
         // Runtime
         setNum('cfg-max-cycles', cfg.max_state_machine_cycles, 30);
+        setVal('cfg-force-mode', cfg.force_mode, '');
 
         // Context Compress
         setNum('cfg-compress-attempts', cfg.compress_max_attempts, 1);
@@ -128,6 +129,7 @@ async function saveConfig() {
         enable_thinking:            document.getElementById('cfg-thinking').checked,
         reasoning_effort:           document.getElementById('cfg-reasoning-effort').value,
         max_state_machine_cycles:   parseInt(document.getElementById('cfg-max-cycles').value) || 30,
+        force_mode:                 document.getElementById('cfg-force-mode').value,
         compress_max_attempts:      parseInt(document.getElementById('cfg-compress-attempts').value) || 1,
         compress_max_tool_result_chars: parseInt(document.getElementById('cfg-compress-chars').value) || 4000,
         compress_keep_last_n:       parseInt(document.getElementById('cfg-keep-last-n').value) || 20,

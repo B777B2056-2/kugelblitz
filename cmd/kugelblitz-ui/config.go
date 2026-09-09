@@ -22,6 +22,7 @@ type ServerConfig struct {
 	EnableThinking             bool                              `json:"enable_thinking"`
 	ReasoningEffort            string                            `json:"reasoning_effort"`
 	MaxStateMachineCycles      int                               `json:"max_state_machine_cycles"`
+	ForceMode                  string                            `json:"force_mode"`
 	CompressMaxAttempts        int                               `json:"compress_max_attempts"`
 	CompressMaxToolResultChars int                               `json:"compress_max_tool_result_chars"`
 	CompressKeepLastN          int                               `json:"compress_keep_last_n"`
@@ -118,6 +119,7 @@ func toServerConfig(cfg config.Config) ServerConfig {
 		EnableThinking:             cfg.Model.EnableThinking,
 		ReasoningEffort:            cfg.Model.ReasoningEffort,
 		MaxStateMachineCycles:      cfg.Runtime.MaxStateMachineCycles,
+		ForceMode:                  cfg.Runtime.ForceMode,
 		CompressMaxAttempts:        cfg.ContextCompress.MaxAttempts,
 		CompressMaxToolResultChars: cfg.ContextCompress.MaxToolResultChars,
 		CompressKeepLastN:          cfg.ContextCompress.KeepLastN,
@@ -165,6 +167,7 @@ func fromServerConfig(sc ServerConfig, existingCfg config.Config) config.Config 
 	cfg.Model.APIKey = sc.APIKey
 
 	cfg.Runtime.MaxStateMachineCycles = sc.MaxStateMachineCycles
+	cfg.Runtime.ForceMode = sc.ForceMode
 	cfg.ContextCompress.MaxAttempts = sc.CompressMaxAttempts
 	cfg.ContextCompress.MaxToolResultChars = sc.CompressMaxToolResultChars
 	cfg.ContextCompress.KeepLastN = sc.CompressKeepLastN

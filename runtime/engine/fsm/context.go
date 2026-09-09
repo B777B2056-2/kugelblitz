@@ -46,4 +46,8 @@ type MachineConfig struct {
 	CompressMaxAttempts     int
 	ReviewInterval          int
 	MaxFailuresBeforeReview int
+
+	// ForceMode skips the Intent phase and starts directly in the given mode.
+	// "" or "auto" → intent classification; "plan" → init; "simple" → direct.
+	ForceMode string
 }

@@ -17,6 +17,7 @@ func TestDefaultConfig(t *testing.T) {
 	assert.True(t, cfg.Model.EnableThinking)
 	assert.Equal(t, "high", cfg.Model.ReasoningEffort)
 	assert.Equal(t, 30, cfg.Runtime.MaxStateMachineCycles)
+	assert.Equal(t, "", cfg.Runtime.ForceMode)
 	assert.Nil(t, cfg.MCP)
 }
 
