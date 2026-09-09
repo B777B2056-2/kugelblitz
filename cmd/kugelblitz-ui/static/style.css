@@ -130,8 +130,6 @@ body {
 
 /* ═══ Token Counter (in status bar) ═══ */
 .token-counter { display:flex; gap:10px; font-family:var(--mono); font-size:10px; color:var(--text-tertiary); }
-.token-counter span { white-space:nowrap; }
-.token-counter .tok-total { color:var(--text-secondary); font-weight:600; }
 
 /* ═══ Welcome ═══ */
 #welcome { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px; text-align:center; }
@@ -255,6 +253,7 @@ body {
 #status-bar { display:flex; align-items:center; gap:10px; padding:0 16px; height:28px; background:var(--bg-surface); border-top:1px solid var(--border-subtle); font-size:11px; color:var(--text-tertiary); flex-shrink:0; }
 #status-bar .dot { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 6px rgba(52,211,153,.4); transition:all .3s; }
 #status-bar .dot.disconnected { background:var(--red); box-shadow:none; }
+#status-bar .dot.error { background:var(--red); box-shadow:none; }
 #status-bar .dot.processing { background:var(--yellow); box-shadow:0 0 6px rgba(251,191,36,.4); animation:pulse 1.5s ease-in-out infinite; }
 #status-bar #session-info { color:var(--accent-strong); font-family:var(--mono); font-size:10px; }
 #status-bar .token-counter { margin-left:auto; font-family:var(--mono); font-size:10px; background:var(--bg-elevated); padding:2px 8px; border-radius:4px; color:var(--text-secondary); }

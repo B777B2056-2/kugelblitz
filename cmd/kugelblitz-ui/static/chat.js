@@ -9,7 +9,6 @@ const state = {
     replyId: null,
     hitlWaiting: false,
     processing: false,
-    totalTokens: 0,
     abortController: null,
     tokenReports: [],
     tokenCumulative: { input:0, output:0, reasoning:0, total:0 },
@@ -120,10 +119,10 @@ function renderStoredMessage(m) {
             appendMessage('user', '👤', 'You', uHtml);
             break;
         case 'assistant':
-            appendMessage('assistant', '🤖', 'Agent', `<div class="content">${marked.parse(m.content || '')}</div>`);
+            appendMessage('assistant', '🤖', 'Agent', `<div class="content">${md(m.content || '')}</div>`);
             break;
         case 'think':
-            appendMessage('thinking', '💭', '思考过程', `<div class="think-body">${marked.parse(m.content || '')}</div>`);
+            appendMessage('thinking', '💭', '思考过程', `<div class="think-body">${md(m.content || '')}</div>`);
             break;
         case 'tool_call':
             appendMessage('tool_call', '🔧', m.tool_name || 'tool', `<pre>${escapeHtml(JSON.stringify(m.tool_args, null, 2))}</pre>`);
@@ -147,7 +146,6 @@ function resetAll() {
     state.thinkingId = null;
     state.replyId = null;
     state.activePlanId = null;
-    state.totalTokens = 0;
     state.tokenReports = [];
     state.tokenCumulative = { input:0, output:0, reasoning:0, total:0 };
     state.maxSourceTokens = 1;
@@ -301,7 +299,7 @@ function onThink(data) {
         const el = document.getElementById(state.thinkingId);
         if (el) {
             el.dataset.raw = (el.dataset.raw||'') + data.text;
-            el.querySelector('.think-body').innerHTML = marked.parse(el.dataset.raw);
+            el.querySelector('.think-body').innerHTML = md(el.dataset.raw);
         }
     }
 }
@@ -312,7 +310,7 @@ function createThinkBlock(text) {
     div.innerHTML = `<div class="think-header" onclick="toggleThink(this)">
         <span class="icon">💭</span><span class="label">思考中…</span>
         <span class="think-arrow">▸</span>
-    </div><div class="think-body collapsed">${marked.parse(text)}</div>`;
+    </div><div class="think-body collapsed">${md(text)}</div>`;
     messagesEl.appendChild(div); scrollDown(); updateWelcome(); return id;
 }
 
@@ -346,7 +344,7 @@ function onReply(data) {
         const el = document.getElementById(state.replyId);
         if (el) {
             el.dataset.raw = (el.dataset.raw||'') + data.text;
-            el.querySelector('.content').innerHTML = marked.parse(el.dataset.raw);
+            el.querySelector('.content').innerHTML = md(el.dataset.raw);
         }
     }
 }
@@ -354,7 +352,7 @@ function onReply(data) {
 function createReplyBlock(text) {
     const id = 'msg-' + Date.now(), div = document.createElement('div');
     div.className = 'message assistant'; div.id = id; div.dataset.raw = text;
-    div.innerHTML = `<div class="header"><span class="icon">🤖</span><span class="label">Agent</span></div><div class="content">${marked.parse(text)}</div>`;
+    div.innerHTML = `<div class="header"><span class="icon">🤖</span><span class="label">Agent</span></div><div class="content">${md(text)}</div>`;
     messagesEl.appendChild(div); scrollDown(); updateWelcome(); return id;
 }
 
@@ -480,9 +478,9 @@ function onHitl(data) {
         if (!d) { console.error('hitl-dialog missing'); return; }
 
         var el = document.getElementById('hitl-reason');
-        if (el) el.innerHTML = data.reason ? marked.parse('**原因：** ' + escapeHtml(data.reason)) : '';
+        if (el) el.innerHTML = data.reason ? md('**原因：** ' + data.reason) : '';
         el = document.getElementById('hitl-question');
-        if (el) el.innerHTML = marked.parse(escapeHtml(data.question || '需要您的输入'));
+        if (el) el.innerHTML = md(data.question || '需要您的输入');
 
         var btns = document.getElementById('hitl-buttons');
         if (!btns) { console.error('hitl-buttons missing'); return; }
@@ -526,8 +524,7 @@ function onDone(data) {
     closeThink(); closeReply();
     if (data.session_id) state.sessionId = data.session_id;
     if (data.usage) {
-        state.totalTokens += data.usage.total || 0;
-        document.getElementById('token-counter').textContent = formatTokens(state.totalTokens)+' tokens';
+        setText('token-counter', formatTokens(data.usage.total || 0) + ' tokens');
     }
     updateStatus('完成','connected');
     loadSessions();
@@ -545,10 +542,7 @@ function onUsage(data) {
     if (data.input)  state.tokenCumulative.input += data.input;
     if (data.output) state.tokenCumulative.output += data.output;
     if (data.reasoning) state.tokenCumulative.reasoning += data.reasoning;
-    if (data.total) {
-        state.totalTokens += data.total;
-        if (data.identity) updateAgentIdentity(data.identity);
-    }
+    if (data.total && data.identity) updateAgentIdentity(data.identity);
     updateTokenDisplay(
         state.tokenCumulative.input,
         state.tokenCumulative.output,
@@ -678,6 +672,9 @@ function formatTokens(n) {
 
 function escapeHtml(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 
+// Render markdown to sanitized HTML (DOMPurify strips scripts/raw HTML).
+function md(text) { return DOMPurify.sanitize(md(text || '')); }
+
 function showToast(msg, type) {
     const t=document.createElement('div');
     t.className='toast toast-'+(type||'success'); t.textContent=msg;
@@ -746,6 +743,7 @@ function switchTab(tab) {
         loadConfigForm(); switchSettingsTab('config');
     } else {
         chat.style.display='flex';
+        right.style.display='';
         if (!state.activePlanId) right.classList.remove('show');
         settings.classList.remove('active');
         tChat.classList.add('active'); tSettings.classList.remove('active');
