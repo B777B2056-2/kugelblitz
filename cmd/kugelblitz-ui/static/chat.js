@@ -119,7 +119,7 @@ function renderStoredMessage(m) {
             appendMessage('user', '👤', 'You', uHtml);
             break;
         case 'assistant':
-            appendMessage('assistant', '🤖', 'Agent', `<div class="content">${md(m.content || '')}</div>`);
+            appendMessage('assistant', '🤖', 'Agent', md(m.content || ''));
             break;
         case 'think':
             appendMessage('thinking', '💭', '思考过程', `<div class="think-body">${md(m.content || '')}</div>`);
