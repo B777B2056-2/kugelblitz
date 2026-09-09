@@ -202,6 +202,12 @@
                     <div class="config-form">
                         <label>最大状态机循环</label>
                         <input type="number" id="cfg-max-cycles" min="5" max="200" value="30">
+                        <label>执行模式</label>
+                        <select id="cfg-force-mode">
+                            <option value="">自动（LLM 分类）</option>
+                            <option value="plan">强制规划模式</option>
+                            <option value="simple">强制直接执行</option>
+                        </select>
                     </div>
                 </div>
                 <div class="config-section">

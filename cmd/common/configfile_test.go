@@ -146,6 +146,28 @@ func TestRoundTrip_MCPServers(t *testing.T) {
 	assert.Equal(t, []string{"server.py"}, loaded.MCP["test"].Args)
 }
 
+func TestApplyRaw_ForceMode(t *testing.T) {
+	raw := map[string]any{"force_mode": "plan"}
+	cfg := config.DefaultConfig()
+	applyRaw(raw, &cfg)
+	assert.Equal(t, "plan", cfg.Runtime.ForceMode)
+}
+
+func TestRoundTrip_ForceMode(t *testing.T) {
+	dir := t.TempDir()
+
+	cfg := config.DefaultConfig()
+	cfg.Model.ProviderName = "deepseek"
+	cfg.Runtime.ForceMode = "simple"
+
+	path := filepath.Join(dir, "kugelblitz.yaml")
+	require.NoError(t, Save(path, cfg))
+
+	loaded, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "simple", loaded.Runtime.ForceMode)
+}
+
 func TestRoundTrip_EmptyMCP(t *testing.T) {
 	dir := t.TempDir()
 

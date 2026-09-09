@@ -65,6 +65,7 @@ func Save(path string, cfg config.Config) error {
 		"enable_thinking":                cfg.Model.EnableThinking,
 		"reasoning_effort":               cfg.Model.ReasoningEffort,
 		"max_state_machine_cycles":       cfg.Runtime.MaxStateMachineCycles,
+		"force_mode":                     cfg.Runtime.ForceMode,
 		"compress_max_attempts":          cfg.ContextCompress.MaxAttempts,
 		"compress_max_tool_result_chars": cfg.ContextCompress.MaxToolResultChars,
 		"compress_keep_last_n":           cfg.ContextCompress.KeepLastN,
@@ -157,6 +158,12 @@ func applyRaw(raw map[string]any, cfg *config.Config) {
 	if v, ok := raw["max_state_machine_cycles"]; ok {
 		if n := toInt(v); n != 0 {
 			cfg.Runtime.MaxStateMachineCycles = n
+		}
+	}
+	if v, ok := raw["force_mode"].(string); ok {
+		switch v {
+		case "plan", "simple", "auto":
+			cfg.Runtime.ForceMode = v
 		}
 	}
 

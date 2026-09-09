@@ -21,11 +21,11 @@ type Machine struct {
 // NewMachine creates a new FSM Machine with all states registered.
 func NewMachine(deps Dependencies) *Machine {
 	m := &Machine{
-		states:       make(map[constants.PlanState]State),
-		currentState: constants.PlanStateIntent,
-		prevState:    constants.PlanStateNone,
-		deps:         deps,
+		states:    make(map[constants.PlanState]State),
+		prevState: constants.PlanStateNone,
+		deps:      deps,
 	}
+	m.currentState = m.initialState()
 	m.registerStates()
 	return m
 }
@@ -100,7 +100,21 @@ func (m *Machine) Run(ctx context.Context, input core.AgentInput) ([]core.Messag
 // reset returns the state machine to its initial state.
 func (m *Machine) reset() {
 	m.prevState = constants.PlanStateNone
-	m.currentState = constants.PlanStateIntent
+	m.currentState = m.initialState()
+}
+
+// initialState returns the state the machine should start in. When ForceMode is
+// "plan" or "simple", the Intent (set_work_mode) classification phase is skipped
+// entirely and the machine enters the requested mode directly.
+func (m *Machine) initialState() constants.PlanState {
+	switch m.deps.Config.ForceMode {
+	case "plan":
+		return constants.PlanStateInit
+	case "simple":
+		return constants.PlanStateDirect
+	default:
+		return constants.PlanStateIntent
+	}
 }
 
 // transition updates the state machine to the next state, persists the plan,
