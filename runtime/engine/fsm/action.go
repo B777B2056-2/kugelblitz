@@ -136,7 +136,7 @@ func shouldReview(ctx *Context) bool {
 	if ctx.Deps.Reviewer == nil {
 		return false
 	}
-	if ctx.Deps.Config.ReviewInterval > 0 && ctx.StepCount%ctx.Deps.Config.ReviewInterval == 0 {
+	if ctx.Deps.Config.ReviewInterval > 0 && ctx.TaskFails%ctx.Deps.Config.ReviewInterval == 0 {
 		return true
 	}
 	if ctx.Deps.Config.MaxFailuresBeforeReview > 0 && ctx.TaskFails >= ctx.Deps.Config.MaxFailuresBeforeReview {

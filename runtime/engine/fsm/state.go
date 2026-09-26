@@ -83,6 +83,9 @@ func (s *IntentState) Execute(ctx *Context) (constants.PlanState, error) {
 	if ctx.WorkMode == "plan" {
 		return constants.PlanStateInit, nil
 	}
+	if ctx.WorkMode != "simple" {
+		core.Warn("intent: no valid work mode, falling back to direct", "mode", ctx.WorkMode)
+	}
 	return constants.PlanStateDirect, nil
 }
 
@@ -138,6 +141,7 @@ func (s *InitState) Execute(ctx *Context) (constants.PlanState, error) {
 	}
 
 	// plan_create was not called — fallback to direct
+	core.Warn("init: plan_create not called, falling back to direct mode")
 	return constants.PlanStateDirect, nil
 }
 
@@ -219,6 +223,7 @@ func (s *UpdatingState) Execute(ctx *Context) (constants.PlanState, error) {
 			}
 		}
 	}
+	core.Warn("updating: plan still invalid, falling back to direct mode")
 	return constants.PlanStateDirect, nil
 }
 

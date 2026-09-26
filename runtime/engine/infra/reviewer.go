@@ -81,7 +81,10 @@ func (r *Reviewer) Review(ctx context.Context, originalGoal, planSummary, recent
 	if tc, ok := result.Content.(core.ToolCallContent); ok {
 		for _, d := range tc.Details {
 			if d.ToolName == "reviewer_report" {
-				drift, _ := d.Args["drift"].(bool)
+				drift, driftOK := d.Args["drift"].(bool)
+				if !driftOK {
+					return ReviewResult{Drift: false, Reason: "reviewer_report: drift field missing or non-bool", Usage: result.Usage}
+				}
 				reason, _ := d.Args["reason"].(string)
 				suggestion, _ := d.Args["suggestion"].(string)
 				span.SetAttributes(attribute.Bool("drift_detected", drift))
