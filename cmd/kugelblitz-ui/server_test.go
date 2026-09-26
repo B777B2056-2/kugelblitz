@@ -157,7 +157,8 @@ func TestHandleHITL_NotWaiting(t *testing.T) {
 	srv := newTestServer(t)
 
 	// Create a session — it's not in HITL state
-	session := srv.sessions.Create()
+	session, err := srv.sessions.Create()
+	require.NoError(t, err)
 
 	body := `{"response":"yes"}`
 	req := httptest.NewRequest("POST", "/api/hitl/"+session.ID, strings.NewReader(body))
@@ -171,7 +172,8 @@ func TestHandleHITL_NotWaiting(t *testing.T) {
 func TestHandleHITL_MissingResponse(t *testing.T) {
 	srv := newTestServer(t)
 
-	session := srv.sessions.Create()
+	session, err := srv.sessions.Create()
+	require.NoError(t, err)
 	// Simulate HITL waiting state
 	session.hitlCh = make(chan string, 1)
 	session.hitlWaiting = true
@@ -188,7 +190,8 @@ func TestHandleHITL_MissingResponse(t *testing.T) {
 func TestHandleHITL_Success(t *testing.T) {
 	srv := newTestServer(t)
 
-	session := srv.sessions.Create()
+	session, err := srv.sessions.Create()
+	require.NoError(t, err)
 	session.hitlCh = make(chan string, 1)
 	session.hitlWaiting = true
 
@@ -209,7 +212,8 @@ func TestHandleHITL_Success(t *testing.T) {
 func TestHandleHITL_InvalidJSON(t *testing.T) {
 	srv := newTestServer(t)
 
-	session := srv.sessions.Create()
+	session, err := srv.sessions.Create()
+	require.NoError(t, err)
 	session.hitlWaiting = true
 
 	req := httptest.NewRequest("POST", "/api/hitl/"+session.ID, strings.NewReader("bad json"))
@@ -233,7 +237,8 @@ func TestHandleHITLStatus_NotFound(t *testing.T) {
 
 func TestHandleHITLStatus_NotWaiting(t *testing.T) {
 	srv := newTestServer(t)
-	session := srv.sessions.Create()
+	session, err := srv.sessions.Create()
+	require.NoError(t, err)
 
 	req := httptest.NewRequest("GET", "/api/hitl/"+session.ID+"/status", nil)
 	rec := httptest.NewRecorder()
@@ -248,7 +253,8 @@ func TestHandleHITLStatus_NotWaiting(t *testing.T) {
 
 func TestHandleHITLStatus_Waiting(t *testing.T) {
 	srv := newTestServer(t)
-	session := srv.sessions.Create()
+	session, err := srv.sessions.Create()
+	require.NoError(t, err)
 	session.hitlWaiting = true
 	session.hitlInfo = &HitlInfo{Question: "proceed?", Reason: "need approval"}
 
@@ -277,7 +283,8 @@ func TestHandleCancel_SessionNotFound(t *testing.T) {
 
 func TestHandleCancel_NoActiveAgent(t *testing.T) {
 	srv := newTestServer(t)
-	session := srv.sessions.Create()
+	session, err := srv.sessions.Create()
+	require.NoError(t, err)
 
 	req := httptest.NewRequest("POST", "/api/cancel/"+session.ID, nil)
 	rec := httptest.NewRecorder()
@@ -288,7 +295,8 @@ func TestHandleCancel_NoActiveAgent(t *testing.T) {
 
 func TestHandleCancel_Success(t *testing.T) {
 	srv := newTestServer(t)
-	session := srv.sessions.Create()
+	session, err := srv.sessions.Create()
+	require.NoError(t, err)
 	cancelCalled := false
 	session.cancelFn = func() { cancelCalled = true }
 

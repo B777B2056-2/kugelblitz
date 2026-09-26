@@ -193,8 +193,10 @@ func (sm *SessionManager) saveStoredSession(ss *StoredSession) error {
 
 // ═══ Public API ═══
 
-// Create creates a new session and persists an empty record.
-func (sm *SessionManager) Create() *ChatSession {
+// Create creates a new session and persists an empty record. It returns an
+// error if the session record cannot be persisted (U6: persistence failures
+// must be surfaced, not silently dropped).
+func (sm *SessionManager) Create() (*ChatSession, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -203,7 +205,6 @@ func (sm *SessionManager) Create() *ChatSession {
 		ID:     id,
 		hitlCh: make(chan string, 1),
 	}
-	sm.sessions[id] = s
 
 	ss := &StoredSession{
 		ID:        id,
@@ -211,11 +212,12 @@ func (sm *SessionManager) Create() *ChatSession {
 		UpdatedAt: time.Now(),
 	}
 	if err := sm.saveStoredSession(ss); err != nil {
-		core.Warn("ui: save session", "id", id, "err", err)
+		return nil, fmt.Errorf("create session %q: %w", id, err)
 	}
 
+	sm.sessions[id] = s
 	core.Debug("session created", "id", id)
-	return s
+	return s, nil
 }
 
 // Get returns the session with the given ID, or nil.
@@ -277,16 +279,17 @@ func (sm *SessionManager) Delete(id string) {
 }
 
 // GetOrCreate returns the session by ID, or creates a new one.
-func (sm *SessionManager) GetOrCreate(id string) *ChatSession {
+func (sm *SessionManager) GetOrCreate(id string) (*ChatSession, error) {
 	s := sm.Get(id)
 	if s == nil {
-		s = sm.Create()
+		return sm.Create()
 	}
-	return s
+	return s, nil
 }
 
-// ArchiveTurn appends a completed turn to the persisted session.
-func (sm *SessionManager) ArchiveTurn(session *ChatSession) {
+// ArchiveTurn appends a completed turn to the persisted session. It returns an
+// error if the updated record cannot be persisted (U6).
+func (sm *SessionManager) ArchiveTurn(session *ChatSession) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -315,8 +318,9 @@ func (sm *SessionManager) ArchiveTurn(session *ChatSession) {
 	ss.TotalUsage.Total += session.turnUsage.Total
 
 	if err := sm.saveStoredSession(ss); err != nil {
-		core.Warn("ui: save session", "id", ss.ID, "err", err)
+		return fmt.Errorf("archive turn for session %q: %w", session.ID, err)
 	}
+	return nil
 }
 
 // ═══ SessionListEntry (API response) ═══

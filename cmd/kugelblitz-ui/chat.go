@@ -40,7 +40,12 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	core.Info("chat started", "session", req.SessionID, "goal", goalPreview)
 
-	session := s.sessions.GetOrCreate(req.SessionID)
+	session, err := s.sessions.GetOrCreate(req.SessionID)
+	if err != nil {
+		core.Warn("get or create session failed", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to initialize session"})
+		return
+	}
 	// Reset per-turn state under the session lock so a concurrent turn's hooks
 	// never observe a half-reset session (U5).
 	session.mu.Lock()
@@ -328,7 +333,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				session.addTurnMessage(StoredMessage{Role: "assistant", Content: assistantReply.String()})
 			}
 
-			s.sessions.ArchiveTurn(session)
+			if err := s.sessions.ArchiveTurn(session); err != nil {
+				core.Warn("archive turn failed", "id", session.ID, "err", err)
+			}
 
 			core.Info("chat completed", "session", session.ID, "total_tokens", tt.Total)
 			return
