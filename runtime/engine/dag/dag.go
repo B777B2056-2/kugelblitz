@@ -21,6 +21,7 @@ type DAGTaskExecutor struct {
 	provider            core.ILMProvider
 	streamMode          bool
 	cancel              context.CancelFunc
+	cancelMu            sync.Mutex                   // protects cancel
 	workerHooks         core.AgentEventHooks         // set by Planner.RegisterEventHooks
 	workerAgentIdentity constants.AgentIdentity      // set by Kernel
 	PauseGate           *infra.PauseGate             // shared pause gate for all workers
@@ -89,6 +90,8 @@ func (d *DAGTaskExecutor) ResumeAnyWorkerWithHumanResponse(ctx context.Context, 
 
 // Cancel stops all pending worker tasks. Already-running workers complete normally.
 func (d *DAGTaskExecutor) Cancel() {
+	d.cancelMu.Lock()
+	defer d.cancelMu.Unlock()
 	if d.cancel != nil {
 		d.cancel()
 		d.cancel = nil
@@ -122,8 +125,15 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 
 	// Create a child context so Cancel() stops only this invocation.
 	ctx, cancel := context.WithCancel(ctx)
+	d.cancelMu.Lock()
 	d.cancel = cancel
-	defer func() { d.cancel = nil; cancel() }()
+	d.cancelMu.Unlock()
+	defer func() {
+		d.cancelMu.Lock()
+		d.cancel = nil
+		d.cancelMu.Unlock()
+		cancel()
+	}()
 
 	hasFailed := false
 	anyBatch := false
@@ -197,19 +207,25 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 				// reads all SubTasks. Holding the plan mutex during mutation ensures
 				// the marshal (which also acquires plan.mu) sees a consistent snapshot.
 				planMu.Lock()
+				var failReason string
 				if err != nil {
 					taskMu.Status = working.TaskStatusFailed
-					taskMu.FinishedReason = err.Error()
+					failReason = err.Error()
+					taskMu.FinishedReason = failReason
 					atomic.AddInt32(&failCount, 1)
-					if onTaskFailed != nil {
-						onTaskFailed(task.ID, task.Goal, taskMu.FinishedReason)
-					}
 				} else {
 					taskMu.Status = working.TaskStatusDone
 					taskMu.FinishedReason = output
 				}
 				taskMu.Usage = usage
 				planMu.Unlock()
+
+				// Invoke the failure callback outside the plan lock: it may run
+				// an LLM review (Reviewer.Review) and trigger drift rollback.
+				if failReason != "" && onTaskFailed != nil {
+					onTaskFailed(task.ID, task.Goal, failReason)
+				}
+
 				if err := working.PutPlan(planMu); err != nil {
 					core.Warn("dag: persist plan", "plan", planMu.ID, "err", err)
 				}
