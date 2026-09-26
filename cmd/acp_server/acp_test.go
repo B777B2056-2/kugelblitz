@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/stretchr/testify/assert"
@@ -16,7 +19,7 @@ import (
 
 func TestTransport_ReadMessage(t *testing.T) {
 	input := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}` + "\n"
-	rw := &testReadWriter{readBuf: bytes.NewBufferString(input), writeBuf: new(bytes.Buffer)}
+	rw := &testReadWriter{readBuf: bytes.NewBufferString(input), writeBuf: new(syncBuffer)}
 	tr := NewTransport(rw)
 
 	msg, err := tr.ReadMessage()
@@ -30,7 +33,7 @@ func TestTransport_ReadMessage(t *testing.T) {
 
 func TestTransport_ReadMessage_Notification(t *testing.T) {
 	input := `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"abc"}}` + "\n"
-	rw := &testReadWriter{readBuf: bytes.NewBufferString(input), writeBuf: new(bytes.Buffer)}
+	rw := &testReadWriter{readBuf: bytes.NewBufferString(input), writeBuf: new(syncBuffer)}
 	tr := NewTransport(rw)
 
 	msg, err := tr.ReadMessage()
@@ -41,7 +44,7 @@ func TestTransport_ReadMessage_Notification(t *testing.T) {
 }
 
 func TestTransport_WriteMessage(t *testing.T) {
-	rw := &testReadWriter{readBuf: new(bytes.Buffer), writeBuf: new(bytes.Buffer)}
+	rw := &testReadWriter{readBuf: new(bytes.Buffer), writeBuf: new(syncBuffer)}
 	tr := NewTransport(rw)
 
 	id := json.RawMessage([]byte("1"))
@@ -58,7 +61,7 @@ func TestTransport_WriteMessage(t *testing.T) {
 }
 
 func TestTransport_SendNotification(t *testing.T) {
-	rw := &testReadWriter{readBuf: new(bytes.Buffer), writeBuf: new(bytes.Buffer)}
+	rw := &testReadWriter{readBuf: new(bytes.Buffer), writeBuf: new(syncBuffer)}
 	tr := NewTransport(rw)
 
 	err := tr.SendNotification("session/update", map[string]any{
@@ -159,7 +162,7 @@ func TestIsResponse_ErrorOnly(t *testing.T) {
 
 func TestTransport_ReadMessage_MalformedJSON(t *testing.T) {
 	input := "not valid json\n"
-	rw := &testReadWriter{readBuf: bytes.NewBufferString(input), writeBuf: new(bytes.Buffer)}
+	rw := &testReadWriter{readBuf: bytes.NewBufferString(input), writeBuf: new(syncBuffer)}
 	tr := NewTransport(rw)
 
 	_, err := tr.ReadMessage()
@@ -168,7 +171,7 @@ func TestTransport_ReadMessage_MalformedJSON(t *testing.T) {
 }
 
 func TestTransport_ReadMessage_EOF(t *testing.T) {
-	rw := &testReadWriter{readBuf: bytes.NewBufferString(""), writeBuf: new(bytes.Buffer)}
+	rw := &testReadWriter{readBuf: bytes.NewBufferString(""), writeBuf: new(syncBuffer)}
 	tr := NewTransport(rw)
 
 	_, err := tr.ReadMessage()
@@ -302,7 +305,7 @@ func TestServer_FullFlow(t *testing.T) {
 		sessionNewMsg("2", "/test/project"),
 	)
 	readBuf := bytes.NewBufferString(input)
-	writeBuf := new(bytes.Buffer)
+	writeBuf := new(syncBuffer)
 
 	tr := NewTransport(&testReadWriter{readBuf: readBuf, writeBuf: writeBuf})
 
@@ -352,9 +355,10 @@ func TestServer_FullFlow(t *testing.T) {
 	require.NoError(t, err)
 	err = handler.Dispatch(ctx, msg3)
 	require.NoError(t, err)
-	output3 := writeBuf.String()
-	assert.Contains(t, output3, `"stopReason"`)
-	assert.Contains(t, output3, StopReasonEndTurn)
+	require.Eventually(t, func() bool {
+		output3 := writeBuf.String()
+		return strings.Contains(output3, `"stopReason"`) && strings.Contains(output3, StopReasonEndTurn)
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func initializeMsg(id string) string {
@@ -375,10 +379,35 @@ func buildACPInput(messages ...string) string {
 
 // ---- test helpers ----
 
+// syncBuffer is a mutex-protected bytes.Buffer for test transports that may be
+// written concurrently (e.g. the async session/prompt dispatch).
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func (b *syncBuffer) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf.Reset()
+}
+
 // testReadWriter implements io.ReadWriter for testing transport.
 type testReadWriter struct {
 	readBuf  *bytes.Buffer
-	writeBuf *bytes.Buffer
+	writeBuf *syncBuffer
 }
 
 func (rw *testReadWriter) Read(p []byte) (int, error)  { return rw.readBuf.Read(p) }

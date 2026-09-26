@@ -48,7 +48,10 @@ func (h *Handler) Dispatch(ctx context.Context, msg *JSONRPCMessage) error {
 		})
 
 	case "session/prompt":
-		h.invoke(ctx, id, msg.Params, func(p json.RawMessage) (any, error) {
+		// Run asynchronously so the read loop keeps processing messages
+		// (e.g. session/cancel) while the agent executes. Transport writes are
+		// serialized by its own mutex, so concurrent streaming is safe (A2).
+		go h.invoke(ctx, id, msg.Params, func(p json.RawMessage) (any, error) {
 			var params SessionPromptParams
 			if err := json.Unmarshal(p, &params); err != nil {
 				return nil, fmt.Errorf("invalid params: %w", err)
@@ -104,15 +107,16 @@ func (h *Handler) invoke(ctx context.Context, id json.RawMessage, rawParams json
 		h.writeError(id, ErrCodeInternalError, err.Error(), nil)
 		return
 	}
-	if result != nil {
-		resp, marshalErr := NewResponse(id, result)
-		if marshalErr != nil {
-			core.Error("ACP: marshal error", "err", marshalErr)
-			h.writeError(id, ErrCodeInternalError, marshalErr.Error(), nil)
-			return
-		}
-		h.writeMessage(resp)
+	// Always write a response for a request, even when result is nil (JSON-RPC
+	// null result). Methods like session/cancel and session/delete return nil
+	// on success and would otherwise never send a response (A1).
+	resp, marshalErr := NewResponse(id, result)
+	if marshalErr != nil {
+		core.Error("ACP: marshal error", "err", marshalErr)
+		h.writeError(id, ErrCodeInternalError, marshalErr.Error(), nil)
+		return
 	}
+	h.writeMessage(resp)
 }
 
 // handleNotification processes JSON-RPC notifications (no response expected).

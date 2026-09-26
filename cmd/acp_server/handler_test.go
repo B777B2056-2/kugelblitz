@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/stretchr/testify/assert"
@@ -15,7 +17,7 @@ import (
 func newTestHandler(t *testing.T) (*Handler, *testReadWriter, *SessionManager) {
 	t.Helper()
 	sm := NewSessionManager()
-	rw := &testReadWriter{readBuf: new(bytes.Buffer), writeBuf: new(bytes.Buffer)}
+	rw := &testReadWriter{readBuf: new(bytes.Buffer), writeBuf: new(syncBuffer)}
 	tr := NewTransport(rw)
 
 	h := &Handler{
@@ -108,9 +110,10 @@ func TestHandler_Dispatch_SessionPrompt(t *testing.T) {
 	err := h.Dispatch(context.Background(), msg)
 	require.NoError(t, err)
 
-	output := rw.writeBuf.String()
-	// Should contain the stop reason response
-	assert.Contains(t, output, `"stopReason"`)
+	// session/prompt is dispatched asynchronously — poll for the response (A2).
+	require.Eventually(t, func() bool {
+		return strings.Contains(rw.writeBuf.String(), `"stopReason"`)
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestHandler_Dispatch_SessionCancel(t *testing.T) {
@@ -255,10 +258,10 @@ func TestHandler_Prompt_StreamingNotifications(t *testing.T) {
 	err := h.Dispatch(context.Background(), msg)
 	require.NoError(t, err)
 
-	output := rw.writeBuf.String()
-	// The handler should return a proper stopReason
-	assert.Contains(t, output, `"stopReason"`)
-	assert.Contains(t, output, StopReasonEndTurn)
+	require.Eventually(t, func() bool {
+		output := rw.writeBuf.String()
+		return strings.Contains(output, `"stopReason"`) && strings.Contains(output, StopReasonEndTurn)
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 // mockProvider implements core.ILMProvider for testing.
@@ -300,9 +303,9 @@ func TestHandler_Dispatch_SessionPrompt_NotFound(t *testing.T) {
 	err := h.Dispatch(context.Background(), msg)
 	require.NoError(t, err)
 
-	output := rw.writeBuf.String()
-	assert.Contains(t, output, `"error"`)
-	assert.Contains(t, output, "session not found")
+	require.Eventually(t, func() bool {
+		return strings.Contains(rw.writeBuf.String(), "session not found")
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestHandler_Dispatch_SessionCancel_NotFound(t *testing.T) {
