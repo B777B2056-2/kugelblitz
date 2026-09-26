@@ -6,7 +6,6 @@ import (
 	"text/template"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
-	"github.com/B777B2056-2/kugelblitz/memory/working"
 )
 
 // Type enumerates all available prompts.
@@ -110,59 +109,4 @@ func PlannerPrompt(status constants.PlanState) string {
 		return tmpl
 	}
 	return plannerInitTmpl
-}
-
-// BuildPlanConfirmParams converts a Plan to PlanConfirmParams for rendering.
-func BuildPlanConfirmParams(plan *working.Plan) PlanConfirmParams {
-	tasks := make([]PlanConfirmTaskParams, len(plan.SubTasks))
-	for i, t := range plan.SubTasks {
-		deps := t.ParentTaskID
-		if deps == "" {
-			deps = "none"
-		}
-		tasks[i] = PlanConfirmTaskParams{
-			Index:  i + 1,
-			ID:     t.ID,
-			Goal:   t.Goal,
-			Action: t.Action,
-			Deps:   deps,
-		}
-	}
-	return PlanConfirmParams{
-		Name:  plan.Name,
-		ID:    plan.ID,
-		Tasks: tasks,
-	}
-}
-
-// BuildPlanStatusParams converts a Plan to PlanStatusParams for rendering.
-func BuildPlanStatusParams(plan *working.Plan) PlanStatusParams {
-	done, failed := 0, 0
-	var failedTasks []PlanFailedTaskParams
-	for _, t := range plan.SubTasks {
-		if t.Status == working.TaskStatusDone {
-			done++
-		}
-		if t.Status == working.TaskStatusFailed {
-			failed++
-			reason := t.FinishedReason
-			if reason == "" {
-				reason = "(no reason)"
-			}
-			if len(reason) > 200 {
-				reason = reason[:200] + "..."
-			}
-			failedTasks = append(failedTasks, PlanFailedTaskParams{
-				ID: t.ID, Goal: t.Goal, Reason: reason,
-			})
-		}
-	}
-	return PlanStatusParams{
-		Name:        plan.Name,
-		Status:      string(plan.State),
-		Done:        done,
-		Total:       len(plan.SubTasks),
-		Failed:      failed,
-		FailedTasks: failedTasks,
-	}
 }

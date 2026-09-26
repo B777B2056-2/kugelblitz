@@ -125,10 +125,10 @@ func buildPrompt(status constants.PlanState, plan *working.Plan) (string, error)
 		var err error
 		if status == constants.PlanStateConfirmed {
 			rendered, err = prompts.DefaultFactory.Render(
-				prompts.TypePlanConfirm, prompts.BuildPlanConfirmParams(plan))
+				prompts.TypePlanConfirm, buildPlanConfirmParams(plan))
 		} else {
 			rendered, err = prompts.DefaultFactory.Render(
-				prompts.TypePlanStatus, prompts.BuildPlanStatusParams(plan))
+				prompts.TypePlanStatus, buildPlanStatusParams(plan))
 		}
 		if err != nil {
 			return "", fmt.Errorf("render plan prompt: %w", err)
@@ -139,6 +139,63 @@ func buildPrompt(status constants.PlanState, plan *working.Plan) (string, error)
 
 	sb.WriteString(prompts.PlannerPrompt(status))
 	return sb.String(), nil
+}
+
+// buildPlanConfirmParams converts a Plan to prompts.PlanConfirmParams for rendering.
+// Lives here (not in prompts) so the prompts package stays a leaf with no
+// dependency on the working-memory domain model.
+func buildPlanConfirmParams(plan *working.Plan) prompts.PlanConfirmParams {
+	tasks := make([]prompts.PlanConfirmTaskParams, len(plan.SubTasks))
+	for i, t := range plan.SubTasks {
+		deps := t.ParentTaskID
+		if deps == "" {
+			deps = "none"
+		}
+		tasks[i] = prompts.PlanConfirmTaskParams{
+			Index:  i + 1,
+			ID:     t.ID,
+			Goal:   t.Goal,
+			Action: t.Action,
+			Deps:   deps,
+		}
+	}
+	return prompts.PlanConfirmParams{
+		Name:  plan.Name,
+		ID:    plan.ID,
+		Tasks: tasks,
+	}
+}
+
+// buildPlanStatusParams converts a Plan to prompts.PlanStatusParams for rendering.
+func buildPlanStatusParams(plan *working.Plan) prompts.PlanStatusParams {
+	done, failed := 0, 0
+	var failedTasks []prompts.PlanFailedTaskParams
+	for _, t := range plan.SubTasks {
+		if t.Status == working.TaskStatusDone {
+			done++
+		}
+		if t.Status == working.TaskStatusFailed {
+			failed++
+			reason := t.FinishedReason
+			if reason == "" {
+				reason = "(no reason)"
+			}
+			if len(reason) > 200 {
+				reason = reason[:200] + "..."
+			}
+			failedTasks = append(failedTasks, prompts.PlanFailedTaskParams{
+				ID: t.ID, Goal: t.Goal, Reason: reason,
+			})
+		}
+	}
+	return prompts.PlanStatusParams{
+		Name:        plan.Name,
+		Status:      string(plan.State),
+		Done:        done,
+		Total:       len(plan.SubTasks),
+		Failed:      failed,
+		FailedTasks: failedTasks,
+	}
 }
 
 // shouldReview checks whether a drift review should be triggered.
