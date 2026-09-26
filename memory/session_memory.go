@@ -100,9 +100,14 @@ func (s *SessionMemory) Compress(ctx context.Context, c *Compressor, keepLastN, 
 		return usage, fmt.Errorf("compress: %w", err)
 	}
 
-	// Step 3: write-lock to update
+	// Step 3: write-lock to update. Preserve any messages appended while the
+	// LLM summarization was in flight — they are not part of the snapshot and
+	// would otherwise be silently dropped.
 	s.mu.Lock()
 	s.summary = newSummary
+	if extra := len(s.historyMessages) - total; extra > 0 {
+		recent = append(recent, s.historyMessages[total:]...)
+	}
 	s.historyMessages = recent
 	s.mu.Unlock()
 
