@@ -52,6 +52,29 @@ func mustNewAgentLoop(t *testing.T, cfg config.Config, opts ...AgentLoopOption) 
 	return loop
 }
 
+func TestAgentLoop_AutoDreamDisabled_NoScheduler(t *testing.T) {
+	core.GetWorkspace().SetDir(t.TempDir())
+	working.ResetPlans()
+	cfg := testCfg(&MockProvider{})
+	cfg.AutoDream = config.AutoDreamConfig{} // zero value → disabled
+	loop := mustNewAgentLoop(t, cfg)
+	assert.Nil(t, loop.dreamScheduler, "auto dream disabled must not build a scheduler")
+}
+
+func TestAgentLoop_AutoDreamEnabled_BuildsScheduler(t *testing.T) {
+	core.GetWorkspace().SetDir(t.TempDir())
+	working.ResetPlans()
+	cfg := testCfg(&MockProvider{})
+	cfg.AutoDream = config.AutoDreamConfig{Enabled: true}
+	loop := mustNewAgentLoop(t, cfg)
+	assert.NotNil(t, loop.dreamScheduler, "auto dream enabled must build a scheduler")
+}
+
+func TestDreamInterval_DefaultOnZero(t *testing.T) {
+	assert.Equal(t, 30*time.Minute, dreamInterval(0, 30*time.Minute))
+	assert.Equal(t, time.Second, dreamInterval(1, 30*time.Minute))
+}
+
 func TestPlanner_ContextError_TriggersRetry(t *testing.T) {
 	core.GetWorkspace().SetDir(t.TempDir())
 	working.ResetPlans()

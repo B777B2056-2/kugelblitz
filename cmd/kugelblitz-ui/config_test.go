@@ -114,3 +114,20 @@ func TestFromServerConfig_OtherFieldsPreserved(t *testing.T) {
 	assert.Equal(t, 42, result.Runtime.MaxStateMachineCycles)
 	assert.Equal(t, 5, result.ContextCompress.MaxAttempts)
 }
+
+func TestAutoDream_RoundTrip(t *testing.T) {
+	existingCfg := config.DefaultConfig()
+	existingCfg.AutoDream = config.AutoDreamConfig{Enabled: true, CheckIntervalSec: 60, CooldownSec: 120, IdleThresholdSec: 10}
+
+	sc := toServerConfig(existingCfg)
+	assert.True(t, sc.AutoDreamEnabled)
+	assert.Equal(t, 60, sc.AutoDreamCheckIntervalSec)
+	assert.Equal(t, 120, sc.AutoDreamCooldownSec)
+	assert.Equal(t, 10, sc.AutoDreamIdleThresholdSec)
+
+	result := fromServerConfig(sc, existingCfg)
+	assert.True(t, result.AutoDream.Enabled)
+	assert.Equal(t, 60, result.AutoDream.CheckIntervalSec)
+	assert.Equal(t, 120, result.AutoDream.CooldownSec)
+	assert.Equal(t, 10, result.AutoDream.IdleThresholdSec)
+}

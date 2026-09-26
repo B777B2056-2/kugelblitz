@@ -77,6 +77,10 @@ func Save(path string, cfg config.Config) error {
 		"otel_endpoint":                  cfg.Observability.Endpoint,
 		"otel_auth_header":               cfg.Observability.AuthHeader,
 		"otel_service_name":              cfg.Observability.ServiceName,
+		"auto_dream_enabled":             cfg.AutoDream.Enabled,
+		"auto_dream_check_interval_sec":  cfg.AutoDream.CheckIntervalSec,
+		"auto_dream_cooldown_sec":        cfg.AutoDream.CooldownSec,
+		"auto_dream_idle_threshold_sec":  cfg.AutoDream.IdleThresholdSec,
 	}
 	if cfg.Multimodal.ImageModel != nil {
 		out["image_provider_name"] = cfg.Multimodal.ImageModel.ProviderName
@@ -218,6 +222,26 @@ func applyRaw(raw map[string]any, cfg *config.Config) {
 	}
 	if v, ok := raw["otel_service_name"].(string); ok && v != "" {
 		cfg.Observability.ServiceName = v
+	}
+
+	// — Auto Dream —
+	if _, ok := raw["auto_dream_enabled"]; ok {
+		cfg.AutoDream.Enabled = toBool(raw["auto_dream_enabled"])
+	}
+	if v, ok := raw["auto_dream_check_interval_sec"]; ok {
+		if n := toInt(v); n != 0 {
+			cfg.AutoDream.CheckIntervalSec = n
+		}
+	}
+	if v, ok := raw["auto_dream_cooldown_sec"]; ok {
+		if n := toInt(v); n != 0 {
+			cfg.AutoDream.CooldownSec = n
+		}
+	}
+	if v, ok := raw["auto_dream_idle_threshold_sec"]; ok {
+		if n := toInt(v); n != 0 {
+			cfg.AutoDream.IdleThresholdSec = n
+		}
 	}
 
 	// Image model (optional — only populated when explicitly configured)

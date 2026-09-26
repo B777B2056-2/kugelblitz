@@ -65,6 +65,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: init agent: %v\n", err)
 		os.Exit(1)
 	}
+	// NOTE: the ACP server hands the raw ReactAgent to the ACP server via
+	// loop.Agent() and never calls AgentLoop.Run, so the auto-dreaming
+	// scheduler (which is Start()ed inside Run) is intentionally inactive here.
 	srv := NewServer(loop.Agent(), cfg.Model.Provider)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)

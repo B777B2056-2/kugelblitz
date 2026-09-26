@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/B777B2056-2/kugelblitz/config"
 	"github.com/B777B2056-2/kugelblitz/constants"
@@ -111,14 +112,31 @@ func initLTM(provider core.ILMProvider, al *AgentLoop) error {
 	_ = graphStore.Load(context.Background())
 	ltm.SetGraph(graphStore)
 
+	if !al.cfg.AutoDream.Enabled {
+		return nil
+	}
 	dreamer := &longterm.Dreamer{}
 	dreamer.SetProvider(provider)
 	dreamer.SetLTM(ltm)
 	dreamer.SetGraph(graphStore)
 	dreamer.SetIndexManager(al.indexMgr)
-	al.dreamScheduler = longterm.NewDreamScheduler(dreamer)
-	al.dreamScheduler.Start()
+	al.dreamScheduler = longterm.NewDreamSchedulerWithIntervals(dreamer,
+		dreamInterval(al.cfg.AutoDream.CheckIntervalSec, 30*time.Minute),
+		dreamInterval(al.cfg.AutoDream.CooldownSec, 6*time.Hour),
+		dreamInterval(al.cfg.AutoDream.IdleThresholdSec, 5*time.Minute),
+	)
+	// Not Start()ed here: Start() is deferred to Run(), so the scheduler only
+	// runs while the AgentLoop lifecycle is active (see Run).
 	return nil
+}
+
+// dreamInterval converts a config interval in seconds to a time.Duration,
+// falling back to def when the config value is unset (<= 0).
+func dreamInterval(sec int, def time.Duration) time.Duration {
+	if sec <= 0 {
+		return def
+	}
+	return time.Duration(sec) * time.Second
 }
 
 func initSkills() {
@@ -172,11 +190,10 @@ func (a *AgentLoop) Run(ctx context.Context, input core.AgentInput) {
 	go func() {
 		defer close(a.done)
 		defer a.Cancel()
-		defer func() {
-			if a.dreamScheduler != nil {
-				a.dreamScheduler.Stop()
-			}
-		}()
+		if a.dreamScheduler != nil {
+			a.dreamScheduler.Start()
+			defer a.dreamScheduler.Stop()
+		}
 		_, err := a.execute(ctx, input)
 		if err != nil && a.eventHooks.OnError != nil {
 			a.eventHooks.OnError(constants.AgentMain, err)

@@ -186,3 +186,47 @@ func TestRoundTrip_EmptyMCP(t *testing.T) {
 	assert.Equal(t, "openai", loaded.Model.ProviderName)
 	assert.Nil(t, loaded.MCP)
 }
+
+func TestApplyRaw_AutoDream(t *testing.T) {
+	raw := map[string]any{
+		"auto_dream_enabled":            false,
+		"auto_dream_check_interval_sec": 60,
+		"auto_dream_cooldown_sec":       120,
+		"auto_dream_idle_threshold_sec": 10,
+	}
+	cfg := config.DefaultConfig()
+	applyRaw(raw, &cfg)
+
+	assert.False(t, cfg.AutoDream.Enabled)
+	assert.Equal(t, 60, cfg.AutoDream.CheckIntervalSec)
+	assert.Equal(t, 120, cfg.AutoDream.CooldownSec)
+	assert.Equal(t, 10, cfg.AutoDream.IdleThresholdSec)
+}
+
+func TestApplyRaw_AutoDream_ZeroKeepsDefault(t *testing.T) {
+	raw := map[string]any{
+		"auto_dream_check_interval_sec": 0,
+	}
+	cfg := config.DefaultConfig()
+	applyRaw(raw, &cfg)
+
+	assert.True(t, cfg.AutoDream.Enabled, "enabled must keep its default (true)")
+	assert.Equal(t, 1800, cfg.AutoDream.CheckIntervalSec, "0 must keep the default")
+}
+
+func TestRoundTrip_AutoDream(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.DefaultConfig()
+	cfg.Model.ProviderName = "deepseek"
+	cfg.AutoDream = config.AutoDreamConfig{Enabled: true, CheckIntervalSec: 60, CooldownSec: 120, IdleThresholdSec: 10}
+
+	path := filepath.Join(dir, "kugelblitz.yaml")
+	require.NoError(t, Save(path, cfg))
+
+	loaded, err := Load(path)
+	require.NoError(t, err)
+	assert.True(t, loaded.AutoDream.Enabled)
+	assert.Equal(t, 60, loaded.AutoDream.CheckIntervalSec)
+	assert.Equal(t, 120, loaded.AutoDream.CooldownSec)
+	assert.Equal(t, 10, loaded.AutoDream.IdleThresholdSec)
+}
