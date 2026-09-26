@@ -37,7 +37,9 @@ func main() {
 	if *workspaceDir != "" {
 		core.GetWorkspace().SetDir(*workspaceDir)
 	}
-	_ = core.GetWorkspace().MkdirAll()
+	if err := core.GetWorkspace().MkdirAll(); err != nil {
+		core.Warn("workspace init", "err", err)
+	}
 
 	initLogging("acp_server")
 

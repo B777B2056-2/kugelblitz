@@ -135,7 +135,9 @@ func NewSessionManager(storageDir string) *SessionManager {
 		sessions:   make(map[string]*ChatSession),
 		storageDir: storageDir,
 	}
-	_ = os.MkdirAll(storageDir, 0755)
+	if err := os.MkdirAll(storageDir, 0755); err != nil {
+		core.Warn("ui: mkdir storage", "dir", storageDir, "err", err)
+	}
 
 	// Load persisted sessions into the in-memory map (lightweight: only metadata)
 	entries, err := os.ReadDir(storageDir)
@@ -208,7 +210,9 @@ func (sm *SessionManager) Create() *ChatSession {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	_ = sm.saveStoredSession(ss)
+	if err := sm.saveStoredSession(ss); err != nil {
+		core.Warn("ui: save session", "id", id, "err", err)
+	}
 
 	core.Debug("session created", "id", id)
 	return s
@@ -266,7 +270,9 @@ func (sm *SessionManager) Delete(id string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	delete(sm.sessions, id)
-	_ = os.Remove(sm.sessionPath(id))
+	if err := os.Remove(sm.sessionPath(id)); err != nil {
+		core.Warn("ui: remove session", "id", id, "err", err)
+	}
 	core.Info("session deleted", "id", id)
 }
 
@@ -308,7 +314,9 @@ func (sm *SessionManager) ArchiveTurn(session *ChatSession) {
 	ss.TotalUsage.Reasoning += session.turnUsage.Reasoning
 	ss.TotalUsage.Total += session.turnUsage.Total
 
-	_ = sm.saveStoredSession(ss)
+	if err := sm.saveStoredSession(ss); err != nil {
+		core.Warn("ui: save session", "id", ss.ID, "err", err)
+	}
 }
 
 // ═══ SessionListEntry (API response) ═══
