@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/B777B2056-2/kugelblitz/core"
 )
 
 // ChromaStore implements VectorStore via ChromaDB's HTTP API v2.
@@ -38,7 +40,11 @@ func NewChromaStoreOrNil() *ChromaStore {
 	if url == "" {
 		return nil
 	}
-	c, _ := NewChromaStore(url, "kugelblitz_memory")
+	c, err := NewChromaStore(url, "kugelblitz_memory")
+	if err != nil {
+		core.Warn("chroma: init failed, vector search disabled", "err", err)
+		return nil
+	}
 	return c
 }
 
@@ -97,6 +103,12 @@ func (c *ChromaStore) Add(documents []string, metadatas []map[string]any) error 
 
 // Search queries the collection.
 func (c *ChromaStore) Search(query string, mode SearchMode, limit int) ([]SearchResult, error) {
+	if mode != SearchSemantic {
+		// The basic /query endpoint only does embedding (semantic) search.
+		// BM25/hybrid require a newer Chroma API; surface the fallback rather
+		// than silently returning identical results (P6).
+		core.Warn("chroma: search mode not supported, falling back to semantic", "mode", mode)
+	}
 	body := map[string]any{
 		"query_texts": []string{query},
 		"n_results":   limit,
@@ -178,16 +190,24 @@ func (c *ChromaStore) UpsertMany(entries []VectorEntry) error {
 // DeleteDocument removes a single document by ID.
 // ---- IPersist implementation (doc-level operations) ----
 
-// Store adds a single document as JSON.
+// Store adds a single document as JSON. The key is used as the document ID so
+// that Delete(key) can locate it (P5).
 func (c *ChromaStore) Store(ctx context.Context, key string, data []byte) error {
-	return c.Add([]string{string(data)}, []map[string]any{{"_key": key}})
+	return c.UpsertMany([]VectorEntry{{
+		DocID:    key,
+		Document: string(data),
+		Metadata: map[string]any{"_key": key},
+	}})
 }
 
 // Load is not directly supported for ChromaDB — use Search instead.
 func (c *ChromaStore) Load(ctx context.Context, key string) ([]byte, error) {
 	results, err := c.Search(key, SearchSemantic, 1)
-	if err != nil || len(results) == 0 {
+	if err != nil {
 		return nil, err
+	}
+	if len(results) == 0 {
+		return nil, fmt.Errorf("chroma: not found: %s", key)
 	}
 	return []byte(results[0].Document), nil
 }
