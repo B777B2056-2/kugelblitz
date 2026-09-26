@@ -48,6 +48,16 @@ func NewChromaStoreOrNil() *ChromaStore {
 	return c
 }
 
+// postJSON marshals body and POSTs it to the given path, surfacing marshal
+// errors instead of silently sending an empty body (P7).
+func (c *ChromaStore) postJSON(path string, body any) (*http.Response, error) {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("chroma marshal: %w", err)
+	}
+	return c.client.Post(c.baseURL+path, "application/json", bytes.NewReader(data))
+}
+
 func (c *ChromaStore) ensureCollection() error {
 	resp, err := c.client.Get(c.baseURL + "/api/v2/collections/" + c.collection)
 	if err == nil && resp.StatusCode == 200 {
@@ -58,9 +68,7 @@ func (c *ChromaStore) ensureCollection() error {
 		_ = resp.Body.Close()
 	}
 
-	body := map[string]any{"name": c.collection}
-	data, _ := json.Marshal(body)
-	resp, err = c.client.Post(c.baseURL+"/api/v2/collections", "application/json", bytes.NewReader(data))
+	resp, err = c.postJSON("/api/v2/collections", map[string]any{"name": c.collection})
 	if err != nil {
 		return err
 	}
@@ -70,6 +78,16 @@ func (c *ChromaStore) ensureCollection() error {
 		return fmt.Errorf("create collection %d: %s", resp.StatusCode, string(b))
 	}
 	return nil
+}
+
+// distanceToScore converts a Chroma distance (0 = identical, larger = more
+// dissimilar) into a similarity score in [0, 1]. Clamps negatives and maps
+// arbitrary distances onto a bounded, monotonic scale (P8).
+func distanceToScore(d float64) float64 {
+	if d < 0 {
+		d = 0
+	}
+	return 1.0 / (1.0 + d)
 }
 
 // Add inserts documents into the collection (legacy, prefer UpsertMany).
@@ -87,9 +105,7 @@ func (c *ChromaStore) Add(documents []string, metadatas []map[string]any) error 
 		body["metadatas"] = metadatas
 	}
 
-	data, _ := json.Marshal(body)
-	url := fmt.Sprintf("%s/api/v2/collections/%s/add", c.baseURL, c.collection)
-	resp, err := c.client.Post(url, "application/json", bytes.NewReader(data))
+	resp, err := c.postJSON(fmt.Sprintf("/api/v2/collections/%s/add", c.collection), body)
 	if err != nil {
 		return err
 	}
@@ -114,9 +130,7 @@ func (c *ChromaStore) Search(query string, mode SearchMode, limit int) ([]Search
 		"n_results":   limit,
 		"include":     []string{"documents", "metadatas", "distances"},
 	}
-	data, _ := json.Marshal(body)
-	url := fmt.Sprintf("%s/api/v2/collections/%s/query", c.baseURL, c.collection)
-	resp, err := c.client.Post(url, "application/json", bytes.NewReader(data))
+	resp, err := c.postJSON(fmt.Sprintf("/api/v2/collections/%s/query", c.collection), body)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +154,7 @@ func (c *ChromaStore) Search(query string, mode SearchMode, limit int) ([]Search
 		for i, doc := range result.Documents[0] {
 			r := SearchResult{Document: doc, Score: 1.0}
 			if len(result.Distances) > 0 && i < len(result.Distances[0]) {
-				r.Score = 1.0 - result.Distances[0][i]
+				r.Score = distanceToScore(result.Distances[0][i])
 			}
 			if len(result.Metadatas) > 0 && i < len(result.Metadatas[0]) {
 				r.Metadata = result.Metadatas[0][i]
@@ -173,9 +187,7 @@ func (c *ChromaStore) UpsertMany(entries []VectorEntry) error {
 		body["metadatas"] = metas
 	}
 
-	data, _ := json.Marshal(body)
-	url := fmt.Sprintf("%s/api/v2/collections/%s/upsert", c.baseURL, c.collection)
-	resp, err := c.client.Post(url, "application/json", bytes.NewReader(data))
+	resp, err := c.postJSON(fmt.Sprintf("/api/v2/collections/%s/upsert", c.collection), body)
 	if err != nil {
 		return err
 	}
@@ -232,9 +244,7 @@ func (c *ChromaStore) DeleteDocument(docID string) error {
 	body := map[string]any{
 		"ids": []string{docID},
 	}
-	data, _ := json.Marshal(body)
-	url := fmt.Sprintf("%s/api/v2/collections/%s/delete", c.baseURL, c.collection)
-	resp, err := c.client.Post(url, "application/json", bytes.NewReader(data))
+	resp, err := c.postJSON(fmt.Sprintf("/api/v2/collections/%s/delete", c.collection), body)
 	if err != nil {
 		return err
 	}

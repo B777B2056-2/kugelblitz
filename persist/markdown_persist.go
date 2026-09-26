@@ -117,23 +117,31 @@ func parseMarkdown(data []byte) ([]MarkdownEntry, error) {
 }
 
 func formatMarkdown(entries []MarkdownEntry) []byte {
-	var sections []string
-	seen := make(map[string]bool)
-	grouped := make(map[string][]MarkdownEntry)
+	// Group by case-insensitive section name; preserve the first-seen casing as
+	// the section title and merge entries so nothing is dropped (P15).
+	type section struct {
+		title   string
+		entries []MarkdownEntry
+	}
+	var order []string
+	groups := make(map[string]*section)
 	for _, e := range entries {
-		sec := strings.ToLower(strings.TrimSpace(e.Section))
-		if !seen[sec] {
-			sections = append(sections, e.Section)
-			seen[sec] = true
+		key := strings.ToLower(strings.TrimSpace(e.Section))
+		g, ok := groups[key]
+		if !ok {
+			g = &section{title: e.Section}
+			groups[key] = g
+			order = append(order, key)
 		}
-		grouped[e.Section] = append(grouped[e.Section], e)
+		g.entries = append(g.entries, e)
 	}
 
 	var sb strings.Builder
 	sb.WriteString("# Project Memory\n\n")
-	for _, sec := range sections {
-		fmt.Fprintf(&sb, "## %s\n", sec)
-		for _, e := range grouped[sec] {
+	for _, key := range order {
+		g := groups[key]
+		fmt.Fprintf(&sb, "## %s\n", g.title)
+		for _, e := range g.entries {
 			meta := fmt.Sprintf("`v%d c%.2f %s`", e.Version, e.Confidence, e.UpdatedAt.Format("2006-01-02"))
 			fmt.Fprintf(&sb, "- %s: %s  %s\n", e.Key, e.Value, meta)
 		}

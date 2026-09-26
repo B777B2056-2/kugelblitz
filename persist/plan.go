@@ -21,8 +21,11 @@ func SavePlanJSON(planID string, plan any) error {
 func LoadPlanJSON(planID string, dst any) error {
 	mgr := GetManager()
 	events, err := mgr.JSONL().ReadAll(filepath.Join("memory", "plans", planID, "plan.jsonl"))
-	if err != nil || len(events) == 0 {
+	if err != nil {
 		return fmt.Errorf("load plan: %w", err)
+	}
+	if len(events) == 0 {
+		return fmt.Errorf("load plan: no events")
 	}
 	return json.Unmarshal(events[0].Payload, dst)
 }

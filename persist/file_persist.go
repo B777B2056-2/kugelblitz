@@ -33,6 +33,8 @@ func (fp *FilePersist) fullPath(key string) (string, error) {
 }
 
 // Store writes data to the key's file. Directories are created as needed.
+// The write is atomic (temp file + rename) so a crash cannot leave a truncated
+// file behind (P14).
 func (fp *FilePersist) Store(_ context.Context, key string, data []byte) error {
 	fp.mu.Lock()
 	defer fp.mu.Unlock()
@@ -40,10 +42,33 @@ func (fp *FilePersist) Store(_ context.Context, key string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("file persist store: %w", err)
 	}
-	return os.WriteFile(path, data, 0644)
+
+	tmp, err := os.CreateTemp(dir, ".tmp-*")
+	if err != nil {
+		return fmt.Errorf("file persist store: create temp: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }() // no-op after successful rename
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("file persist store: write: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("file persist store: sync: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("file persist store: close: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("file persist store: rename: %w", err)
+	}
+	return nil
 }
 
 // Load reads the key's file contents.

@@ -3,6 +3,7 @@ package persist
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -40,14 +41,16 @@ func LoadSessionJSONL(sessionID string) (summary string, messages []core.Message
 			var s struct {
 				Summary string `json:"summary"`
 			}
-			if err := json.Unmarshal(evt.Payload, &s); err == nil {
-				summary = s.Summary
+			if err := json.Unmarshal(evt.Payload, &s); err != nil {
+				return "", nil, fmt.Errorf("load session: unmarshal summary: %w", err)
 			}
+			summary = s.Summary
 		case "msg":
 			var msg core.Message
-			if err := json.Unmarshal(evt.Payload, &msg); err == nil {
-				messages = append(messages, msg)
+			if err := json.Unmarshal(evt.Payload, &msg); err != nil {
+				return "", nil, fmt.Errorf("load session: unmarshal message: %w", err)
 			}
+			messages = append(messages, msg)
 		}
 	}
 	return summary, messages, nil
@@ -55,7 +58,16 @@ func LoadSessionJSONL(sessionID string) (summary string, messages []core.Message
 
 func ListSessions() ([]string, error) {
 	mgr := GetManager()
-	return mgr.JSONL().List(context.Background(), filepath.Join("memory", "sessions"))
+	keys, err := mgr.JSONL().List(context.Background(), filepath.Join("memory", "sessions"))
+	if err != nil {
+		return nil, err
+	}
+	// List returns full prefixed paths; strip to bare session IDs (P11).
+	var ids []string
+	for _, k := range keys {
+		ids = append(ids, filepath.Base(k))
+	}
+	return ids, nil
 }
 
 func DeleteSession(sessionID string) error {

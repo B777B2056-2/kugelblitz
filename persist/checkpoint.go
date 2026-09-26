@@ -24,8 +24,11 @@ func SaveCheckpointJSON(planID string, version int, checkpoint any) error {
 func LoadCheckpointJSON(planID string, version int, dst any) error {
 	mgr := GetManager()
 	events, err := mgr.JSONL().ReadAll(filepath.Join("memory", "plans", planID, "checkpoints", padVersion(version)+".jsonl"))
-	if err != nil || len(events) == 0 {
+	if err != nil {
 		return fmt.Errorf("checkpoint load: %w", err)
+	}
+	if len(events) == 0 {
+		return fmt.Errorf("checkpoint load: no events")
 	}
 	return json.Unmarshal(events[0].Payload, dst)
 }
@@ -38,7 +41,9 @@ func ListCheckpoints(planID string) ([]int, error) {
 	}
 	var versions []int
 	for _, name := range names {
-		v, err := strconv.Atoi(name)
+		// List returns full prefixed paths; Atoi on the whole path always fails,
+		// so take only the basename (e.g. "0001") (P10).
+		v, err := strconv.Atoi(filepath.Base(name))
 		if err == nil {
 			versions = append(versions, v)
 		}
