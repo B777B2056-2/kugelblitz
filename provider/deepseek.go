@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/provider/chat_completions"
 
 	"github.com/openai/openai-go/v3/shared"
@@ -39,7 +39,7 @@ type deepSeekFormat struct {
 	*chat_completions.Format
 }
 
-func (f *deepSeekFormat) Generate(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+func (f *deepSeekFormat) Generate(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 	req, err := f.BuildRequest(params)
 	if err != nil {
 		return nil, err

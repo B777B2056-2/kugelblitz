@@ -10,7 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/tools"
 
 	md "github.com/JohannesKaufmann/html-to-markdown/v2"
@@ -28,8 +28,8 @@ const (
 // Set render_js: true to use a headless browser for JavaScript-heavy pages.
 type WebFetch struct{}
 
-func (t *WebFetch) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *WebFetch) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "web_fetch",
 		Description: "Fetch a web page and convert it to Markdown. Use render_js: true for JavaScript-rendered pages (requires Chrome/Chromium installed).",
 		JSONSchema: map[string]any{
@@ -57,7 +57,7 @@ func (t *WebFetch) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *WebFetch) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *WebFetch) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	urlStr, err := tools.Arg(detail, "url")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "web_fetch", err)

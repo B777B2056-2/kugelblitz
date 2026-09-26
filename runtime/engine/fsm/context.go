@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/prompts"
@@ -15,8 +15,8 @@ import (
 // a single Machine.Run invocation.
 type Context struct {
 	Ctx     context.Context
-	Input   core.AgentInput
-	Results []core.Message
+	Input   coretypes.AgentInput
+	Results []coretypes.Message
 
 	Plan     *working.Plan
 	PlanID   string
@@ -32,7 +32,7 @@ type Context struct {
 // interface (not *infra.ReactAgent) so the FSM no longer depends on the infra
 // package and can be driven by test doubles.
 type ReactExecutor interface {
-	ExecuteWithTools(ctx context.Context, systemMessage core.Message, userMessages []core.Message, tools []string) ([]core.Message, error)
+	ExecuteWithTools(ctx context.Context, systemMessage coretypes.Message, userMessages []coretypes.Message, tools []string) ([]coretypes.Message, error)
 	GetAgentIdentity() constants.AgentIdentity
 	NotifyPlanRollback(id constants.AgentIdentity, planID string, targetVersion int, planName string)
 }
@@ -50,10 +50,10 @@ type DriftReviewer interface {
 
 // SessionStore is the minimal surface of session memory the FSM needs.
 type SessionStore interface {
-	AppendMessage(message core.Message)
+	AppendMessage(message coretypes.Message)
 	SessionID() string
-	GetHistoryMessages() []core.Message
-	Compress(ctx context.Context, s memory.Summarizer, keepLastN, minToCompress int) (*core.Usage, error)
+	GetHistoryMessages() []coretypes.Message
+	Compress(ctx context.Context, s memory.Summarizer, keepLastN, minToCompress int) (*coretypes.Usage, error)
 }
 
 // Dependencies holds every external dependency injected into the state machine.

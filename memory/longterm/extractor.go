@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 )
 
 // ExtractionContext bundles all information the LLM needs for fact extraction.
 type ExtractionContext struct {
 	SessionID       string         // Current session identifier
 	UserMessage     string         // Original user goal/request
-	Conversation    []core.Message // Full conversation including tool calls and results
+	Conversation    []coretypes.Message // Full conversation including tool calls and results
 	SessionSummary  string         // Current session summary (from SessionMemory)
 	ExistingItems   []MemoryItem   // Existing LTM items for dedup/conflict awareness
 	CheckpointGoals []string       // Active plan goals from checkpoints
@@ -30,23 +30,23 @@ type MemoryItemCandidate struct {
 
 // Extractor uses an LLM provider to extract long-term memories from conversations.
 type Extractor struct {
-	provider core.ILMProvider
+	provider coretypes.ILMProvider
 }
 
 // NewExtractor creates an Extractor with the given LLM provider.
-func NewExtractor(provider core.ILMProvider) *Extractor {
+func NewExtractor(provider coretypes.ILMProvider) *Extractor {
 	return &Extractor{provider: provider}
 }
 
 // Extract runs the LLM extraction and returns fact candidates.
 // All memory types (items, episodic, lessons, patterns) are extracted as
 // MemoryItemCandidate entries with different section names.
-func (e *Extractor) Extract(ctx context.Context, ec *ExtractionContext) ([]MemoryItemCandidate, *core.Usage, error) {
+func (e *Extractor) Extract(ctx context.Context, ec *ExtractionContext) ([]MemoryItemCandidate, *coretypes.Usage, error) {
 	prompt := e.buildPrompt(ec)
 
-	msg := core.NewUserMessage(core.TextContent{Text: prompt})
-	resp, err := e.provider.Generate(ctx, core.GenerateParams{
-		Messages: []core.Message{msg},
+	msg := coretypes.NewUserMessage(coretypes.TextContent{Text: prompt})
+	resp, err := e.provider.Generate(ctx, coretypes.GenerateParams{
+		Messages: []coretypes.Message{msg},
 		Stream:   false,
 	})
 	if err != nil {
@@ -55,7 +55,7 @@ func (e *Extractor) Extract(ctx context.Context, ec *ExtractionContext) ([]Memor
 
 	usage := resp.Usage
 	text := ""
-	if tc, ok := resp.Content.(core.TextContent); ok {
+	if tc, ok := resp.Content.(coretypes.TextContent); ok {
 		text = tc.Text
 	}
 
@@ -132,26 +132,26 @@ Rules:
 }
 
 // summarizeConversation builds a compact representation of the conversation.
-func (e *Extractor) summarizeConversation(messages []core.Message) string {
+func (e *Extractor) summarizeConversation(messages []coretypes.Message) string {
 	var sb strings.Builder
 
 	for _, msg := range messages {
 		switch c := msg.Content.(type) {
-		case core.TextContent:
+		case coretypes.TextContent:
 			if len(c.Text) > 20 {
 				sb.WriteString(truncate(c.Text, 500))
 				sb.WriteString("\n")
 			}
-		case core.ToolCallContent:
+		case coretypes.ToolCallContent:
 			sb.WriteString(e.summarizeToolCalls(c.Details))
-		case core.ToolResultContent:
+		case coretypes.ToolResultContent:
 			sb.WriteString(e.summarizeToolResults(c.Results))
 		}
 	}
 	return sb.String()
 }
 
-func (e *Extractor) summarizeToolCalls(details []core.ToolCallDetail) string {
+func (e *Extractor) summarizeToolCalls(details []coretypes.ToolCallDetail) string {
 	if len(details) == 0 {
 		return ""
 	}
@@ -163,7 +163,7 @@ func (e *Extractor) summarizeToolCalls(details []core.ToolCallDetail) string {
 	return fmt.Sprintf("[Tool calls: %s]\n", strings.Join(parts, ", "))
 }
 
-func (e *Extractor) summarizeToolResults(results []core.ToolCallResult) string {
+func (e *Extractor) summarizeToolResults(results []coretypes.ToolCallResult) string {
 	if len(results) == 0 {
 		return ""
 	}
@@ -221,11 +221,11 @@ type ExtractionFullResult struct {
 }
 
 // ExtractFull runs the LLM extraction and returns the full result including entities and relationships.
-func (e *Extractor) ExtractFull(ctx context.Context, ec *ExtractionContext) (*ExtractionFullResult, *core.Usage, error) {
+func (e *Extractor) ExtractFull(ctx context.Context, ec *ExtractionContext) (*ExtractionFullResult, *coretypes.Usage, error) {
 	prompt := e.buildPrompt(ec)
-	msg := core.NewUserMessage(core.TextContent{Text: prompt})
-	resp, err := e.provider.Generate(ctx, core.GenerateParams{
-		Messages: []core.Message{msg},
+	msg := coretypes.NewUserMessage(coretypes.TextContent{Text: prompt})
+	resp, err := e.provider.Generate(ctx, coretypes.GenerateParams{
+		Messages: []coretypes.Message{msg},
 		Stream:   false,
 	})
 	if err != nil {
@@ -233,7 +233,7 @@ func (e *Extractor) ExtractFull(ctx context.Context, ec *ExtractionContext) (*Ex
 	}
 	usage := resp.Usage
 	text := ""
-	if tc, ok := resp.Content.(core.TextContent); ok {
+	if tc, ok := resp.Content.(coretypes.TextContent); ok {
 		text = tc.Text
 	}
 	result, err := e.parseFullResponse(text)

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/prompts"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -15,23 +15,23 @@ import (
 // depends on this interface (not the concrete *Compressor) so it can be swapped
 // for a stub in tests and so higher layers don't carry the concrete type.
 type Summarizer interface {
-	Summarize(ctx context.Context, messages []core.Message, existingSummary string) (string, *core.Usage, error)
+	Summarize(ctx context.Context, messages []coretypes.Message, existingSummary string) (string, *coretypes.Usage, error)
 }
 
 // Compressor handles conversation summarization via an LLM provider.
 // It satisfies Summarizer.
 type Compressor struct {
-	provider core.ILMProvider
+	provider coretypes.ILMProvider
 	tracer   trace.Tracer
 }
 
 // NewCompressor creates a Compressor backed by the given LLM provider.
-func NewCompressor(provider core.ILMProvider, tracer trace.Tracer) *Compressor {
+func NewCompressor(provider coretypes.ILMProvider, tracer trace.Tracer) *Compressor {
 	return &Compressor{provider: provider, tracer: tracer}
 }
 
 // Summarize sends messages to the LLM and returns a summary string and token usage.
-func (c *Compressor) Summarize(ctx context.Context, messages []core.Message, existingSummary string) (string, *core.Usage, error) {
+func (c *Compressor) Summarize(ctx context.Context, messages []coretypes.Message, existingSummary string) (string, *coretypes.Usage, error) {
 	ctx, span := c.tracer.Start(ctx, "compress.summarize",
 		trace.WithAttributes(attribute.Int("messages", len(messages))),
 	)
@@ -39,9 +39,9 @@ func (c *Compressor) Summarize(ctx context.Context, messages []core.Message, exi
 
 	prompt := prompts.BuildSummarizePrompt(messages, existingSummary)
 
-	userMsg := core.NewUserMessage(core.TextContent{Text: prompt})
-	params := core.GenerateParams{
-		Messages: []core.Message{userMsg},
+	userMsg := coretypes.NewUserMessage(coretypes.TextContent{Text: prompt})
+	params := coretypes.GenerateParams{
+		Messages: []coretypes.Message{userMsg},
 		Stream:   false,
 	}
 
@@ -59,7 +59,7 @@ func (c *Compressor) Summarize(ctx context.Context, messages []core.Message, exi
 		)
 	}
 
-	if tc, ok := result.Content.(core.TextContent); ok {
+	if tc, ok := result.Content.(coretypes.TextContent); ok {
 		span.SetAttributes(attribute.Int("summary_len", len(tc.Text)))
 		return tc.Text, result.Usage, nil
 	}
@@ -79,9 +79,9 @@ func (c *Compressor) SummarizeToolResultField(ctx context.Context, toolName, fie
 
 	prompt := prompts.BuildCompressFieldPrompt(toolName, fieldKey, len(raw), raw)
 
-	msg := core.NewUserMessage(core.TextContent{Text: prompt})
-	params := core.GenerateParams{
-		Messages: []core.Message{msg},
+	msg := coretypes.NewUserMessage(coretypes.TextContent{Text: prompt})
+	params := coretypes.GenerateParams{
+		Messages: []coretypes.Message{msg},
 		Stream:   false,
 	}
 	result, err := c.provider.Generate(ctx, params)
@@ -97,7 +97,7 @@ func (c *Compressor) SummarizeToolResultField(ctx context.Context, toolName, fie
 		)
 	}
 
-	if tc, ok := result.Content.(core.TextContent); ok {
+	if tc, ok := result.Content.(coretypes.TextContent); ok {
 		return strings.TrimSpace(tc.Text), nil
 	}
 	return "", fmt.Errorf("compressor: unexpected response type: %T", result.Content)

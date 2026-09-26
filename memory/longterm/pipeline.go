@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 )
 
 // PipelineResult aggregates metrics from a write pipeline run.
@@ -15,7 +15,7 @@ type PipelineResult struct {
 	ItemsRejected   int // All rejected by dedup
 	NeedsHuman      int // Conflicts deferred for human review
 	Duration        time.Duration
-	ExtractionUsage *core.Usage
+	ExtractionUsage *coretypes.Usage
 }
 
 // WritePipeline orchestrates the 4-stage memory write process:
@@ -24,7 +24,7 @@ type PipelineResult struct {
 //  3. Dedup   – semantic dedup against existing items and batch peers
 //  4. Store   – write to MEMORY.md, then trigger ChromaDB index rebuild
 type WritePipeline struct {
-	provider  core.ILMProvider
+	provider  coretypes.ILMProvider
 	extractor *Extractor
 	resolver  *ConflictResolver
 	dedup     *Deduplicator
@@ -34,7 +34,7 @@ type WritePipeline struct {
 
 // NewWritePipeline creates a configured pipeline.
 func NewWritePipeline(
-	provider core.ILMProvider,
+	provider coretypes.ILMProvider,
 	ltm *LongTermMemory,
 	indexMgr *IndexManager,
 	confidenceGap float64,
@@ -104,7 +104,7 @@ func (p *WritePipeline) Run(ctx context.Context, ec *ExtractionContext) (*Pipeli
 
 // ExtractionInput carries session data needed by ExtractFromSession.
 type ExtractionInput struct {
-	Conversation   []core.Message
+	Conversation   []coretypes.Message
 	SessionSummary string
 	Goal           string
 }

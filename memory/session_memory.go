@@ -6,7 +6,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/persist"
 )
 
@@ -16,7 +16,7 @@ import (
 
 type SessionMemory struct {
 	sessionID       string
-	historyMessages []core.Message
+	historyMessages []coretypes.Message
 	summary         string // accumulated summary from previous compressions
 	mu              sync.RWMutex
 }
@@ -37,13 +37,13 @@ func (s *SessionMemory) Summary() string {
 	return s.summary
 }
 
-func (s *SessionMemory) AppendMessages(messages []core.Message) {
+func (s *SessionMemory) AppendMessages(messages []coretypes.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.historyMessages = append(s.historyMessages, messages...)
 }
 
-func (s *SessionMemory) AppendMessage(message core.Message) {
+func (s *SessionMemory) AppendMessage(message coretypes.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.historyMessages = append(s.historyMessages, message)
@@ -51,7 +51,7 @@ func (s *SessionMemory) AppendMessage(message core.Message) {
 
 // GetHistoryMessages returns all messages in the session.
 // If a summary exists from prior compressions, it is prepended as a system message.
-func (s *SessionMemory) GetHistoryMessages() []core.Message {
+func (s *SessionMemory) GetHistoryMessages() []coretypes.Message {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -59,8 +59,8 @@ func (s *SessionMemory) GetHistoryMessages() []core.Message {
 		return s.historyMessages
 	}
 
-	sumMsg := core.NewSystemMessage(core.TextContent{Text: s.summary})
-	result := make([]core.Message, 0, len(s.historyMessages)+1)
+	sumMsg := coretypes.NewSystemMessage(coretypes.TextContent{Text: s.summary})
+	result := make([]coretypes.Message, 0, len(s.historyMessages)+1)
 	result = append(result, sumMsg)
 	result = append(result, s.historyMessages...)
 	return result
@@ -74,7 +74,7 @@ func (s *SessionMemory) GetHistoryMessages() []core.Message {
 // GetHistoryMessages (called every ReAct iteration), we snapshot old messages
 // and recent messages under RLock, release, call the LLM, then reacquire the
 // write lock to atomically update the summary and history.
-func (s *SessionMemory) Compress(ctx context.Context, c Summarizer, keepLastN, minToCompress int) (*core.Usage, error) {
+func (s *SessionMemory) Compress(ctx context.Context, c Summarizer, keepLastN, minToCompress int) (*coretypes.Usage, error) {
 	// Step 1: RLock to snapshot
 	s.mu.RLock()
 	total := len(s.historyMessages)
@@ -83,9 +83,9 @@ func (s *SessionMemory) Compress(ctx context.Context, c Summarizer, keepLastN, m
 		return nil, nil
 	}
 	splitAt := total - keepLastN
-	old := make([]core.Message, splitAt)
+	old := make([]coretypes.Message, splitAt)
 	copy(old, s.historyMessages[:splitAt])
-	recent := make([]core.Message, keepLastN)
+	recent := make([]coretypes.Message, keepLastN)
 	copy(recent, s.historyMessages[splitAt:])
 	oldSummary := s.summary
 	s.mu.RUnlock()
@@ -118,7 +118,7 @@ func (s *SessionMemory) Compress(ctx context.Context, c Summarizer, keepLastN, m
 // CompressToolResult compresses oversized string fields in a tool result via the LLM.
 // Fields exceeding maxChars are summarized in-place. Error fields are never compressed.
 func (s *SessionMemory) CompressToolResult(
-	ctx context.Context, c *Compressor, maxChars int, result *core.ToolCallResult,
+	ctx context.Context, c *Compressor, maxChars int, result *coretypes.ToolCallResult,
 ) {
 	if maxChars <= 0 {
 		return

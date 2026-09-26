@@ -7,6 +7,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/prompts"
 )
@@ -18,7 +19,7 @@ type Action interface {
 
 // ActionResult holds the output of an Action execution.
 type ActionResult struct {
-	Messages []core.Message
+	Messages []coretypes.Message
 	Data     map[string]any
 }
 
@@ -26,7 +27,7 @@ type ActionResult struct {
 // call LLM → handle context exceeded → append messages.
 type ReactAction struct {
 	State constants.PlanState
-	Input core.AgentInput // user input (text + optional media); use BuildUserMessage()
+	Input coretypes.AgentInput // user input (text + optional media); use BuildUserMessage()
 	Plan  *working.Plan
 }
 
@@ -37,7 +38,7 @@ func (a *ReactAction) Execute(ctx *Context) (*ActionResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	sysMsg := core.NewSystemMessage(core.TextContent{
+	sysMsg := coretypes.NewSystemMessage(coretypes.TextContent{
 		Text: prompt,
 	})
 	sessionCtx := core.WithSessionID(ctx.Ctx, deps.Session.SessionID())
@@ -47,7 +48,7 @@ func (a *ReactAction) Execute(ctx *Context) (*ActionResult, error) {
 	tools := ToolsForState(a.State, deps.CustomToolNames())
 	stepResult, err := deps.React.ExecuteWithTools(sessionCtx, sysMsg, history, tools)
 
-	if errors.Is(err, core.ErrContextLengthExceeded) {
+	if errors.Is(err, coretypes.ErrContextLengthExceeded) {
 		stepResult, err = handleContextExceeded(ctx, sysMsg, tools)
 	}
 
@@ -57,7 +58,7 @@ func (a *ReactAction) Execute(ctx *Context) (*ActionResult, error) {
 }
 
 // handleContextExceeded compresses session memory and retries the ReAct call.
-func handleContextExceeded(ctx *Context, sysMsg core.Message, tools []string) ([]core.Message, error) {
+func handleContextExceeded(ctx *Context, sysMsg coretypes.Message, tools []string) ([]coretypes.Message, error) {
 	deps := ctx.Deps
 	sessionCtx := core.WithSessionID(ctx.Ctx, deps.Session.SessionID())
 
@@ -66,11 +67,11 @@ func handleContextExceeded(ctx *Context, sysMsg core.Message, tools []string) ([
 
 		history := deps.Session.GetHistoryMessages()
 		result, err := deps.React.ExecuteWithTools(sessionCtx, sysMsg, history, tools)
-		if err == nil || !errors.Is(err, core.ErrContextLengthExceeded) {
+		if err == nil || !errors.Is(err, coretypes.ErrContextLengthExceeded) {
 			return result, err
 		}
 	}
-	return nil, core.ErrContextLengthExceeded
+	return nil, coretypes.ErrContextLengthExceeded
 }
 
 // DAGAction executes a DAG batch and handles drift review in the failure callback.

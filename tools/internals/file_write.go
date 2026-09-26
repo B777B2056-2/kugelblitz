@@ -4,15 +4,15 @@ import (
 	"context"
 	"os"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
 // FileWrite writes content to a file, creating it if it doesn't exist.
 type FileWrite struct{}
 
-func (t *FileWrite) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *FileWrite) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "file_write",
 		Description: "Write content to a file at the given path. Overwrites existing files. Creates parent directories if needed.",
 		JSONSchema: map[string]any{
@@ -40,7 +40,7 @@ func (t *FileWrite) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *FileWrite) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *FileWrite) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	path, err := tools.Arg(detail, "path")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "file_write", err)

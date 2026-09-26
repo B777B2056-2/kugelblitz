@@ -9,6 +9,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/config"
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory"
 	"github.com/B777B2056-2/kugelblitz/memory/longterm"
 	"github.com/B777B2056-2/kugelblitz/observability"
@@ -46,7 +47,7 @@ type AgentLoop struct {
 
 	// config
 	cfg   config.Config
-	input core.AgentInput
+	input coretypes.AgentInput
 
 	// lifecycle
 	done     chan struct{}
@@ -97,7 +98,7 @@ func NewAgentLoop(cfg config.Config, opts ...AgentLoopOption) (*AgentLoop, error
 	return al, nil
 }
 
-func initLTM(provider core.ILMProvider, al *AgentLoop) error {
+func initLTM(provider coretypes.ILMProvider, al *AgentLoop) error {
 	mgr := persist.GetManager()
 	ltm, err := longterm.NewLongTermMemory(mgr.Markdown())
 	if err != nil {
@@ -151,7 +152,7 @@ func initSkills() {
 	internals.RegisterSkillTool(skillList, activeSkill)
 }
 
-func initSemanticJudge(provider core.ILMProvider) {
+func initSemanticJudge(provider coretypes.ILMProvider) {
 	longterm.SetSemanticJudge(func(oldVal, newVal string) bool {
 		text, err := prompts.DefaultFactory.Render(prompts.TypeSemanticJudge, prompts.SemanticJudgeParams{
 			OldVal: oldVal, NewVal: newVal,
@@ -159,14 +160,14 @@ func initSemanticJudge(provider core.ILMProvider) {
 		if err != nil {
 			return false
 		}
-		msg := core.NewUserMessage(core.TextContent{Text: text})
-		resp, err := provider.Generate(context.Background(), core.GenerateParams{
-			Messages: []core.Message{msg}, Stream: false,
+		msg := coretypes.NewUserMessage(coretypes.TextContent{Text: text})
+		resp, err := provider.Generate(context.Background(), coretypes.GenerateParams{
+			Messages: []coretypes.Message{msg}, Stream: false,
 		})
 		if err != nil {
 			return false
 		}
-		if tc, ok := resp.Content.(core.TextContent); ok {
+		if tc, ok := resp.Content.(coretypes.TextContent); ok {
 			return strings.Contains(strings.ToUpper(tc.Text), "YES")
 		}
 		return false
@@ -184,7 +185,7 @@ func (a *AgentLoop) RegisterEventHooks(hooks core.AgentEventHooks) {
 }
 
 // Run starts the agent loop in a background goroutine.
-func (a *AgentLoop) Run(ctx context.Context, input core.AgentInput) {
+func (a *AgentLoop) Run(ctx context.Context, input coretypes.AgentInput) {
 	ctx, a.cancelFn = context.WithCancel(ctx)
 	a.done = make(chan struct{})
 	go func() {
@@ -221,7 +222,7 @@ func (a *AgentLoop) Done() <-chan struct{} { return a.done }
 // resolveProvider selects the LLM provider based on the current input.
 // If input has media and the matching multimodal model is configured, use it.
 // Otherwise fall back to the main text model.
-func (a *AgentLoop) resolveProvider() core.ILMProvider {
+func (a *AgentLoop) resolveProvider() coretypes.ILMProvider {
 	if a.input.IsTextOnly() {
 		return a.cfg.Model.Provider
 	}
@@ -248,7 +249,7 @@ func (a *AgentLoop) Agent() core.IAgent { return a.planner.Agent() }
 
 // ---- Execution ----
 
-func (a *AgentLoop) execute(ctx context.Context, input core.AgentInput) (messages []core.Message, err error) {
+func (a *AgentLoop) execute(ctx context.Context, input coretypes.AgentInput) (messages []coretypes.Message, err error) {
 	if err := input.Validate(); err != nil {
 		return nil, err
 	}
@@ -310,7 +311,7 @@ func (a *AgentLoop) backgroundCtx() context.Context {
 func (a *AgentLoop) rewriteEventHooks(userHooks core.AgentEventHooks) core.AgentEventHooks {
 	// AgentLoop system wrappers: compress + extract + then user.
 	sysHooks := core.AgentEventHooks{
-		OnToolCallEnd: func(id constants.AgentIdentity, result core.ToolCallResult) {
+		OnToolCallEnd: func(id constants.AgentIdentity, result coretypes.ToolCallResult) {
 			a.sessionMem.CompressToolResult(a.backgroundCtx(),
 				a.planner.Compressor(), a.cfg.ContextCompress.MaxToolResultChars, &result)
 		},
@@ -334,13 +335,13 @@ func (a *AgentLoop) rewriteEventHooks(userHooks core.AgentEventHooks) core.Agent
 		sysHooks.OnBlockThinking = func(id constants.AgentIdentity, reasoning string) {
 			instrH.OnBlockThinking(reasoning)
 		}
-		sysHooks.OnFunctionCall = func(id constants.AgentIdentity, detail core.ToolCallDetail) {
+		sysHooks.OnFunctionCall = func(id constants.AgentIdentity, detail coretypes.ToolCallDetail) {
 			instrH.OnFunctionCall(detail)
 		}
 		sysHooks.OnModelFinished = func(id constants.AgentIdentity, reason string) {
 			instrH.OnFinished(reason)
 		}
-		sysHooks.OnUsageUpdated = func(id constants.AgentIdentity, usage core.Usage) {
+		sysHooks.OnUsageUpdated = func(id constants.AgentIdentity, usage coretypes.Usage) {
 			instrH.OnUsageUpdated(usage)
 		}
 		sysHooks.OnError = func(id constants.AgentIdentity, err error) {

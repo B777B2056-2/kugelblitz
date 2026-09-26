@@ -3,7 +3,7 @@ package internals
 import (
 	"context"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
@@ -11,8 +11,8 @@ import (
 // to choose between plan mode and direct (simple) execution.
 type SetWorkMode struct{}
 
-func (t *SetWorkMode) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *SetWorkMode) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "set_work_mode",
 		Terminating: true,
 		Description: "Set the execution mode. Use 'plan' for complex multi-step tasks " +
@@ -37,7 +37,7 @@ func (t *SetWorkMode) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *SetWorkMode) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *SetWorkMode) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	mode, err := tools.Arg(detail, "mode")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "set_work_mode", err)

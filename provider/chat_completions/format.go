@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -42,7 +43,7 @@ func NewFormat(apiKey, baseURL, model string) *Format {
 // Extensions that need to modify the request before sending should override
 // this method (e.g., to inject provider-specific params) and call Block/Stream
 // with the modified request.
-func (f *Format) Generate(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+func (f *Format) Generate(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 	if f.model == "" {
 		return nil, errors.New("model not specified")
 	}
@@ -61,7 +62,7 @@ func (f *Format) Generate(ctx context.Context, params core.GenerateParams) (*cor
 // Block sends a non-streaming request and returns the parsed response.
 // Non-chunk callbacks (OnFunctionCall, OnFinished, OnUsageUpdated) are
 // triggered once after the complete response is received.
-func (f *Format) Block(ctx context.Context, req openai.ChatCompletionNewParams, params core.GenerateParams) (*core.Message, error) {
+func (f *Format) Block(ctx context.Context, req openai.ChatCompletionNewParams, params coretypes.GenerateParams) (*coretypes.Message, error) {
 	handler := params.EventHandler
 
 	completion, err := f.client.Chat.Completions.New(ctx, req)
@@ -93,7 +94,7 @@ func (f *Format) Block(ctx context.Context, req openai.ChatCompletionNewParams, 
 
 	// Extract usage from the completion
 	if completion.Usage.TotalTokens > 0 {
-		msg.Usage = &core.Usage{
+		msg.Usage = &coretypes.Usage{
 			TotalTokens:     completion.Usage.TotalTokens,
 			InputTokens:     completion.Usage.PromptTokens,
 			CachedTokens:    completion.Usage.PromptTokensDetails.CachedTokens,
@@ -105,14 +106,14 @@ func (f *Format) Block(ctx context.Context, req openai.ChatCompletionNewParams, 
 	// Trigger non-chunk callbacks (same set as stream mode, minus chunk callbacks)
 	if handler != nil {
 		// OnFunctionCall: once per tool call
-		if tc, ok := msg.Content.(core.ToolCallContent); ok {
+		if tc, ok := msg.Content.(coretypes.ToolCallContent); ok {
 			for _, d := range tc.Details {
 				handler.OnFunctionCall(d)
 			}
 		}
-		if cc, ok := msg.Content.(core.CompositeContent); ok {
+		if cc, ok := msg.Content.(coretypes.CompositeContent); ok {
 			for _, part := range cc.Parts {
-				if tc, ok := part.(core.ToolCallContent); ok {
+				if tc, ok := part.(coretypes.ToolCallContent); ok {
 					for _, d := range tc.Details {
 						handler.OnFunctionCall(d)
 					}
@@ -131,11 +132,11 @@ func (f *Format) Block(ctx context.Context, req openai.ChatCompletionNewParams, 
 
 // Stream sends a streaming request, aggregates all chunks, and returns the
 // parsed result. eventHandler callbacks are invoked per chunk and on completion.
-func (f *Format) Stream(ctx context.Context, req openai.ChatCompletionNewParams, params core.GenerateParams) (*core.Message, error) {
+func (f *Format) Stream(ctx context.Context, req openai.ChatCompletionNewParams, params coretypes.GenerateParams) (*coretypes.Message, error) {
 
 	streamResp := f.client.Chat.Completions.NewStreaming(ctx, req)
 	parentID := params.Messages[len(params.Messages)-1].ID
-	aggregated := core.NewAssistantMessage(nil)
+	aggregated := coretypes.NewAssistantMessage(nil)
 
 	var textBuilder, reasoningBuilder strings.Builder
 	toolCallAccum := make(map[string]*toolCallEntry) // ID → accumulated entry
@@ -173,7 +174,7 @@ func (f *Format) Stream(ctx context.Context, req openai.ChatCompletionNewParams,
 					entry.Detail.ToolName = tc.Function.Name
 					entry.Detail.ID = id
 					if handler != nil && !entry.notified {
-						handler.OnFunctionCall(core.ToolCallDetail{ID: id, ToolName: tc.Function.Name})
+						handler.OnFunctionCall(coretypes.ToolCallDetail{ID: id, ToolName: tc.Function.Name})
 						entry.notified = true
 					}
 				}
@@ -195,17 +196,17 @@ func (f *Format) Stream(ctx context.Context, req openai.ChatCompletionNewParams,
 		}
 
 		switch ct := chunk.Content.(type) {
-		case core.TextContent:
+		case coretypes.TextContent:
 			textBuilder.WriteString(ct.Text)
 			if handler != nil {
 				handler.OnReplyChunk(ct.Text)
 			}
-		case core.ReasoningContent:
+		case coretypes.ReasoningContent:
 			reasoningBuilder.WriteString(ct.Reasoning)
 			if handler != nil {
 				handler.OnThinkingChunk(ct.Reasoning)
 			}
-		case core.ToolCallContent, core.CompositeContent:
+		case coretypes.ToolCallContent, coretypes.CompositeContent:
 			// Already handled above via raw JSON extraction
 		}
 
@@ -238,7 +239,7 @@ func (f *Format) Stream(ctx context.Context, req openai.ChatCompletionNewParams,
 func (f *Format) buildStreamContent(
 	textBuilder, reasoningBuilder *strings.Builder,
 	toolCallAccum map[string]*toolCallEntry,
-) core.Content {
+) coretypes.Content {
 	// Parse accumulated raw arguments JSON strings
 	for _, entry := range toolCallAccum {
 		if entry.rawArgs.Len() > 0 {
@@ -247,7 +248,7 @@ func (f *Format) buildStreamContent(
 	}
 
 	// Collect tool call details
-	toolCallDetails := make([]core.ToolCallDetail, 0, len(toolCallAccum))
+	toolCallDetails := make([]coretypes.ToolCallDetail, 0, len(toolCallAccum))
 	for _, entry := range toolCallAccum {
 		if entry.Detail.ToolName != "" {
 			toolCallDetails = append(toolCallDetails, entry.Detail)
@@ -258,25 +259,25 @@ func (f *Format) buildStreamContent(
 	text := textBuilder.String()
 	switch {
 	case len(toolCallDetails) > 0 && reasoningText != "":
-		return core.CompositeContent{
-			Parts: []core.Content{
-				core.ReasoningContent{Reasoning: reasoningText},
-				core.ToolCallContent{Details: toolCallDetails},
+		return coretypes.CompositeContent{
+			Parts: []coretypes.Content{
+				coretypes.ReasoningContent{Reasoning: reasoningText},
+				coretypes.ToolCallContent{Details: toolCallDetails},
 			},
 		}
 	case len(toolCallDetails) > 0:
-		return core.ToolCallContent{Details: toolCallDetails}
+		return coretypes.ToolCallContent{Details: toolCallDetails}
 	case reasoningText != "" && text != "":
-		return core.CompositeContent{
-			Parts: []core.Content{
-				core.ReasoningContent{Reasoning: reasoningText},
-				core.TextContent{Text: text},
+		return coretypes.CompositeContent{
+			Parts: []coretypes.Content{
+				coretypes.ReasoningContent{Reasoning: reasoningText},
+				coretypes.TextContent{Text: text},
 			},
 		}
 	case reasoningText != "":
-		return core.ReasoningContent{Reasoning: reasoningText}
+		return coretypes.ReasoningContent{Reasoning: reasoningText}
 	default:
-		return core.TextContent{Text: text}
+		return coretypes.TextContent{Text: text}
 	}
 }
 
@@ -286,7 +287,7 @@ func (f *Format) buildStreamContent(
 // Streaming APIs (DeepSeek, OpenAI) send tool calls across multiple chunks:
 // first chunk has id+name, subsequent chunks have arguments fragments.
 type toolCallEntry struct {
-	Detail   core.ToolCallDetail
+	Detail   coretypes.ToolCallDetail
 	rawArgs  strings.Builder // concatenated raw JSON arguments (no reallocation per fragment)
 	notified bool            // OnFunctionCall already fired
 }
@@ -306,7 +307,7 @@ func convertArgsJSON(raw string) map[string]any {
 // buildRequest constructs a ChatCompletionNewParams from GenerateParams.
 // It does NOT apply provider-specific extensions; those are done by the
 // provider layer before calling Generate.
-func (f *Format) buildRequest(params core.GenerateParams) (openai.ChatCompletionNewParams, error) {
+func (f *Format) buildRequest(params coretypes.GenerateParams) (openai.ChatCompletionNewParams, error) {
 	messages, err := f.converter.ConvertMessages(params.Messages)
 	if err != nil {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("converting messages: %w", err)
@@ -342,12 +343,12 @@ func (f *Format) buildRequest(params core.GenerateParams) (openai.ChatCompletion
 
 // BuildRequest exposes the request builder so provider extensions can
 // modify the request before sending (e.g., adding thinking params).
-func (f *Format) BuildRequest(params core.GenerateParams) (openai.ChatCompletionNewParams, error) {
+func (f *Format) BuildRequest(params coretypes.GenerateParams) (openai.ChatCompletionNewParams, error) {
 	return f.buildRequest(params)
 }
 
 // wrapContextError detects context-length errors from the API and wraps them
-// with core.ErrContextLengthExceeded so callers can react (compress + retry).
+// with coretypes.ErrContextLengthExceeded so callers can react (compress + retry).
 func wrapContextError(err error) error {
 	if err == nil {
 		return nil
@@ -356,7 +357,7 @@ func wrapContextError(err error) error {
 	if strings.Contains(s, "context_length_exceeded") ||
 		strings.Contains(s, "maximum context length") ||
 		strings.Contains(s, "reduce the length of the messages") {
-		return fmt.Errorf("%w: %w", core.ErrContextLengthExceeded, err)
+		return fmt.Errorf("%w: %w", coretypes.ErrContextLengthExceeded, err)
 	}
 	return err
 }

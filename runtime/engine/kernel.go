@@ -7,6 +7,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/config"
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/observability"
@@ -100,7 +101,7 @@ func (sm *Kernel) Compressor() *memory.Compressor {
 }
 
 // Run executes the state machine main loop.
-func (sm *Kernel) Run(ctx context.Context, input core.AgentInput) ([]core.Message, error) {
+func (sm *Kernel) Run(ctx context.Context, input coretypes.AgentInput) ([]coretypes.Message, error) {
 	return sm.machine.Run(ctx, input)
 }
 
@@ -112,7 +113,7 @@ func (sm *Kernel) SetStepTracer(st *observability.StepTracer) {
 
 // SetProvider replaces the LLM provider for the main ReAct loop, DAG workers,
 // and reviewer. Call before Run() to dynamically switch models per input type.
-func (sm *Kernel) SetProvider(p core.ILMProvider) {
+func (sm *Kernel) SetProvider(p coretypes.ILMProvider) {
 	sm.mainReact.SetProvider(p)
 	sm.dagExec.SetProvider(p)
 	sm.reviewer.SetProvider(p)

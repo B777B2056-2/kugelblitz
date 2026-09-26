@@ -7,10 +7,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 )
 
-func SaveSessionJSONL(sessionID string, summary string, messages []core.Message) error {
+func SaveSessionJSONL(sessionID string, summary string, messages []coretypes.Message) error {
 	mgr := GetManager()
 	var events []JSONLEvent
 	initPayload, _ := json.Marshal(map[string]string{"session_id": sessionID})
@@ -26,7 +26,7 @@ func SaveSessionJSONL(sessionID string, summary string, messages []core.Message)
 	return mgr.JSONL().WriteAll(context.Background(), filepath.Join("memory", "sessions", sessionID+".jsonl"), events)
 }
 
-func LoadSessionJSONL(sessionID string) (summary string, messages []core.Message, _ error) {
+func LoadSessionJSONL(sessionID string) (summary string, messages []coretypes.Message, _ error) {
 	mgr := GetManager()
 	events, err := mgr.JSONL().ReadAll(filepath.Join("memory", "sessions", sessionID+".jsonl"))
 	if err != nil {
@@ -46,7 +46,7 @@ func LoadSessionJSONL(sessionID string) (summary string, messages []core.Message
 			}
 			summary = s.Summary
 		case "msg":
-			var msg core.Message
+			var msg coretypes.Message
 			if err := json.Unmarshal(evt.Payload, &msg); err != nil {
 				return "", nil, fmt.Errorf("load session: unmarshal message: %w", err)
 			}

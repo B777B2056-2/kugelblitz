@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 )
 
 // MediaConverter converts multimedia content between base64 (transport format)
@@ -24,7 +24,7 @@ func NewMediaConverter(baseDir string) *MediaConverter {
 // Base64ToFile decodes the base64 payload from detail, writes it to
 // media/{sessionID}/{contentID}.{ext}, and updates detail.Path.
 // detail.Base64 is preserved for immediate provider transport.
-func (c *MediaConverter) Base64ToFile(sessionID string, detail *core.MultiModalDetail) error {
+func (c *MediaConverter) Base64ToFile(sessionID string, detail *coretypes.MultiModalDetail) error {
 	raw, err := base64.StdEncoding.DecodeString(detail.Base64)
 	if err != nil {
 		return fmt.Errorf("mediaconv: decode base64: %w", err)
@@ -48,7 +48,7 @@ func (c *MediaConverter) Base64ToFile(sessionID string, detail *core.MultiModalD
 // FileToBase64 reads the persisted file for the given session+contentID
 // and returns a populated MultiModalDetail with Base64 filled in.
 // Used when restoring a session from JSONL.
-func (c *MediaConverter) FileToBase64(sessionID, contentID string) (*core.MultiModalDetail, error) {
+func (c *MediaConverter) FileToBase64(sessionID, contentID string) (*coretypes.MultiModalDetail, error) {
 	// Search for the file with any extension
 	pattern := filepath.Join(c.baseDir, "media", sessionID, contentID+".*")
 	matches, err := filepath.Glob(pattern)
@@ -67,7 +67,7 @@ func (c *MediaConverter) FileToBase64(sessionID, contentID string) (*core.MultiM
 	ext := filepath.Ext(absPath)
 	mimeType := extToMIME(ext)
 
-	return &core.MultiModalDetail{
+	return &coretypes.MultiModalDetail{
 		ID:       contentID,
 		Path:     relPath,
 		Base64:   base64.StdEncoding.EncodeToString(raw),

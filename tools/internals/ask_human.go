@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
@@ -22,8 +23,8 @@ func NewAskHumanTool(gate core.HumanGate) tools.Tool {
 	return &AskHumanTool{Gate: gate}
 }
 
-func (t *AskHumanTool) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *AskHumanTool) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name: "ask_human",
 		Description: "Ask the human user a question and wait for their response. " +
 			"Use this when you need clarification, need approval before proceeding, " +
@@ -55,7 +56,7 @@ func (t *AskHumanTool) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *AskHumanTool) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *AskHumanTool) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	question, err := tools.Arg(detail, "question")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "ask_human", err)

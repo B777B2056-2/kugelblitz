@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/skills"
 	"github.com/B777B2056-2/kugelblitz/tools"
 )
@@ -16,8 +17,8 @@ type SkillUse struct {
 	skills []*skills.Skill // all available skills
 }
 
-func (t *SkillUse) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *SkillUse) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "skill_use",
 		Description: "Activate a skill by name to take on a specialized role (e.g. 'code-reviewer', 'researcher'). Call with no name to deactivate. Returns the skill's prompt, description, and available tools.",
 		JSONSchema: map[string]any{
@@ -39,7 +40,7 @@ func (t *SkillUse) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *SkillUse) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *SkillUse) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	name, _ := tools.Arg(detail, "name")
 
 	// Deactivate

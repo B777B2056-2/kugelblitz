@@ -6,21 +6,21 @@ import (
 	"strings"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 )
 
 // MediaDescriber generates text descriptions for multimedia content.
 // It supports per-type providers: image descriptions use the image provider,
 // audio descriptions use the audio provider. nil provider → metadata-only.
 type MediaDescriber struct {
-	imageProvider core.ILMProvider // nil = metadata only for image
-	audioProvider core.ILMProvider // nil = metadata only for audio
+	imageProvider coretypes.ILMProvider // nil = metadata only for image
+	audioProvider coretypes.ILMProvider // nil = metadata only for audio
 	prompts       map[constants.MultiModalType]string
 }
 
 // NewMediaDescriber creates a MediaDescriber. Both providers may be nil;
 // if a type's provider is nil, only the free metadata summary is returned.
-func NewMediaDescriber(imageProvider, audioProvider core.ILMProvider) *MediaDescriber {
+func NewMediaDescriber(imageProvider, audioProvider coretypes.ILMProvider) *MediaDescriber {
 	return &MediaDescriber{
 		imageProvider: imageProvider,
 		audioProvider: audioProvider,
@@ -43,7 +43,7 @@ func (d *MediaDescriber) RegisterPrompt(t constants.MultiModalType, prompt strin
 // Layer 2 (optional, LLM cost): type-specific provider is called with the prompt.
 // Falls back to layer 1 if the type's provider is nil, prompt is not registered,
 // or the LLM call fails.
-func (d *MediaDescriber) Describe(ctx context.Context, detail core.MultiModalDetail) string {
+func (d *MediaDescriber) Describe(ctx context.Context, detail coretypes.MultiModalDetail) string {
 	meta := d.metaSummary(detail)
 
 	provider := d.providerFor(detail.Type)
@@ -65,7 +65,7 @@ func (d *MediaDescriber) Describe(ctx context.Context, detail core.MultiModalDet
 }
 
 // providerFor returns the appropriate provider for the given media type.
-func (d *MediaDescriber) providerFor(t constants.MultiModalType) core.ILMProvider {
+func (d *MediaDescriber) providerFor(t constants.MultiModalType) coretypes.ILMProvider {
 	switch t {
 	case constants.MultiModalTypeImage:
 		return d.imageProvider
@@ -77,7 +77,7 @@ func (d *MediaDescriber) providerFor(t constants.MultiModalType) core.ILMProvide
 }
 
 // metaSummary builds a free-form text summary from metadata.
-func (d *MediaDescriber) metaSummary(detail core.MultiModalDetail) string {
+func (d *MediaDescriber) metaSummary(detail coretypes.MultiModalDetail) string {
 	sb := strings.Builder{}
 	fmt.Fprintf(&sb, "[%s: %s", detail.Type, detail.MimeType)
 
@@ -97,19 +97,19 @@ func (d *MediaDescriber) metaSummary(detail core.MultiModalDetail) string {
 }
 
 // callLLM sends the media + prompt to the given provider for enhanced description.
-func (d *MediaDescriber) callLLM(ctx context.Context, provider core.ILMProvider, detail core.MultiModalDetail, prompt string) (string, error) {
-	imgMsg := core.NewUserMessage(core.MultiModalContent{Detail: detail})
-	promptMsg := core.NewUserMessage(core.TextContent{Text: prompt})
+func (d *MediaDescriber) callLLM(ctx context.Context, provider coretypes.ILMProvider, detail coretypes.MultiModalDetail, prompt string) (string, error) {
+	imgMsg := coretypes.NewUserMessage(coretypes.MultiModalContent{Detail: detail})
+	promptMsg := coretypes.NewUserMessage(coretypes.TextContent{Text: prompt})
 
-	resp, err := provider.Generate(ctx, core.GenerateParams{
-		Messages: []core.Message{imgMsg, promptMsg},
+	resp, err := provider.Generate(ctx, coretypes.GenerateParams{
+		Messages: []coretypes.Message{imgMsg, promptMsg},
 		Stream:   false,
 	})
 	if err != nil {
 		return "", err
 	}
 
-	if tc, ok := resp.Content.(core.TextContent); ok {
+	if tc, ok := resp.Content.(coretypes.TextContent); ok {
 		return strings.TrimSpace(tc.Text), nil
 	}
 	return "", fmt.Errorf("media_describe: unexpected response type %T", resp.Content)
@@ -118,12 +118,12 @@ func (d *MediaDescriber) callLLM(ctx context.Context, provider core.ILMProvider,
 // BuildMediaMessage wraps a MultiModalDetail into a Message with both
 // the text description and the media content. This should be called
 // before the message enters SessionMemory.
-func BuildMediaMessage(ctx context.Context, d *MediaDescriber, detail core.MultiModalDetail) core.Message {
+func BuildMediaMessage(ctx context.Context, d *MediaDescriber, detail coretypes.MultiModalDetail) coretypes.Message {
 	desc := d.Describe(ctx, detail)
-	return core.NewUserMessage(core.CompositeContent{
-		Parts: []core.Content{
-			core.TextContent{Text: desc},
-			core.MultiModalContent{Detail: detail},
+	return coretypes.NewUserMessage(coretypes.CompositeContent{
+		Parts: []coretypes.Content{
+			coretypes.TextContent{Text: desc},
+			coretypes.MultiModalContent{Detail: detail},
 		},
 	})
 }

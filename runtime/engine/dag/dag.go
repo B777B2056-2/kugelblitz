@@ -8,6 +8,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
@@ -19,7 +20,7 @@ import (
 // ExecuteBatch runs all batches automatically until the DAG reaches a terminal
 // state (all done, any failed, or context cancelled).
 type DAGTaskExecutor struct {
-	provider            core.ILMProvider
+	provider            coretypes.ILMProvider
 	streamMode          bool
 	cancel              context.CancelFunc
 	cancelMu            sync.Mutex                   // protects cancel
@@ -37,11 +38,11 @@ type DAGTaskExecutor struct {
 // composition root so dag owns construction wiring without hardcoding
 // infra.NewWorkerAgent. Returning a concrete *infra.WorkerAgent keeps the
 // dag→infra type reference within the same engine layer.
-type WorkerFactory func(provider core.ILMProvider, streamMode bool) *infra.WorkerAgent
+type WorkerFactory func(provider coretypes.ILMProvider, streamMode bool) *infra.WorkerAgent
 
 // NewDAGTaskExecutor creates an executor that spawns WorkerAgents via the
 // injected workerFactory and shares the injected pauseGate across all workers.
-func NewDAGTaskExecutor(provider core.ILMProvider, streamMode bool, workerFactory WorkerFactory, pauseGate *infra.PauseGate) *DAGTaskExecutor {
+func NewDAGTaskExecutor(provider coretypes.ILMProvider, streamMode bool, workerFactory WorkerFactory, pauseGate *infra.PauseGate) *DAGTaskExecutor {
 	return &DAGTaskExecutor{
 		provider:            provider,
 		streamMode:          streamMode,
@@ -63,7 +64,7 @@ func (d *DAGTaskExecutor) SetHumanToolFactory(f infra.HumanToolFactory) {
 }
 
 // SetProvider replaces the LLM provider used for subsequently spawned workers.
-func (d *DAGTaskExecutor) SetProvider(p core.ILMProvider) {
+func (d *DAGTaskExecutor) SetProvider(p coretypes.ILMProvider) {
 	d.provider = p
 }
 

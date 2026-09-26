@@ -7,15 +7,15 @@ import (
 	"io"
 	"os"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
 // FileCopy copies or moves a file from source to destination.
 type FileCopy struct{}
 
-func (t *FileCopy) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *FileCopy) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "file_copy",
 		Description: "Copy or move a file from source to destination. Set 'move' to true to move instead of copy. Overwrites destination if it exists.",
 		JSONSchema: map[string]any{
@@ -38,7 +38,7 @@ func (t *FileCopy) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *FileCopy) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *FileCopy) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	src, err := tools.Arg(detail, "source")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "file_copy", err)

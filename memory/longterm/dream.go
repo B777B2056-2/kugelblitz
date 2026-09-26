@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/prompts"
 )
 
@@ -63,14 +64,14 @@ type Dreamer struct {
 	ltm      *LongTermMemory
 	graph    *GraphStore
 	indexMgr *IndexManager
-	provider core.ILMProvider
+	provider coretypes.ILMProvider
 }
 
 // SetIndexManager attaches an index manager for search-log awareness.
 func (d *Dreamer) SetIndexManager(im *IndexManager) { d.indexMgr = im }
 
 // SetProvider sets the LLM provider for dreaming.
-func (d *Dreamer) SetProvider(p core.ILMProvider) { d.provider = p }
+func (d *Dreamer) SetProvider(p coretypes.ILMProvider) { d.provider = p }
 
 // SetLTM sets the long-term memory store.
 func (d *Dreamer) SetLTM(ltm *LongTermMemory) { d.ltm = ltm }
@@ -270,16 +271,16 @@ func (d *Dreamer) deepSleep(ctx context.Context, candidates []dreamCandidate) ([
 
 	prompt := prompts.BuildMemoryScorePrompt(itemsDesc.String())
 
-	msg := core.NewUserMessage(core.TextContent{Text: prompt})
-	resp, err := d.provider.Generate(ctx, core.GenerateParams{
-		Messages: []core.Message{msg}, Stream: false,
+	msg := coretypes.NewUserMessage(coretypes.TextContent{Text: prompt})
+	resp, err := d.provider.Generate(ctx, coretypes.GenerateParams{
+		Messages: []coretypes.Message{msg}, Stream: false,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("deep sleep: %w", err)
 	}
 
 	text := ""
-	if tc, ok := resp.Content.(core.TextContent); ok {
+	if tc, ok := resp.Content.(coretypes.TextContent); ok {
 		text = tc.Text
 	}
 
@@ -325,16 +326,16 @@ func (d *Dreamer) rem(ctx context.Context, highItems []MemoryItem) ([]MemoryItem
 
 	prompt := prompts.BuildMemoryReflectionPrompt(itemsDesc.String())
 
-	msg := core.NewUserMessage(core.TextContent{Text: prompt})
-	resp, err := d.provider.Generate(ctx, core.GenerateParams{
-		Messages: []core.Message{msg}, Stream: false,
+	msg := coretypes.NewUserMessage(coretypes.TextContent{Text: prompt})
+	resp, err := d.provider.Generate(ctx, coretypes.GenerateParams{
+		Messages: []coretypes.Message{msg}, Stream: false,
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("rem: %w", err)
 	}
 
 	text := ""
-	if tc, ok := resp.Content.(core.TextContent); ok {
+	if tc, ok := resp.Content.(coretypes.TextContent); ok {
 		text = tc.Text
 	}
 

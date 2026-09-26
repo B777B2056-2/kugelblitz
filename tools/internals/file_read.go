@@ -4,15 +4,15 @@ import (
 	"context"
 	"os"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
 // FileRead reads the contents of a file.
 type FileRead struct{}
 
-func (t *FileRead) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *FileRead) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "file_read",
 		Description: "Read the contents of a file at the given path.",
 		JSONSchema: map[string]any{
@@ -36,7 +36,7 @@ func (t *FileRead) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *FileRead) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *FileRead) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	path, err := tools.Arg(detail, "path")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "file_read", err)

@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
@@ -47,8 +47,8 @@ func newWebSearch(cfg *WebSearchConfig) *WebSearch {
 	return ws
 }
 
-func (t *WebSearch) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *WebSearch) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "web_search",
 		Description: "Search the web and return a list of results with titles, snippets, and URLs.",
 		JSONSchema: map[string]any{
@@ -75,7 +75,7 @@ func (t *WebSearch) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *WebSearch) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *WebSearch) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	query, err := tools.Arg(detail, "query")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "web_search", err)

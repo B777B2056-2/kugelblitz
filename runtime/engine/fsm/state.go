@@ -5,6 +5,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 )
 
 // State represents a single state in the finite state machine.
@@ -76,7 +77,7 @@ func (s *IntentState) Execute(ctx *Context) (constants.PlanState, error) {
 		return constants.PlanStateIntent, err
 	}
 
-	ctx.WorkMode, _ = core.ExtractToolResult[string](result.Messages, "set_work_mode", "mode")
+	ctx.WorkMode, _ = coretypes.ExtractToolResult[string](result.Messages, "set_work_mode", "mode")
 	if ctx.WorkMode == "plan" {
 		return constants.PlanStateInit, nil
 	}
@@ -117,13 +118,13 @@ func (s *InitState) Execute(ctx *Context) (constants.PlanState, error) {
 		return constants.PlanStateInit, err
 	}
 
-	ctx.PlanID, _ = core.ExtractToolResult[string](result.Messages, "plan_create", "id")
+	ctx.PlanID, _ = coretypes.ExtractToolResult[string](result.Messages, "plan_create", "id")
 	if ctx.PlanID != "" {
 		plan, ok := ctx.Deps.GetPlan(ctx.PlanID)
 		if ok && plan != nil {
 			if err := plan.Validate(); err != nil {
 				// Validation failed — inform the LLM and retry in Updating
-				ctx.Deps.Session.AppendMessage(core.NewSystemMessage(core.TextContent{
+				ctx.Deps.Session.AppendMessage(coretypes.NewSystemMessage(coretypes.TextContent{
 					Text: fmt.Sprintf(
 						"[System] Plan validation failed: %s. Please fix and re-create with plan_create.", err.Error()),
 				}))
@@ -148,7 +149,7 @@ func (s *ConfirmedState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateConfirmed,
 		Plan:  ctx.Plan,
-		Input: core.AgentInput{Text: "The plan has been created. Present it to the user for approval via ask_human. " +
+		Input: coretypes.AgentInput{Text: "The plan has been created. Present it to the user for approval via ask_human. " +
 			"After the user responds, call confirm_plan with the appropriate status."},
 	}
 	_, err := action.Execute(ctx)
@@ -193,7 +194,7 @@ func (s *UpdatingState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateUpdating,
 		Plan:  ctx.Plan,
-		Input: core.AgentInput{Text: "Some tasks have failed. Review the failed tasks and update the plan as needed."},
+		Input: coretypes.AgentInput{Text: "Some tasks have failed. Review the failed tasks and update the plan as needed."},
 	}
 	_, err := action.Execute(ctx)
 	if err != nil {
@@ -204,7 +205,7 @@ func (s *UpdatingState) Execute(ctx *Context) (constants.PlanState, error) {
 		plan, ok := ctx.Deps.GetPlan(ctx.PlanID)
 		if ok && plan != nil {
 			if err := plan.Validate(); err != nil {
-				ctx.Deps.Session.AppendMessage(core.NewSystemMessage(core.TextContent{
+				ctx.Deps.Session.AppendMessage(coretypes.NewSystemMessage(coretypes.TextContent{
 					Text: fmt.Sprintf("[System] Plan still invalid after fix: %s.", err.Error()),
 				}))
 			} else {
@@ -225,7 +226,7 @@ func (s *DoneState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateDone,
 		Plan:  ctx.Plan,
-		Input: core.AgentInput{Text: "All tasks have completed. Review the results and summarize what was accomplished."},
+		Input: coretypes.AgentInput{Text: "All tasks have completed. Review the results and summarize what was accomplished."},
 	}
 	result, err := action.Execute(ctx)
 	if err != nil {
@@ -243,7 +244,7 @@ func (s *FailedState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateFailed,
 		Plan:  ctx.Plan,
-		Input: core.AgentInput{Text: "The plan has failed. Review the failed tasks and summarize what went wrong."},
+		Input: coretypes.AgentInput{Text: "The plan has failed. Review the failed tasks and summarize what went wrong."},
 	}
 	result, err := action.Execute(ctx)
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 )
 
@@ -42,7 +43,7 @@ func (m *Machine) registerStates() {
 }
 
 // Run executes the state machine main loop.
-func (m *Machine) Run(ctx context.Context, input core.AgentInput) ([]core.Message, error) {
+func (m *Machine) Run(ctx context.Context, input coretypes.AgentInput) ([]coretypes.Message, error) {
 	fsmCtx := &Context{
 		Ctx:   ctx,
 		Input: input,
@@ -99,7 +100,7 @@ func (m *Machine) Run(ctx context.Context, input core.AgentInput) ([]core.Messag
 			return fsmCtx.Results, err
 		}
 	}
-	return fsmCtx.Results, core.ErrMaxCyclesExceeded
+	return fsmCtx.Results, coretypes.ErrMaxCyclesExceeded
 }
 
 // reset returns the state machine to its initial state.
@@ -136,7 +137,7 @@ func (m *Machine) transition(ctx *Context, next constants.PlanState) error {
 	core.Info("planner state machine", "status update",
 		fmt.Sprintf("%s -> %s", string(m.prevState), string(m.currentState)))
 	if ctx.Plan != nil {
-		ctx.Deps.Session.AppendMessage(core.NewSystemMessage(core.TextContent{
+		ctx.Deps.Session.AppendMessage(coretypes.NewSystemMessage(coretypes.TextContent{
 			Text: fmt.Sprintf("[System] Plan %q status: %s → %s.",
 				ctx.Plan.Name, string(m.prevState), string(m.currentState)),
 		}))
@@ -176,7 +177,7 @@ func (m *Machine) handleDrift(ctx *Context, reason string) {
 	plan.FinishedReason = fmt.Sprintf("drift: %s", reason)
 	_ = plan.Persist()
 
-	ctx.Deps.Session.AppendMessage(core.NewSystemMessage(core.TextContent{
+	ctx.Deps.Session.AppendMessage(coretypes.NewSystemMessage(coretypes.TextContent{
 		Text: fmt.Sprintf("⚠️ 自动审查检测到执行可能偏离目标（%s），计划已回滚至版本 %d。请根据当前任务进度和目标偏差，调整任务计划，完成后系统将进入确认阶段。", reason, targetVersion),
 	}))
 

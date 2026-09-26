@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
@@ -17,8 +17,8 @@ import (
 // Supports cwd and timeout options.
 type ShellExec struct{}
 
-func (t *ShellExec) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *ShellExec) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "shell_exec",
 		Description: "Execute a shell command and return the output. Supports optional cwd and timeout (seconds, default 30). Max output: 4000 chars each for stdout/stderr.",
 		JSONSchema: map[string]any{
@@ -50,7 +50,7 @@ func (t *ShellExec) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *ShellExec) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *ShellExec) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	command, err := tools.Arg(detail, "command")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "shell_exec", err)

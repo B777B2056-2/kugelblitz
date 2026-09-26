@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/utils"
 
 	"github.com/openai/openai-go/v3"
@@ -26,7 +26,7 @@ func NewConverter() *Converter {
 
 // --- Messages (core → API) ---
 
-func (c *Converter) ConvertMessages(messages []core.Message) ([]openai.ChatCompletionMessageParamUnion, error) {
+func (c *Converter) ConvertMessages(messages []coretypes.Message) ([]openai.ChatCompletionMessageParamUnion, error) {
 	var result []openai.ChatCompletionMessageParamUnion
 	for _, msg := range messages {
 		if msg.Role == constants.RoleTool {
@@ -47,7 +47,7 @@ func (c *Converter) ConvertMessages(messages []core.Message) ([]openai.ChatCompl
 	return result, nil
 }
 
-func (c *Converter) convertMessage(message core.Message) (openai.ChatCompletionMessageParamUnion, error) {
+func (c *Converter) convertMessage(message coretypes.Message) (openai.ChatCompletionMessageParamUnion, error) {
 	switch message.Role {
 	case constants.RoleSystem:
 		text, err := extractText(message.Content)
@@ -67,12 +67,12 @@ func (c *Converter) convertMessage(message core.Message) (openai.ChatCompletionM
 	}
 }
 
-func extractText(content core.Content) (string, error) {
+func extractText(content coretypes.Content) (string, error) {
 	if content == nil {
 		return "", fmt.Errorf("content is nil")
 	}
 	switch ct := content.(type) {
-	case core.TextContent:
+	case coretypes.TextContent:
 		return ct.Text, nil
 	default:
 		return "", fmt.Errorf("expected TextContent, got %T", content)
@@ -80,12 +80,12 @@ func extractText(content core.Content) (string, error) {
 }
 
 // convertUserMessage converts a user message, supporting text, multimodal, and composite content.
-func (c *Converter) convertUserMessage(message core.Message) (openai.ChatCompletionMessageParamUnion, error) {
+func (c *Converter) convertUserMessage(message coretypes.Message) (openai.ChatCompletionMessageParamUnion, error) {
 	switch ct := message.Content.(type) {
-	case core.TextContent:
+	case coretypes.TextContent:
 		return openai.UserMessage(ct.Text), nil
 
-	case core.MultiModalContent:
+	case coretypes.MultiModalContent:
 		part, err := c.mediaContentPart(ct.Detail)
 		if err != nil {
 			return openai.ChatCompletionMessageParamUnion{}, err
@@ -98,7 +98,7 @@ func (c *Converter) convertUserMessage(message core.Message) (openai.ChatComplet
 			},
 		}, nil
 
-	case core.CompositeContent:
+	case coretypes.CompositeContent:
 		parts, err := c.convertUserContentParts(ct.Parts)
 		if err != nil {
 			return openai.ChatCompletionMessageParamUnion{}, err
@@ -118,7 +118,7 @@ func (c *Converter) convertUserMessage(message core.Message) (openai.ChatComplet
 }
 
 // mediaContentPart maps a MultiModalDetail to the correct OpenAI ContentPart based on media type.
-func (c *Converter) mediaContentPart(detail core.MultiModalDetail) (openai.ChatCompletionContentPartUnionParam, error) {
+func (c *Converter) mediaContentPart(detail coretypes.MultiModalDetail) (openai.ChatCompletionContentPartUnionParam, error) {
 	dataURL := fmt.Sprintf("data:%s;base64,%s", detail.MimeType, detail.Base64)
 
 	switch detail.Type {
@@ -148,13 +148,13 @@ func (c *Converter) mediaContentPart(detail core.MultiModalDetail) (openai.ChatC
 }
 
 // convertUserContentParts converts a slice of Content to OpenAI ContentPart array.
-func (c *Converter) convertUserContentParts(parts []core.Content) ([]openai.ChatCompletionContentPartUnionParam, error) {
+func (c *Converter) convertUserContentParts(parts []coretypes.Content) ([]openai.ChatCompletionContentPartUnionParam, error) {
 	var result []openai.ChatCompletionContentPartUnionParam
 	for _, p := range parts {
 		switch pt := p.(type) {
-		case core.TextContent:
+		case coretypes.TextContent:
 			result = append(result, openai.TextContentPart(pt.Text))
-		case core.MultiModalContent:
+		case coretypes.MultiModalContent:
 			part, err := c.mediaContentPart(pt.Detail)
 			if err != nil {
 				return nil, err
@@ -176,22 +176,22 @@ func audioFormat(mimeType string) string {
 	return "wav" // safe fallback
 }
 
-func (c *Converter) convertAssistantMessage(message core.Message) (openai.ChatCompletionMessageParamUnion, error) {
+func (c *Converter) convertAssistantMessage(message coretypes.Message) (openai.ChatCompletionMessageParamUnion, error) {
 	if message.Content == nil {
 		return openai.AssistantMessage(""), nil
 	}
 
 	switch ct := message.Content.(type) {
-	case core.TextContent:
+	case coretypes.TextContent:
 		return openai.AssistantMessage(ct.Text), nil
 
-	case core.ReasoningContent:
+	case coretypes.ReasoningContent:
 		return openai.AssistantMessage(ct.Reasoning), nil
 
-	case core.ToolCallContent:
+	case coretypes.ToolCallContent:
 		return buildToolCallParam(ct.Details, ""), nil
 
-	case core.CompositeContent:
+	case coretypes.CompositeContent:
 		return c.convertCompositeAssistant(ct)
 
 	default:
@@ -209,7 +209,7 @@ func ApplyReasoningContent(param *openai.ChatCompletionAssistantMessageParam, re
 	}
 }
 
-func buildToolCallParam(details []core.ToolCallDetail, reasoningContent string) openai.ChatCompletionMessageParamUnion {
+func buildToolCallParam(details []coretypes.ToolCallDetail, reasoningContent string) openai.ChatCompletionMessageParamUnion {
 	var toolCalls []openai.ChatCompletionMessageToolCallUnionParam
 	for _, d := range details {
 		toolCalls = append(toolCalls, openai.ChatCompletionMessageToolCallUnionParam{
@@ -229,18 +229,18 @@ func buildToolCallParam(details []core.ToolCallDetail, reasoningContent string) 
 	return openai.ChatCompletionMessageParamUnion{OfAssistant: &assistant}
 }
 
-func (c *Converter) convertCompositeAssistant(ct core.CompositeContent) (openai.ChatCompletionMessageParamUnion, error) {
+func (c *Converter) convertCompositeAssistant(ct coretypes.CompositeContent) (openai.ChatCompletionMessageParamUnion, error) {
 	var textContent string
 	var reasoningContent string
 	var toolCalls []openai.ChatCompletionMessageToolCallUnionParam
 
 	for _, part := range ct.Parts {
 		switch p := part.(type) {
-		case core.TextContent:
+		case coretypes.TextContent:
 			textContent = p.Text
-		case core.ReasoningContent:
+		case coretypes.ReasoningContent:
 			reasoningContent = p.Reasoning
-		case core.ToolCallContent:
+		case coretypes.ToolCallContent:
 			for _, d := range p.Details {
 				toolCalls = append(toolCalls, openai.ChatCompletionMessageToolCallUnionParam{
 					OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
@@ -272,8 +272,8 @@ func (c *Converter) convertCompositeAssistant(ct core.CompositeContent) (openai.
 }
 
 // convertToolResults converts multiple tool results into separate OpenAI tool messages.
-func (c *Converter) convertToolResults(message core.Message) ([]openai.ChatCompletionMessageParamUnion, error) {
-	ct, ok := message.Content.(core.ToolResultContent)
+func (c *Converter) convertToolResults(message coretypes.Message) ([]openai.ChatCompletionMessageParamUnion, error) {
+	ct, ok := message.Content.(coretypes.ToolResultContent)
 	if !ok {
 		return nil, fmt.Errorf("expected ToolResultContent, got %T", message.Content)
 	}
@@ -286,7 +286,7 @@ func (c *Converter) convertToolResults(message core.Message) ([]openai.ChatCompl
 
 // --- Tools (core → API) ---
 
-func (c *Converter) ConvertTools(tools []core.ToolDefinition) ([]openai.ChatCompletionToolUnionParam, error) {
+func (c *Converter) ConvertTools(tools []coretypes.ToolDefinition) ([]openai.ChatCompletionToolUnionParam, error) {
 	if len(tools) == 0 {
 		return nil, nil
 	}
@@ -369,9 +369,9 @@ func formatOutputSchema(schema map[string]any) string {
 
 // --- Response parsing (API → core) ---
 
-func (c *Converter) ParseResponse(ctx context.Context, parentID string, raw openai.ChatCompletionMessage) (*core.Message, error) {
+func (c *Converter) ParseResponse(ctx context.Context, parentID string, raw openai.ChatCompletionMessage) (*coretypes.Message, error) {
 	reasoningContent := parseReasoningFromRaw(raw.RawJSON())
-	msg := core.NewAssistantMessage(nil)
+	msg := coretypes.NewAssistantMessage(nil)
 
 	hasText := raw.Content != ""
 	hasToolCalls := len(raw.ToolCalls) > 0
@@ -380,42 +380,42 @@ func (c *Converter) ParseResponse(ctx context.Context, parentID string, raw open
 
 	switch {
 	case hasToolCalls:
-		var parts []core.Content
+		var parts []coretypes.Content
 		if hasReasoning {
-			parts = append(parts, core.ReasoningContent{Reasoning: reasoningContent})
+			parts = append(parts, coretypes.ReasoningContent{Reasoning: reasoningContent})
 		}
 		if hasText {
-			parts = append(parts, core.TextContent{Text: raw.Content})
+			parts = append(parts, coretypes.TextContent{Text: raw.Content})
 		}
-		var details []core.ToolCallDetail
+		var details []coretypes.ToolCallDetail
 		for _, tc := range raw.ToolCalls {
-			details = append(details, core.ToolCallDetail{
+			details = append(details, coretypes.ToolCallDetail{
 				ID:       tc.ID,
 				ToolName: tc.Function.Name,
 				Args:     utils.ConvertJSONStringToMap(tc.Function.Arguments),
 			})
 		}
-		parts = append(parts, core.ToolCallContent{Details: details})
+		parts = append(parts, coretypes.ToolCallContent{Details: details})
 		if len(parts) > 1 {
-			msg.Content = core.CompositeContent{Parts: parts}
+			msg.Content = coretypes.CompositeContent{Parts: parts}
 		} else {
 			msg.Content = parts[0]
 		}
 
 	case hasText && hasReasoning:
-		msg.Content = core.CompositeContent{
-			Parts: []core.Content{
-				core.ReasoningContent{Reasoning: reasoningContent},
-				core.TextContent{Text: raw.Content},
+		msg.Content = coretypes.CompositeContent{
+			Parts: []coretypes.Content{
+				coretypes.ReasoningContent{Reasoning: reasoningContent},
+				coretypes.TextContent{Text: raw.Content},
 			},
 		}
 
 	case hasText:
-		msg.Content = core.TextContent{Text: raw.Content}
+		msg.Content = coretypes.TextContent{Text: raw.Content}
 
 	case hasAudio:
-		msg.Content = core.MultiModalContent{
-			Detail: core.MultiModalDetail{
+		msg.Content = coretypes.MultiModalContent{
+			Detail: coretypes.MultiModalDetail{
 				ID:     raw.Audio.ID,
 				Type:   constants.MultiModalTypeAudio,
 				Base64: raw.Audio.Data,
@@ -423,7 +423,7 @@ func (c *Converter) ParseResponse(ctx context.Context, parentID string, raw open
 		}
 
 	case hasReasoning:
-		msg.Content = core.ReasoningContent{Reasoning: reasoningContent}
+		msg.Content = coretypes.ReasoningContent{Reasoning: reasoningContent}
 
 	default:
 		return nil, fmt.Errorf("empty completion message")
@@ -434,16 +434,16 @@ func (c *Converter) ParseResponse(ctx context.Context, parentID string, raw open
 
 // --- Stream chunk parsing ---
 
-func (c *Converter) ParseStreamChunk(ctx context.Context, parentID string, raw openai.ChatCompletionChunk) (*core.Message, error) {
+func (c *Converter) ParseStreamChunk(ctx context.Context, parentID string, raw openai.ChatCompletionChunk) (*coretypes.Message, error) {
 	if len(raw.Choices) == 0 {
 		return nil, nil
 	}
 
 	reasoningDelta := parseReasoningFromChunkRaw(raw.RawJSON())
-	msg := core.NewAssistantMessage(nil)
+	msg := coretypes.NewAssistantMessage(nil)
 
 	if raw.Usage.TotalTokens > 0 {
-		msg.Usage = &core.Usage{
+		msg.Usage = &coretypes.Usage{
 			TotalTokens:     raw.Usage.TotalTokens,
 			InputTokens:     raw.Usage.PromptTokens,
 			CachedTokens:    raw.Usage.PromptTokensDetails.CachedTokens,
@@ -462,26 +462,26 @@ func (c *Converter) ParseStreamChunk(ctx context.Context, parentID string, raw o
 
 	switch {
 	case hasReasoning && hasText:
-		msg.Content = core.CompositeContent{
-			Parts: []core.Content{
-				core.ReasoningContent{Reasoning: reasoningDelta},
-				core.TextContent{Text: ch.Delta.Content},
+		msg.Content = coretypes.CompositeContent{
+			Parts: []coretypes.Content{
+				coretypes.ReasoningContent{Reasoning: reasoningDelta},
+				coretypes.TextContent{Text: ch.Delta.Content},
 			},
 		}
 	case hasReasoning:
-		msg.Content = core.ReasoningContent{Reasoning: reasoningDelta}
+		msg.Content = coretypes.ReasoningContent{Reasoning: reasoningDelta}
 	case hasText:
-		msg.Content = core.TextContent{Text: ch.Delta.Content}
+		msg.Content = coretypes.TextContent{Text: ch.Delta.Content}
 	case hasToolCall:
-		var details []core.ToolCallDetail
+		var details []coretypes.ToolCallDetail
 		for _, tc := range ch.Delta.ToolCalls {
-			details = append(details, core.ToolCallDetail{
+			details = append(details, coretypes.ToolCallDetail{
 				ID:       tc.ID,
 				ToolName: tc.Function.Name,
 				Args:     utils.ConvertJSONStringToMap(tc.Function.Arguments),
 			})
 		}
-		msg.Content = core.ToolCallContent{Details: details}
+		msg.Content = coretypes.ToolCallContent{Details: details}
 	default:
 		return nil, nil
 	}

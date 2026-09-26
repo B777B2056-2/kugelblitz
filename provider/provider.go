@@ -3,11 +3,11 @@ package provider
 import (
 	"context"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 )
 
 // Provider combines a provider configuration with an API format to implement
-// the core.ILMProvider interface. It is the main entry point for applications.
+// the coretypes.ILMProvider interface. It is the main entry point for applications.
 //
 // Use the preset functions (OpenAI, DeepSeek) or construct manually:
 //
@@ -28,9 +28,9 @@ func New(cfg Config, format APIFormat) *Provider {
 // Generate delegates to the underlying API format.
 // Provider-specific extensions (e.g., auth headers) should be applied
 // via the format's request builder before this call.
-func (p *Provider) Generate(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+func (p *Provider) Generate(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 	return p.format.Generate(ctx, params)
 }
 
-// Compile-time check: Provider implements core.ILMProvider.
-var _ core.ILMProvider = (*Provider)(nil)
+// Compile-time check: Provider implements coretypes.ILMProvider.
+var _ coretypes.ILMProvider = (*Provider)(nil)
