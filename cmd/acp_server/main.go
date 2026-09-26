@@ -28,6 +28,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/runtime"
+	"github.com/B777B2056-2/kugelblitz/tools/mcp"
 )
 
 func main() {
@@ -56,6 +57,7 @@ func main() {
 		core.Warn("otel init failed", "err", err)
 	}
 	defer shutdown()
+	defer func() { _ = mcp.ShutdownGlobal(context.Background()) }()
 
 	// AgentLoop wires up MCP, skills, LTM, session — same as Web UI.
 	loop, err := runtime.NewAgentLoop(cfg)

@@ -3,10 +3,15 @@ package mcp
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/B777B2056-2/kugelblitz/config"
 	"github.com/B777B2056-2/kugelblitz/core"
 )
+
+// connectTimeout bounds the connection attempt so a hung MCP server does not
+// block agent startup forever (B21).
+const connectTimeout = 30 * time.Second
 
 var (
 	globalMgr  *Manager
@@ -26,10 +31,21 @@ func Init(ctx context.Context, servers map[string]config.MCPServerConfig) *Manag
 			core.Warn("mcp: skip init", "err", err)
 			return
 		}
-		if err := mgr.ConnectAll(ctx); err != nil {
+		connectCtx, cancel := context.WithTimeout(ctx, connectTimeout)
+		defer cancel()
+		if err := mgr.ConnectAll(connectCtx); err != nil {
 			core.Warn("mcp: connect failed", "err", err)
 		}
 		globalMgr = mgr
 	})
 	return globalMgr
+}
+
+// ShutdownGlobal closes all MCP server connections managed by the global
+// singleton, if any. Safe to call when Init was a no-op or never called.
+func ShutdownGlobal(ctx context.Context) error {
+	if globalMgr == nil {
+		return nil
+	}
+	return globalMgr.Shutdown(ctx)
 }

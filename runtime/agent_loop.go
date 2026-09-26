@@ -278,13 +278,23 @@ func (a *AgentLoop) execute(ctx context.Context, input core.AgentInput) (message
 	return result, err
 }
 
+// backgroundCtx returns the root execution context when available, falling back
+// to context.Background(). It carries cancellation and the root trace span so
+// that sub-operations (memory compress/extract) are cancelled and traced (B22).
+func (a *AgentLoop) backgroundCtx() context.Context {
+	if a.rootCtx != nil {
+		return a.rootCtx
+	}
+	return context.Background()
+}
+
 // rewriteEventHooks merges AgentLoop internal callbacks with user hooks.
 // AgentLoop callbacks fire first, then user callbacks.
 func (a *AgentLoop) rewriteEventHooks(userHooks core.AgentEventHooks) core.AgentEventHooks {
 	// AgentLoop system wrappers: compress + extract + then user.
 	sysHooks := core.AgentEventHooks{
 		OnToolCallEnd: func(id constants.AgentIdentity, result core.ToolCallResult) {
-			a.sessionMem.CompressToolResult(context.Background(),
+			a.sessionMem.CompressToolResult(a.backgroundCtx(),
 				a.planner.Compressor(), a.cfg.ContextCompress.MaxToolResultChars, &result)
 		},
 		OnBeforeCompress: func(id constants.AgentIdentity) {
@@ -331,10 +341,10 @@ func (a *AgentLoop) extractMemories() {
 		SessionSummary: a.sessionMem.Summary(),
 		Goal:           a.input.Text,
 	}
-	result, _ := a.writePipeline.ExtractFromSession(context.Background(), input)
+	result, _ := a.writePipeline.ExtractFromSession(a.backgroundCtx(), input)
 	if result != nil {
 		tracer := otel.Tracer("kugelblitz")
-		_, span := tracer.Start(a.rootCtx, "memory.extract_before_compress")
+		_, span := tracer.Start(a.backgroundCtx(), "memory.extract_before_compress")
 		span.SetAttributes(
 			attribute.Int("facts_stored", result.ItemsStored),
 			attribute.Int("needs_human", result.NeedsHuman),

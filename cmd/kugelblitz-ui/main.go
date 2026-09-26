@@ -22,6 +22,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/observability"
+	"github.com/B777B2056-2/kugelblitz/tools/mcp"
 )
 
 func main() {
@@ -48,6 +49,7 @@ func main() {
 		core.Warn("otel init failed", "err", err)
 	}
 	defer shutdown()
+	defer func() { _ = mcp.ShutdownGlobal(context.Background()) }()
 
 	srv := NewServer()
 	core.Info("kugelblitz-ui starting", "workspace", core.GetWorkspace().Dir())
