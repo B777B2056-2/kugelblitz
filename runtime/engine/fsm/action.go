@@ -33,7 +33,7 @@ type ReactAction struct {
 func (a *ReactAction) Execute(ctx *Context) (*ActionResult, error) {
 	deps := ctx.Deps
 
-	prompt, err := buildPrompt(a.State, a.Plan)
+	prompt, err := buildPrompt(ctx, a.State, a.Plan)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +44,7 @@ func (a *ReactAction) Execute(ctx *Context) (*ActionResult, error) {
 
 	history := deps.Session.GetHistoryMessages()
 
-	tools := ToolsForState(a.State)
+	tools := ToolsForState(a.State, deps.CustomToolNames())
 	stepResult, err := deps.React.ExecuteWithTools(sessionCtx, sysMsg, history, tools)
 
 	if errors.Is(err, core.ErrContextLengthExceeded) {
@@ -62,7 +62,7 @@ func handleContextExceeded(ctx *Context, sysMsg core.Message, tools []string) ([
 	sessionCtx := core.WithSessionID(ctx.Ctx, deps.Session.SessionID())
 
 	for i := 0; i < deps.Config.CompressMaxAttempts; i++ {
-		_, _ = deps.Session.Compress(ctx.Ctx, deps.Compressor, 4, 1)
+		_, _ = deps.Session.Compress(ctx.Ctx, deps.Summarizer, 4, 1)
 
 		history := deps.Session.GetHistoryMessages()
 		result, err := deps.React.ExecuteWithTools(sessionCtx, sysMsg, history, tools)
@@ -84,7 +84,7 @@ func (a *DAGAction) Execute(ctx *Context) (*ActionResult, error) {
 	r := deps.DAG.ExecuteBatch(ctx.Ctx, a.Plan, func(taskID, goal, reason string) {
 		ctx.TaskFails++
 		if shouldReview(ctx) {
-			plan, _ := working.GetPlan(ctx.PlanID)
+			plan, _ := deps.GetPlan(ctx.PlanID)
 			if plan != nil {
 				summary := fmtPlanSummary(plan)
 				reviewResult := deps.Reviewer.Review(ctx.Ctx, ctx.Input.Text, summary, reason)
@@ -112,10 +112,11 @@ func (a *NoOpAction) Execute(ctx *Context) (*ActionResult, error) {
 }
 
 // buildPrompt builds the system prompt for a given state and plan.
-func buildPrompt(status constants.PlanState, plan *working.Plan) (string, error) {
+func buildPrompt(ctx *Context, status constants.PlanState, plan *working.Plan) (string, error) {
+	deps := ctx.Deps
 	var sb strings.Builder
 
-	if agentCtx := core.LoadAgentContext(); agentCtx != "" {
+	if agentCtx := deps.LoadAgentContext(); agentCtx != "" {
 		sb.WriteString(agentCtx)
 		sb.WriteString("\n\n")
 	}
@@ -124,10 +125,10 @@ func buildPrompt(status constants.PlanState, plan *working.Plan) (string, error)
 		var rendered string
 		var err error
 		if status == constants.PlanStateConfirmed {
-			rendered, err = prompts.DefaultFactory.Render(
+			rendered, err = deps.RenderPlanPrompt(
 				prompts.TypePlanConfirm, buildPlanConfirmParams(plan))
 		} else {
-			rendered, err = prompts.DefaultFactory.Render(
+			rendered, err = deps.RenderPlanPrompt(
 				prompts.TypePlanStatus, buildPlanStatusParams(plan))
 		}
 		if err != nil {

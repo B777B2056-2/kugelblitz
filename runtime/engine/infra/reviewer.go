@@ -6,6 +6,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/prompts"
+	"github.com/B777B2056-2/kugelblitz/runtime/engine/types"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -17,12 +18,9 @@ type Reviewer struct {
 	tracer   trace.Tracer
 }
 
-type ReviewResult struct {
-	Drift      bool
-	Reason     string
-	Suggestion string
-	Usage      *core.Usage
-}
+// ReviewResult reports a goal-drift review outcome.
+// Aliased from the leaf types package so callers may reference either name.
+type ReviewResult = types.ReviewResult
 
 func NewReviewer(provider core.ILMProvider, tracer trace.Tracer) *Reviewer {
 	return &Reviewer{Provider: provider, tracer: tracer}

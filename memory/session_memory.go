@@ -74,7 +74,7 @@ func (s *SessionMemory) GetHistoryMessages() []core.Message {
 // GetHistoryMessages (called every ReAct iteration), we snapshot old messages
 // and recent messages under RLock, release, call the LLM, then reacquire the
 // write lock to atomically update the summary and history.
-func (s *SessionMemory) Compress(ctx context.Context, c *Compressor, keepLastN, minToCompress int) (*core.Usage, error) {
+func (s *SessionMemory) Compress(ctx context.Context, c Summarizer, keepLastN, minToCompress int) (*core.Usage, error) {
 	// Step 1: RLock to snapshot
 	s.mu.RLock()
 	total := len(s.historyMessages)

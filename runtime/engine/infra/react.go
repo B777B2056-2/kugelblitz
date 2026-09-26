@@ -95,6 +95,15 @@ func (a *ReactAgent) GetAgentIdentity() constants.AgentIdentity {
 	return a.agentIdentity
 }
 
+// NotifyPlanRollback fires the OnPlanRollback hook, if registered. It is part of
+// the fsm.ReactExecutor interface so the FSM can signal rollbacks through the
+// interface without reaching into ReactAgent.EventHooks directly.
+func (a *ReactAgent) NotifyPlanRollback(id constants.AgentIdentity, planID string, targetVersion int, planName string) {
+	if a.EventHooks.OnPlanRollback != nil {
+		a.EventHooks.OnPlanRollback(id, planID, targetVersion, planName)
+	}
+}
+
 func (a *ReactAgent) RegisterEventHooks(hooks core.AgentEventHooks) {
 	a.EventHooks = hooks
 }

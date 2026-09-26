@@ -5,7 +5,6 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
-	"github.com/B777B2056-2/kugelblitz/memory/working"
 )
 
 // State represents a single state in the finite state machine.
@@ -46,15 +45,15 @@ var stateToolsMap = map[constants.PlanState][]string{
 	constants.PlanStateRejected: {},
 }
 
-// ToolsForState returns the available tools for a given state, merged with
-// any custom tools registered in the global tool registry.
-func ToolsForState(status constants.PlanState) []string {
+// ToolsForState returns the available tools for a given state, merged with the
+// custom tool names supplied by the caller (injected via deps.CustomToolNames
+// at the composition root rather than read from the global registry here).
+func ToolsForState(status constants.PlanState, customNames []string) []string {
 	tools, ok := stateToolsMap[status]
 	if !ok {
 		return nil
 	}
 
-	customNames := core.GetToolRegistry().CustomToolNames()
 	if len(customNames) == 0 {
 		return tools
 	}
@@ -120,7 +119,7 @@ func (s *InitState) Execute(ctx *Context) (constants.PlanState, error) {
 
 	ctx.PlanID, _ = core.ExtractToolResult[string](result.Messages, "plan_create", "id")
 	if ctx.PlanID != "" {
-		plan, ok := working.GetPlan(ctx.PlanID)
+		plan, ok := ctx.Deps.GetPlan(ctx.PlanID)
 		if ok && plan != nil {
 			if err := plan.Validate(); err != nil {
 				// Validation failed — inform the LLM and retry in Updating
@@ -158,7 +157,7 @@ func (s *ConfirmedState) Execute(ctx *Context) (constants.PlanState, error) {
 	}
 
 	if ctx.PlanID != "" {
-		plan, ok := working.GetPlan(ctx.PlanID)
+		plan, ok := ctx.Deps.GetPlan(ctx.PlanID)
 		if ok && plan != nil && plan.State != constants.PlanStateConfirmed {
 			return plan.State, nil
 		}
@@ -202,7 +201,7 @@ func (s *UpdatingState) Execute(ctx *Context) (constants.PlanState, error) {
 	}
 
 	if ctx.PlanID != "" {
-		plan, ok := working.GetPlan(ctx.PlanID)
+		plan, ok := ctx.Deps.GetPlan(ctx.PlanID)
 		if ok && plan != nil {
 			if err := plan.Validate(); err != nil {
 				ctx.Deps.Session.AppendMessage(core.NewSystemMessage(core.TextContent{

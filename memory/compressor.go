@@ -11,7 +11,15 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// Summarizer summarizes a message history into a compact summary. SessionMemory
+// depends on this interface (not the concrete *Compressor) so it can be swapped
+// for a stub in tests and so higher layers don't carry the concrete type.
+type Summarizer interface {
+	Summarize(ctx context.Context, messages []core.Message, existingSummary string) (string, *core.Usage, error)
+}
+
 // Compressor handles conversation summarization via an LLM provider.
+// It satisfies Summarizer.
 type Compressor struct {
 	provider core.ILMProvider
 	tracer   trace.Tracer

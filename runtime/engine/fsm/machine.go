@@ -7,7 +7,6 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
-	"github.com/B777B2056-2/kugelblitz/persist"
 )
 
 // Machine orchestrates the finite state machine for plan lifecycle.
@@ -72,7 +71,7 @@ func (m *Machine) Run(ctx context.Context, input core.AgentInput) ([]core.Messag
 		if err != nil {
 			if fsmCtx.Plan != nil {
 				fsmCtx.Plan.State = m.currentState
-				_ = working.PutPlan(fsmCtx.Plan)
+				_ = fsmCtx.Deps.PutPlan(fsmCtx.Plan)
 			}
 			return fsmCtx.Results, err
 		}
@@ -81,7 +80,7 @@ func (m *Machine) Run(ctx context.Context, input core.AgentInput) ([]core.Messag
 		if isTerminal(nextState) && nextState == m.currentState {
 			if fsmCtx.Plan != nil {
 				fsmCtx.Plan.State = nextState
-				if err := working.PutPlan(fsmCtx.Plan); err != nil {
+				if err := fsmCtx.Deps.PutPlan(fsmCtx.Plan); err != nil {
 					return fsmCtx.Results, err
 				}
 			}
@@ -96,7 +95,7 @@ func (m *Machine) Run(ctx context.Context, input core.AgentInput) ([]core.Messag
 	}
 
 	if fsmCtx.Plan != nil {
-		if err := working.PutPlan(fsmCtx.Plan); err != nil {
+		if err := fsmCtx.Deps.PutPlan(fsmCtx.Plan); err != nil {
 			return fsmCtx.Results, err
 		}
 	}
@@ -130,7 +129,7 @@ func (m *Machine) transition(ctx *Context, next constants.PlanState) error {
 	m.currentState = next
 	if ctx.Plan != nil {
 		ctx.Plan.State = next
-		if err := working.PutPlan(ctx.Plan); err != nil {
+		if err := ctx.Deps.PutPlan(ctx.Plan); err != nil {
 			return err
 		}
 	}
@@ -164,7 +163,7 @@ func (m *Machine) handleDrift(ctx *Context, reason string) {
 	}
 	targetVersion := plan.Version - 1
 	var cp working.Checkpoint
-	if err := persist.LoadCheckpointJSON(plan.ID, targetVersion, &cp); err != nil {
+	if err := ctx.Deps.LoadCheckpoint(plan.ID, targetVersion, &cp); err != nil {
 		return
 	}
 
@@ -181,10 +180,8 @@ func (m *Machine) handleDrift(ctx *Context, reason string) {
 		Text: fmt.Sprintf("⚠️ 自动审查检测到执行可能偏离目标（%s），计划已回滚至版本 %d。请根据当前任务进度和目标偏差，调整任务计划，完成后系统将进入确认阶段。", reason, targetVersion),
 	}))
 
-	if ctx.Deps.React.EventHooks.OnPlanRollback != nil {
-		ctx.Deps.React.EventHooks.OnPlanRollback(
-			ctx.Deps.React.GetAgentIdentity(),
-			plan.ID, targetVersion, plan.Name,
-		)
-	}
+	ctx.Deps.React.NotifyPlanRollback(
+		ctx.Deps.React.GetAgentIdentity(),
+		plan.ID, targetVersion, plan.Name,
+	)
 }

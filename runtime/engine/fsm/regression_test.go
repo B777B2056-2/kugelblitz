@@ -6,6 +6,9 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/memory"
+	"github.com/B777B2056-2/kugelblitz/memory/working"
+	"github.com/B777B2056-2/kugelblitz/persist"
+	"github.com/B777B2056-2/kugelblitz/prompts"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,6 +30,13 @@ func newTestMachine(forceMode string, maxCycles int) *Machine {
 		React:   infra.NewReactAgent(noopProvider{}, false),
 		Session: memory.GetSessionMemoryManager().CreateSessionMemory("fsm-test"),
 		Config:  MachineConfig{ForceMode: forceMode, MaxCycles: maxCycles},
+		// Injected hidden globals, mirroring the composition root wiring.
+		GetPlan:          working.GetPlan,
+		PutPlan:          working.PutPlan,
+		LoadCheckpoint:   persist.LoadCheckpointJSON,
+		CustomToolNames:  func() []string { return core.GetToolRegistry().CustomToolNames() },
+		LoadAgentContext: core.LoadAgentContext,
+		RenderPlanPrompt: prompts.DefaultFactory.Render,
 	})
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
+	"github.com/B777B2056-2/kugelblitz/runtime/engine/types"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -115,11 +116,8 @@ func (d *DAGTaskExecutor) Cancel() {
 }
 
 // BatchResult reports the outcome of one ExecuteBatch call.
-type BatchResult struct {
-	Batched   bool // at least one task was executed
-	HasFailed bool // at least one task in this batch failed
-	AllDone   bool // all tasks are terminal (done or failed)
-}
+// Aliased from the leaf types package so callers may reference either name.
+type BatchResult = types.BatchResult
 
 // Pause blocks all worker tool calls until Resume is called. Used when a
 // worker enters HITL — other workers must wait for the human response.

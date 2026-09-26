@@ -8,7 +8,10 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/memory"
+	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/observability"
+	"github.com/B777B2056-2/kugelblitz/persist"
+	"github.com/B777B2056-2/kugelblitz/prompts"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/dag"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/fsm"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
@@ -55,7 +58,7 @@ func NewKernel(
 		DAG:        dagExec,
 		Reviewer:   reviewer,
 		Session:    sessionMem,
-		Compressor: compressor,
+		Summarizer: compressor,
 		Config: fsm.MachineConfig{
 			MaxCycles:               cfg.Runtime.MaxStateMachineCycles,
 			CompressMaxAttempts:     cfg.ContextCompress.MaxAttempts,
@@ -63,6 +66,12 @@ func NewKernel(
 			MaxFailuresBeforeReview: cfg.TargetDrift.MaxFailuresBeforeReview,
 			ForceMode:               cfg.Runtime.ForceMode,
 		},
+		GetPlan:          working.GetPlan,
+		PutPlan:          working.PutPlan,
+		LoadCheckpoint:   persist.LoadCheckpointJSON,
+		CustomToolNames:  func() []string { return core.GetToolRegistry().CustomToolNames() },
+		LoadAgentContext: core.LoadAgentContext,
+		RenderPlanPrompt: prompts.DefaultFactory.Render,
 	})
 
 	return &Kernel{
