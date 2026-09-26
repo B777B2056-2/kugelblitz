@@ -135,7 +135,7 @@ func (p *MediaPreprocessor) Normalize(ctx context.Context, detail MultiModalDeta
 	}
 
 	// MIME detection
-	mimeType := http.DetectContentType(data)
+	mimeType := detectMediaType(data)
 
 	// Lookup validator
 	v := p.validators.Validator(detail.Type)
@@ -166,6 +166,56 @@ func (p *MediaPreprocessor) Normalize(ctx context.Context, detail MultiModalDeta
 	}
 
 	return &detail, nil
+}
+
+// detectMediaType returns the MIME type for the given bytes. It extends
+// http.DetectContentType with the container formats the standard sniffer cannot
+// identify (QuickTime, MP4 audio, audio-only WebM) and normalizes WAV (C1).
+func detectMediaType(data []byte) string {
+	switch {
+	case isISOBMFF(data, "qt  "):
+		return "video/quicktime"
+	case isISOBMFF(data, "M4A "), isISOBMFF(data, "M4B "), isISOBMFF(data, "f4a "), isISOBMFF(data, "f4b "):
+		return "audio/mp4"
+	case bytes.HasPrefix(data, []byte{0x1A, 0x45, 0xDF, 0xA3}):
+		if webmTrackType(data) == 2 {
+			return "audio/webm"
+		}
+		return "video/webm"
+	case isRIFF(data, "WAVE"):
+		return "audio/wav"
+	default:
+		return http.DetectContentType(data)
+	}
+}
+
+// isISOBMFF reports whether data is an ISO Base Media File (MP4/MOV) whose
+// ftyp box declares the given major brand (bytes 8..12).
+func isISOBMFF(data []byte, brand string) bool {
+	return len(data) >= 12 &&
+		bytes.Equal(data[4:8], []byte("ftyp")) &&
+		bytes.Equal(data[8:12], []byte(brand))
+}
+
+// isRIFF reports whether data is a RIFF container of the given form (e.g. "WAVE").
+func isRIFF(data []byte, form string) bool {
+	return len(data) >= 12 &&
+		bytes.Equal(data[:4], []byte("RIFF")) &&
+		bytes.Equal(data[8:12], []byte(form))
+}
+
+// webmTrackType scans a WebM/Matroska file for the EBML TrackType element
+// (ID 0x83) with a 1-byte size and returns its value (1=video, 2=audio),
+// or 0 if not found.
+func webmTrackType(data []byte) byte {
+	for i := 0; i+2 < len(data); i++ {
+		if data[i] == 0x83 && data[i+1] == 0x81 {
+			if v := data[i+2]; v == 1 || v == 2 {
+				return v
+			}
+		}
+	}
+	return 0
 }
 
 // matchMIME checks whether detected MIME matches any entry in the whitelist.

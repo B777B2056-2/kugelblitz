@@ -208,6 +208,39 @@ func TestMediaPreprocessor_Normalize_NonExistentFile(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestDetectMediaType_QuickTime(t *testing.T) {
+	// ftyp box with major brand "qt  "
+	data := []byte("\x00\x00\x00\x18ftypqt  \x00\x00\x00\x00qt  ")
+	assert.Equal(t, "video/quicktime", detectMediaType(data))
+}
+
+func TestDetectMediaType_MP4Audio(t *testing.T) {
+	data := []byte("\x00\x00\x00\x18ftypM4A \x00\x00\x00\x00M4A mp42isom")
+	assert.Equal(t, "audio/mp4", detectMediaType(data))
+}
+
+func TestDetectMediaType_WebMAudio(t *testing.T) {
+	// EBML header + TrackType element (0x83 0x81 0x02) marking audio
+	data := append([]byte{0x1A, 0x45, 0xDF, 0xA3}, []byte("\x83\x81\x02")...)
+	assert.Equal(t, "audio/webm", detectMediaType(data))
+}
+
+func TestDetectMediaType_WebMVideo(t *testing.T) {
+	data := append([]byte{0x1A, 0x45, 0xDF, 0xA3}, []byte("\x83\x81\x01")...)
+	assert.Equal(t, "video/webm", detectMediaType(data))
+}
+
+func TestDetectMediaType_WAV(t *testing.T) {
+	data := []byte("RIFF\x00\x00\x00\x00WAVEfmt ")
+	assert.Equal(t, "audio/wav", detectMediaType(data))
+}
+
+func TestDetectMediaType_FallsBackToStdlib(t *testing.T) {
+	// PNG signature is handled by http.DetectContentType
+	pngSig := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'}
+	assert.Equal(t, "image/png", detectMediaType(pngSig))
+}
+
 // customImageValidator for testing size limits
 type customImageValidator struct {
 	maxSize int64

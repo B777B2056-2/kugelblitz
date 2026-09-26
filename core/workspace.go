@@ -68,17 +68,28 @@ func (w *Workspace) MemoryFile() string {
 
 // SessionPath returns the full path for a session JSONL file.
 func (w *Workspace) SessionPath(sessionID string) string {
-	return filepath.Join(w.Dir(), "memory", "sessions", sessionID+".jsonl")
+	return filepath.Join(w.Dir(), "memory", "sessions", safeID(sessionID)+".jsonl")
 }
 
 // PlanPath returns the full path for a plan JSONL file.
 func (w *Workspace) PlanPath(planID string) string {
-	return filepath.Join(w.Dir(), "memory", "plans", planID, "plan.jsonl")
+	return filepath.Join(w.Dir(), "memory", "plans", safeID(planID), "plan.jsonl")
 }
 
 // CheckpointPath returns the full path for a plan checkpoint file.
 func (w *Workspace) CheckpointPath(planID string, version int) string {
-	return filepath.Join(w.Dir(), "memory", "plans", planID, "checkpoints", fmt.Sprintf("%04d.jsonl", version))
+	return filepath.Join(w.Dir(), "memory", "plans", safeID(planID), "checkpoints", fmt.Sprintf("%04d.jsonl", version))
+}
+
+// safeID collapses an untrusted session/plan ID to a single path element so it
+// cannot escape its storage directory via path traversal (C3). An ID that
+// resolves to a traversal or empty component is neutralized to empty.
+func safeID(id string) string {
+	base := filepath.Base(filepath.Clean(id))
+	if base == "." || base == ".." || base == string(filepath.Separator) {
+		return ""
+	}
+	return base
 }
 
 // MkdirAll creates the workspace directory tree.

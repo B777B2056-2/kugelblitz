@@ -3,6 +3,7 @@ package persist
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -87,6 +88,36 @@ func TestFilePersist_ConcurrentExistsAndDelete(t *testing.T) {
 		}
 	}
 	assert.GreaterOrEqual(t, remaining, 5)
+}
+
+func TestFilePersist_RejectsPathTraversal(t *testing.T) {
+	fp := NewFilePersist(t.TempDir())
+	ctx := context.Background()
+
+	// Store/Delete/Load/List must refuse keys that escape the root.
+	_, err := fp.Load(ctx, "../secret.txt")
+	assert.Error(t, err)
+
+	err = fp.Store(ctx, "../secret.txt", []byte("x"))
+	assert.Error(t, err)
+
+	err = fp.Delete(ctx, "../secret.txt")
+	assert.Error(t, err)
+
+	assert.False(t, fp.Exists(ctx, "../secret.txt"))
+
+	_, err = fp.List(ctx, "../memory")
+	assert.Error(t, err)
+}
+
+func TestFilePersist_ListReturnsStrippedNames(t *testing.T) {
+	fp := NewFilePersist(t.TempDir())
+	ctx := context.Background()
+
+	requireNoError(t, fp.Store(ctx, "memory/sessions/abc.jsonl", []byte("x")))
+	keys, err := fp.List(ctx, "memory/sessions")
+	assert.NoError(t, err)
+	assert.Equal(t, []string{filepath.Join("memory", "sessions", "abc")}, keys)
 }
 
 func requireNoError(t *testing.T, err error, args ...any) {

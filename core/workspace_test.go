@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -98,6 +99,35 @@ func TestWorkspace_MkdirAll(t *testing.T) {
 	assert.NoError(t, err)
 	_, err = os.Stat(filepath.Join(dir, "memory", "plans"))
 	assert.NoError(t, err)
+}
+
+func TestWorkspace_SessionPath_RejectsTraversal(t *testing.T) {
+	old := GetWorkspace().Dir()
+	defer GetWorkspace().SetDir(old)
+
+	GetWorkspace().SetDir("/ws")
+	path := GetWorkspace().SessionPath("../../etc/passwd")
+	assert.Equal(t, filepath.Join("/ws", "memory", "sessions", "passwd.jsonl"), path)
+	// The result must stay inside the sessions directory.
+	assert.True(t, strings.HasPrefix(path, filepath.Join("/ws", "memory", "sessions")))
+}
+
+func TestWorkspace_PlanPath_RejectsTraversal(t *testing.T) {
+	old := GetWorkspace().Dir()
+	defer GetWorkspace().SetDir(old)
+
+	GetWorkspace().SetDir("/ws")
+	path := GetWorkspace().PlanPath("../..//secret")
+	assert.Equal(t, filepath.Join("/ws", "memory", "plans", "secret", "plan.jsonl"), path)
+}
+
+func TestSafeID(t *testing.T) {
+	assert.Equal(t, "abc", safeID("abc"))
+	assert.Equal(t, "passwd", safeID("../../etc/passwd"))
+	assert.Equal(t, "b", safeID("a/b"))
+	assert.Equal(t, "", safeID(".."))
+	assert.Equal(t, "", safeID("."))
+	assert.Equal(t, "", safeID(""))
 }
 
 func TestWorkspace_WindowsPathNormalization(t *testing.T) {

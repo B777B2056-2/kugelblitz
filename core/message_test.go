@@ -168,6 +168,22 @@ func TestMessage_JSONRoundTrip_Composite(t *testing.T) {
 	assert.Equal(t, int64(100), restored.Usage.TotalTokens)
 }
 
+func TestMessage_Unmarshal_CompositeMalformedPart_ReturnsError(t *testing.T) {
+	// A composite whose Parts contains a non-JSON sub-block must surface an error
+	// instead of silently dropping the part (C2).
+	raw := `{"id":"m1","role":"assistant","content":{"type":"composite","parts":["{not-json}"]}}`
+	var m Message
+	err := json.Unmarshal([]byte(raw), &m)
+	require.Error(t, err)
+}
+
+func TestMessage_Unmarshal_UnknownContentType_ReturnsNilContent(t *testing.T) {
+	raw := `{"id":"m1","role":"assistant","content":{"type":"nope"}}`
+	var m Message
+	require.NoError(t, json.Unmarshal([]byte(raw), &m))
+	assert.Nil(t, m.Content)
+}
+
 func TestMessage_JSONRoundTrip_MultiModal(t *testing.T) {
 	original := NewUserMessage(MultiModalContent{
 		Detail: MultiModalDetail{ID: "img-1", Type: constants.MultiModalTypeImage, Path: "/tmp/a.png"},
