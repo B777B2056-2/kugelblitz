@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/B777B2056-2/kugelblitz/config"
@@ -61,7 +62,7 @@ func WithExistingSessionID(sessionID string) AgentLoopOption {
 	}
 }
 
-func NewAgentLoop(cfg config.Config, opts ...AgentLoopOption) *AgentLoop {
+func NewAgentLoop(cfg config.Config, opts ...AgentLoopOption) (*AgentLoop, error) {
 	al := &AgentLoop{
 		cfg: cfg,
 	}
@@ -72,7 +73,9 @@ func NewAgentLoop(cfg config.Config, opts ...AgentLoopOption) *AgentLoop {
 	}
 
 	// LTM subsystem
-	initLTM(cfg.Model.Provider, al)
+	if err := initLTM(cfg.Model.Provider, al); err != nil {
+		return nil, err
+	}
 
 	// Skills (registers globally)
 	initSkills()
@@ -90,15 +93,14 @@ func NewAgentLoop(cfg config.Config, opts ...AgentLoopOption) *AgentLoop {
 	}
 
 	al.planner = engine.NewKernel(al.sessionMem, cfg)
-	return al
+	return al, nil
 }
 
-func initLTM(provider core.ILMProvider, al *AgentLoop) {
+func initLTM(provider core.ILMProvider, al *AgentLoop) error {
 	mgr := persist.GetManager()
 	ltm, err := longterm.NewLongTermMemory(mgr.Markdown())
 	if err != nil {
-		core.Warn("plan_mode: failed to init long-term memory", "error", err)
-		return
+		return fmt.Errorf("init long-term memory: %w", err)
 	}
 	al.ltm = ltm
 	al.indexMgr = longterm.NewIndexManager(mgr.Vector(), ltm)
@@ -116,6 +118,7 @@ func initLTM(provider core.ILMProvider, al *AgentLoop) {
 	dreamer.SetIndexManager(al.indexMgr)
 	al.dreamScheduler = longterm.NewDreamScheduler(dreamer)
 	al.dreamScheduler.Start()
+	return nil
 }
 
 func initSkills() {

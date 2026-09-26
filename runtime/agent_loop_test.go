@@ -39,6 +39,19 @@ func (m *MockProvider) Generate(ctx context.Context, params core.GenerateParams)
 	return nil, nil
 }
 
+// mustNewAgentLoop constructs an AgentLoop, failing the test if initialization
+// (e.g. long-term memory) fails.
+func mustNewAgentLoop(t *testing.T, cfg config.Config, opts ...AgentLoopOption) *AgentLoop {
+	t.Helper()
+	var (
+		loop *AgentLoop
+		err  error
+	)
+	loop, err = NewAgentLoop(cfg, opts...)
+	require.NoError(t, err)
+	return loop
+}
+
 func TestPlanner_ContextError_TriggersRetry(t *testing.T) {
 	core.GetWorkspace().SetDir(t.TempDir())
 	working.ResetPlans()
@@ -54,7 +67,7 @@ func TestPlanner_ContextError_TriggersRetry(t *testing.T) {
 		},
 	}
 
-	planner := NewAgentLoop(testCfg(provider))
+	planner := mustNewAgentLoop(t, testCfg(provider))
 	_, err := planner.execute(context.Background(), core.AgentInput{Text: "test goal"})
 	assert.NoError(t, err)
 	assert.GreaterOrEqual(t, callCount, 2, "should have retried after compress")
@@ -69,7 +82,7 @@ func TestPlanner_NonContextError_NoRetry(t *testing.T) {
 		},
 	}
 
-	planner := NewAgentLoop(testCfg(provider))
+	planner := mustNewAgentLoop(t, testCfg(provider))
 	_, err := planner.execute(context.Background(), core.AgentInput{Text: "test"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "some other error")
@@ -84,7 +97,7 @@ func TestPlanner_SecondCallSeesHistory(t *testing.T) {
 		},
 	}
 
-	planner := NewAgentLoop(testCfg(provider))
+	planner := mustNewAgentLoop(t, testCfg(provider))
 
 	_, err := planner.execute(context.Background(), core.AgentInput{Text: "goal 1"})
 	require.NoError(t, err)
@@ -128,7 +141,7 @@ func TestWorkerAgent_ExecuteTask_Error(t *testing.T) {
 }
 
 func TestPlanner_Cancel(t *testing.T) {
-	planner := NewAgentLoop(testCfg(nil))
+	planner := mustNewAgentLoop(t, testCfg(nil))
 	planner.Cancel()
 	// Cancel is idempotent; no error to check.
 }
@@ -248,7 +261,7 @@ func TestPlanner_Execute_CompressThenReview(t *testing.T) {
 		},
 	}
 
-	planner := NewAgentLoop(testCfg(provider))
+	planner := mustNewAgentLoop(t, testCfg(provider))
 	_, err := planner.execute(context.Background(), core.AgentInput{Text: "test goal"})
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, callCount, 2)
@@ -261,7 +274,7 @@ func TestPlanner_LLMUsageCallback_NilSafe(t *testing.T) {
 			return &msg, nil
 		},
 	}
-	planner := NewAgentLoop(testCfg(provider))
+	planner := mustNewAgentLoop(t, testCfg(provider))
 	_, err := planner.execute(context.Background(), core.AgentInput{Text: "test"})
 	require.NoError(t, err)
 }
@@ -293,7 +306,7 @@ func TestPlanner_LLMUsageCallback_FiresWithIdentity(t *testing.T) {
 			return core.ToolCallResult{ToolCallID: detail.ID, Outputs: map[string]any{"ok": true}}
 		})
 
-	planner := NewAgentLoop(testCfg(provider))
+	planner := mustNewAgentLoop(t, testCfg(provider))
 	planner.RegisterEventHooks(core.AgentEventHooks{
 		OnUsageUpdated: func(id constants.AgentIdentity, usage core.Usage) {
 			reports = append(reports, usage)
@@ -327,7 +340,7 @@ func TestPlanner_LLMUsageCallback_NoCallback_NoPanic(t *testing.T) {
 			return core.ToolCallResult{ToolCallID: detail.ID, Outputs: map[string]any{"ok": true}}
 		})
 
-	planner := NewAgentLoop(testCfg(provider))
+	planner := mustNewAgentLoop(t, testCfg(provider))
 	msgs, err := planner.execute(context.Background(), core.AgentInput{Text: "test"})
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(msgs), 1)
@@ -341,7 +354,7 @@ func TestCompressSingleResult_ShortStringUnchanged(t *testing.T) {
 	}
 	cfg := testCfg(provider)
 	cfg.ContextCompress = config.ContextCompressConfig{MaxAttempts: 1, MaxToolResultChars: 4000}
-	planner := NewAgentLoop(cfg)
+	planner := mustNewAgentLoop(t, cfg)
 
 	r := core.ToolCallResult{ToolCallID: "1", ToolName: "test", Outputs: map[string]any{
 		"text": "short string",
@@ -362,7 +375,7 @@ func TestCompressSingleResult_LongStringCompressed(t *testing.T) {
 	}
 	cfg := testCfg(provider)
 	cfg.ContextCompress = config.ContextCompressConfig{MaxAttempts: 1, MaxToolResultChars: 50}
-	planner := NewAgentLoop(cfg)
+	planner := mustNewAgentLoop(t, cfg)
 
 	longText := strings.Repeat("abcdefghij", 10)
 	r := core.ToolCallResult{ToolCallID: "1", ToolName: "file_read", Outputs: map[string]any{
@@ -383,7 +396,7 @@ func TestCompressSingleResult_SkipsErrors(t *testing.T) {
 	}
 	cfg := testCfg(provider)
 	cfg.ContextCompress = config.ContextCompressConfig{MaxAttempts: 1, MaxToolResultChars: 10}
-	planner := NewAgentLoop(cfg)
+	planner := mustNewAgentLoop(t, cfg)
 
 	longText := strings.Repeat("x", 100)
 	r := core.ToolCallResult{ToolCallID: "1", ToolName: "test", Outputs: map[string]any{
@@ -405,7 +418,7 @@ func TestCompressSingleResult_DisabledWhenZero(t *testing.T) {
 	}
 	cfg := testCfg(provider)
 	cfg.ContextCompress = config.ContextCompressConfig{MaxAttempts: 1, MaxToolResultChars: 0}
-	planner := NewAgentLoop(cfg)
+	planner := mustNewAgentLoop(t, cfg)
 
 	longText := strings.Repeat("x", 10000)
 	r := core.ToolCallResult{ToolCallID: "1", ToolName: "test", Outputs: map[string]any{
@@ -425,7 +438,7 @@ func TestCompressSingleResult_MultipleFields(t *testing.T) {
 	}
 	cfg := testCfg(provider)
 	cfg.ContextCompress = config.ContextCompressConfig{MaxAttempts: 1, MaxToolResultChars: 20}
-	planner := NewAgentLoop(cfg)
+	planner := mustNewAgentLoop(t, cfg)
 
 	long1 := strings.Repeat("a", 100)
 	long2 := strings.Repeat("b", 200)
@@ -480,7 +493,7 @@ func TestAgentLoop_IntentToDirect_SimpleTask(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	al := NewAgentLoop(testCfg(provider))
+	al := mustNewAgentLoop(t, testCfg(provider))
 	al.Run(ctx, core.AgentInput{Text: "echo hello"})
 	<-al.Done()
 
@@ -520,7 +533,7 @@ func TestAgentLoop_ForceModeSimple_SkipsIntent(t *testing.T) {
 
 	cfg := testCfg(provider)
 	cfg.Runtime.ForceMode = "simple"
-	al := NewAgentLoop(cfg)
+	al := mustNewAgentLoop(t, cfg)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -551,7 +564,7 @@ func TestAgentLoop_ForceModePlan_SkipsIntent(t *testing.T) {
 
 	cfg := testCfg(provider)
 	cfg.Runtime.ForceMode = "plan"
-	al := NewAgentLoop(cfg)
+	al := mustNewAgentLoop(t, cfg)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -630,7 +643,7 @@ func TestAgentLoop_RejectPath_UserRejectsPlan(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	al := NewAgentLoop(testCfg(provider))
+	al := mustNewAgentLoop(t, testCfg(provider))
 	hitlCh := make(chan struct{}, 2)
 	al.RegisterEventHooks(core.AgentEventHooks{
 		OnWaitForHumanAction: func(id constants.AgentIdentity, reason, prompt string) {
@@ -718,7 +731,7 @@ func TestAgentLoop_HappyPath_IntentToDone(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	al := NewAgentLoop(testCfg(provider))
+	al := mustNewAgentLoop(t, testCfg(provider))
 	hitlCh := make(chan struct{}, 2)
 	al.RegisterEventHooks(core.AgentEventHooks{
 		OnWaitForHumanAction: func(id constants.AgentIdentity, reason, prompt string) {
@@ -846,7 +859,7 @@ func TestAgentLoop_RecoveryPath_FailReplanRetry(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	al := NewAgentLoop(testCfg(provider))
+	al := mustNewAgentLoop(t, testCfg(provider))
 	hitlCh := make(chan struct{}, 3)
 	al.RegisterEventHooks(core.AgentEventHooks{
 		OnWaitForHumanAction: func(id constants.AgentIdentity, reason, prompt string) {
@@ -970,7 +983,7 @@ func TestAgentLoop_AbandonPath_FailReplanThenReject(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	al := NewAgentLoop(testCfg(provider))
+	al := mustNewAgentLoop(t, testCfg(provider))
 	hitlCh := make(chan struct{}, 3)
 	al.RegisterEventHooks(core.AgentEventHooks{
 		OnWaitForHumanAction: func(id constants.AgentIdentity, reason, prompt string) {

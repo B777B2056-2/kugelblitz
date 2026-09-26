@@ -101,7 +101,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	loop := runtime.NewAgentLoop(appCfg, opts...)
+	loop, err := runtime.NewAgentLoop(appCfg, opts...)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "init agent: " + err.Error()})
+		return
+	}
 
 	// ── Cancellable context ──
 	chatCtx, chatCancel := context.WithCancel(r.Context())

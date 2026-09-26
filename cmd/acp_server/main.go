@@ -56,7 +56,11 @@ func main() {
 	defer shutdown()
 
 	// AgentLoop wires up MCP, skills, LTM, session — same as Web UI.
-	loop := runtime.NewAgentLoop(cfg)
+	loop, err := runtime.NewAgentLoop(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: init agent: %v\n", err)
+		os.Exit(1)
+	}
 	srv := NewServer(loop.Agent(), cfg.Model.Provider)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
