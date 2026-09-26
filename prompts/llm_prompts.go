@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core/types"
 )
 
 // ---- Compressor prompts ----
 
 // BuildSummarizePrompt creates a prompt asking the LLM to produce a consolidated summary.
-func BuildSummarizePrompt(messages []core.Message, existingSummary string) string {
+func BuildSummarizePrompt(messages []types.Message, existingSummary string) string {
 	var sb strings.Builder
 
 	if existingSummary != "" {
@@ -34,17 +34,17 @@ func BuildSummarizePrompt(messages []core.Message, existingSummary string) strin
 	for i, msg := range messages {
 		fmt.Fprintf(&sb, "[%d] %s: ", i, msg.Role)
 		switch ct := msg.Content.(type) {
-		case core.TextContent:
+		case types.TextContent:
 			sb.WriteString(truncateStr(ct.Text, 500))
-		case core.ToolCallContent:
+		case types.ToolCallContent:
 			var names []string
 			for _, d := range ct.Details {
 				names = append(names, d.ToolName)
 			}
 			fmt.Fprintf(&sb, "[tool calls: %s]", strings.Join(names, ", "))
-		case core.ToolResultContent:
+		case types.ToolResultContent:
 			fmt.Fprintf(&sb, "[tool results: %d]", len(ct.Results))
-		case core.CompositeContent:
+		case types.CompositeContent:
 			sb.WriteString("[composite]")
 		default:
 			sb.WriteString("[content]")

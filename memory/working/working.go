@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/persist"
 )
 
@@ -35,7 +35,7 @@ type Task struct {
 	Status         TaskStatus  `json:"status"`
 	FinishedReason string      `json:"finished_reason,omitempty"`
 	Action         string      `json:"action,omitempty"`
-	Usage          *core.Usage `json:"usage,omitempty"`
+	Usage          *coretypes.Usage `json:"usage,omitempty"`
 }
 
 // Plan is a versioned plan with subtasks, persisted as JSONL.
@@ -136,7 +136,7 @@ func saveCheckpoint(p *Plan, reason string) error {
 }
 
 // copyTasks deep-copies tasks so checkpoint snapshots do not share the
-// *core.Usage pointer with the live plan (B20).
+// *coretypes.Usage pointer with the live plan (B20).
 func copyTasks(tasks []Task) []Task {
 	out := make([]Task, len(tasks))
 	for i, t := range tasks {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core/types"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -31,8 +31,8 @@ type StepTracer struct {
 	thinkBuf     strings.Builder
 	replyBuf     strings.Builder
 	toolNames    []string
-	pendingTools []core.ToolCallDetail
-	usage        core.Usage
+	pendingTools []types.ToolCallDetail
+	usage        types.Usage
 }
 
 func NewStepTracer() *StepTracer {
@@ -53,15 +53,15 @@ func (st *StepTracer) SetTrace(ctx context.Context, tracer trace.Tracer, goal st
 	return ctx, st.currentStepSpan
 }
 
-func (st *StepTracer) EventHandler() core.ModelEventHandler {
+func (st *StepTracer) EventHandler() types.ModelEventHandler {
 	return &stepTracerHandler{st: st}
 }
 
 // LastUsage returns the accumulated LLM usage since the last StepSpan/reset.
-func (st *StepTracer) LastUsage() core.Usage { return st.usage }
+func (st *StepTracer) LastUsage() types.Usage { return st.usage }
 
 // StepSpan finalizes the completed step and prepares for the next.
-func (st *StepTracer) StepSpan(ctx context.Context, step int, results []core.ToolCallResult) trace.Span {
+func (st *StepTracer) StepSpan(ctx context.Context, step int, results []types.ToolCallResult) trace.Span {
 	// 1. Create generation for the completed LLM call
 	genName := fmt.Sprintf("step-%d-llm", step)
 	_, gen := st.tracer.Start(ctx, genName, trace.WithSpanKind(trace.SpanKindInternal))
@@ -165,7 +165,7 @@ func (st *StepTracer) reset() {
 	st.replyBuf.Reset()
 	st.toolNames = nil
 	st.pendingTools = nil
-	st.usage = core.Usage{}
+	st.usage = types.Usage{}
 	st.lastErr = nil
 }
 
@@ -181,7 +181,7 @@ func (h *stepTracerHandler) OnBlockThinking(reasoning string) { h.st.thinkBuf.Wr
 func (h *stepTracerHandler) OnBlockReply(text string)         { h.st.replyBuf.WriteString(text) }
 func (h *stepTracerHandler) OnError(err error)                { h.st.lastErr = err }
 
-func (h *stepTracerHandler) OnFunctionCall(detail core.ToolCallDetail) {
+func (h *stepTracerHandler) OnFunctionCall(detail types.ToolCallDetail) {
 	h.st.toolNames = append(h.st.toolNames, detail.ToolName)
 	if h.st.currentStepSpan != nil {
 		h.st.pendingTools = append(h.st.pendingTools, detail)
@@ -189,7 +189,7 @@ func (h *stepTracerHandler) OnFunctionCall(detail core.ToolCallDetail) {
 }
 
 func (h *stepTracerHandler) OnFinished(reason string) {}
-func (h *stepTracerHandler) OnUsageUpdated(usage core.Usage) {
+func (h *stepTracerHandler) OnUsageUpdated(usage types.Usage) {
 	h.st.usage.InputTokens += usage.InputTokens
 	h.st.usage.OutputTokens += usage.OutputTokens
 	h.st.usage.TotalTokens += usage.TotalTokens

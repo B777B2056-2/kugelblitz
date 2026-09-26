@@ -6,13 +6,13 @@ package config
 import (
 	"fmt"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/provider"
 )
 
 // ModelConfig groups LLM provider and thinking configuration.
 type ModelConfig struct {
-	Provider core.ILMProvider // concrete provider instance (set at runtime)
+	Provider types.ILMProvider // concrete provider instance (set at runtime)
 
 	ProviderName    string `json:"provider_name"`
 	Model           string `json:"model"`
@@ -107,9 +107,9 @@ type Config struct {
 	MCP             map[string]MCPServerConfig `json:"mcp_servers"`
 }
 
-// NewProvider creates a core.ILMProvider from name + credentials.
+// NewProvider creates a types.ILMProvider from name + credentials.
 // Supported provider names: "deepseek", "openai".
-func NewProvider(name, apiKey, baseURL, model string) (core.ILMProvider, error) {
+func NewProvider(name, apiKey, baseURL, model string) (types.ILMProvider, error) {
 	switch name {
 	case "deepseek":
 		return provider.DeepSeek(apiKey, baseURL, model), nil
@@ -130,7 +130,7 @@ func DefaultConfig() Config {
 			APIKey:          "",
 			StreamMode:      true,
 			EnableThinking:  true,
-			ReasoningEffort: core.ReasoningEffortHigh,
+			ReasoningEffort: types.ReasoningEffortHigh,
 		},
 		Runtime:         RuntimeConfig{MaxStateMachineCycles: 30},
 		ContextCompress: ContextCompressConfig{MaxAttempts: 1, MaxToolResultChars: 4000, KeepLastN: 20, MinMessagesToCompress: 10},
