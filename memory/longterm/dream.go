@@ -86,18 +86,27 @@ type DreamScheduler struct {
 	dreamer       *Dreamer
 	checkInterval time.Duration // how often to poll (default 30 min)
 	cooldown      time.Duration // min time between dreams (default 6 hours)
+	idleThreshold time.Duration // min idle time before dreaming (default 5 min)
 	lastDreamed   time.Time
 	lastActivity  time.Time
 	mu            sync.Mutex
 	stopCh        chan struct{}
 }
 
-// NewDreamScheduler creates a scheduler with default intervals.
+// NewDreamScheduler creates a scheduler with default intervals
+// (30 min check / 6 hour cooldown / 5 min idle).
 func NewDreamScheduler(dreamer *Dreamer) *DreamScheduler {
+	return NewDreamSchedulerWithIntervals(dreamer, 30*time.Minute, 6*time.Hour, 5*time.Minute)
+}
+
+// NewDreamSchedulerWithIntervals creates a scheduler with explicit
+// check/cooldown/idle intervals, for tests and non-default deployments.
+func NewDreamSchedulerWithIntervals(dreamer *Dreamer, checkInterval, cooldown, idleThreshold time.Duration) *DreamScheduler {
 	return &DreamScheduler{
 		dreamer:       dreamer,
-		checkInterval: 30 * time.Minute,
-		cooldown:      6 * time.Hour,
+		checkInterval: checkInterval,
+		cooldown:      cooldown,
+		idleThreshold: idleThreshold,
 		stopCh:        make(chan struct{}),
 	}
 }
@@ -141,7 +150,7 @@ func (ds *DreamScheduler) maybeDream() {
 	ds.mu.Unlock()
 
 	// Only dream when idle AND cooldown elapsed
-	if idle < 5*time.Minute || sinceLastDream < ds.cooldown {
+	if idle < ds.idleThreshold || sinceLastDream < ds.cooldown {
 		return
 	}
 
@@ -154,9 +163,12 @@ func (ds *DreamScheduler) maybeDream() {
 		return
 	}
 
-	// Persist dream report
+	// Persist dream report (background goroutine has no caller to propagate to,
+	// so a write failure is logged rather than surfaced).
 	if ds.dreamer.ltm != nil {
-		_ = ds.dreamer.ltm.mdStore.Store(context.Background(), "DREAMS.md", []byte(report.ToMarkdown()))
+		if err := ds.dreamer.ltm.mdStore.Store(context.Background(), "DREAMS.md", []byte(report.ToMarkdown())); err != nil {
+			core.Warn("dream: persist report", "err", err)
+		}
 	}
 }
 
