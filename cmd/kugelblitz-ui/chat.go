@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
@@ -45,6 +46,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	session.tokenReports = nil
 	session.tokenTotal = TokenTotals{}
 	session.turnMessages = nil
+	session.addTurnMessage(StoredMessage{Role: "user", Content: req.Goal})
 	session.turnPlans = nil
 	session.turnUsage = StoredUsage{}
 	session.currentPlan = nil
@@ -132,6 +134,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	var sseMu sync.Mutex
 	var capturedToolCalls []core.ToolCallDetail
+	var assistantReply strings.Builder
 
 	// ── Register hooks with inline callbacks (no sseModelHandler) ──
 	loop.RegisterEventHooks(core.AgentEventHooks{
@@ -143,6 +146,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		OnReplyChunk: func(id constants.AgentIdentity, chunk string) {
 			sseMu.Lock()
 			defer sseMu.Unlock()
+			assistantReply.WriteString(chunk)
 			writeSSEEvent(w, flusher, SSEEvent{Event: "reply", Data: map[string]any{"text": chunk, "identity": string(id)}})
 		},
 		OnBlockThinking: func(id constants.AgentIdentity, reasoning string) {
@@ -153,6 +157,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		OnBlockReply: func(id constants.AgentIdentity, text string) {
 			sseMu.Lock()
 			defer sseMu.Unlock()
+			assistantReply.WriteString(text)
 			writeSSEEvent(w, flusher, SSEEvent{Event: "reply", Data: map[string]any{"text": text, "identity": string(id)}})
 		},
 		OnFunctionCall: func(id constants.AgentIdentity, detail core.ToolCallDetail) {
@@ -312,6 +317,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 			if session.currentPlan != nil {
 				session.addTurnPlan(session.currentPlan.toStored())
+			}
+
+			if assistantReply.Len() > 0 {
+				session.addTurnMessage(StoredMessage{Role: "assistant", Content: assistantReply.String()})
 			}
 
 			s.sessions.ArchiveTurn(session)
