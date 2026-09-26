@@ -24,6 +24,7 @@ type DAGTaskExecutor struct {
 	cancelMu            sync.Mutex                   // protects cancel
 	workerHooks         core.AgentEventHooks         // set by Planner.RegisterEventHooks
 	workerAgentIdentity constants.AgentIdentity      // set by Kernel
+	workerFactory       WorkerFactory                // builds each WorkerAgent; injected by composition root
 	humanToolFactory    infra.HumanToolFactory       // builds ask_human tool; nil = omit
 	PauseGate           *infra.PauseGate             // shared pause gate for all workers
 	hitlAgents          map[string]*infra.ReactAgent // taskID → waiting worker (HITL)
@@ -31,13 +32,21 @@ type DAGTaskExecutor struct {
 	stepTracer          *observability.StepTracer    // per-step instrumentation
 }
 
-// NewDAGTaskExecutor creates an executor that spawns WorkerAgents internally.
-func NewDAGTaskExecutor(provider core.ILMProvider, streamMode bool) *DAGTaskExecutor {
+// WorkerFactory creates a WorkerAgent for a single task. Injected by the
+// composition root so dag owns construction wiring without hardcoding
+// infra.NewWorkerAgent. Returning a concrete *infra.WorkerAgent keeps the
+// dag→infra type reference within the same engine layer.
+type WorkerFactory func(provider core.ILMProvider, streamMode bool) *infra.WorkerAgent
+
+// NewDAGTaskExecutor creates an executor that spawns WorkerAgents via the
+// injected workerFactory and shares the injected pauseGate across all workers.
+func NewDAGTaskExecutor(provider core.ILMProvider, streamMode bool, workerFactory WorkerFactory, pauseGate *infra.PauseGate) *DAGTaskExecutor {
 	return &DAGTaskExecutor{
 		provider:            provider,
 		streamMode:          streamMode,
+		workerFactory:       workerFactory,
 		workerAgentIdentity: constants.AgentWorker,
-		PauseGate:           infra.NewPauseGate(),
+		PauseGate:           pauseGate,
 		hitlAgents:          make(map[string]*infra.ReactAgent),
 	}
 }
@@ -191,7 +200,7 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 					}
 					return nil
 				}
-				worker := infra.NewWorkerAgent(d.provider, d.streamMode)
+				worker := d.workerFactory(d.provider, d.streamMode)
 				worker.SetHooks(d.workerHooks)
 				worker.SetStepTracer(d.stepTracer)
 				worker.SetPauseGate(d.PauseGate)

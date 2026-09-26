@@ -46,7 +46,7 @@ func NewKernel(
 
 	tracer := otel.Tracer("kugelblitz")
 	compressor := memory.NewCompressor(cfg.Model.Provider, tracer)
-	dagExec := dag.NewDAGTaskExecutor(cfg.Model.Provider, cfg.Model.StreamMode)
+	dagExec := dag.NewDAGTaskExecutor(cfg.Model.Provider, cfg.Model.StreamMode, infra.NewWorkerAgent, infra.NewPauseGate())
 	dagExec.SetHumanToolFactory(internals.NewAskHumanTool)
 	reviewer := infra.NewReviewer(cfg.Model.Provider, tracer)
 
