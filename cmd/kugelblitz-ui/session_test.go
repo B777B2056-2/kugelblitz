@@ -178,6 +178,18 @@ func TestChatSession_AddTokenReport_Accumulates(t *testing.T) {
 	assert.Greater(t, s.tokenTotal.Total, int64(15))
 }
 
+// TestChatSession_AddTokenReport_NoInputFoldedIntoOutput guards U2: input tokens
+// must be attributed to Input, never folded into Output for non-intent reports.
+func TestChatSession_AddTokenReport_NoInputFoldedIntoOutput(t *testing.T) {
+	s := newTestSession()
+	s.addTokenReport(TokenReport{Identity: "intent", Input: 100, Output: 10, Total: 110})
+	s.addTokenReport(TokenReport{Identity: "exec", Input: 200, Output: 30, Total: 230})
+
+	assert.Equal(t, int64(300), s.tokenTotal.Input)
+	assert.Equal(t, int64(40), s.tokenTotal.Output)
+	assert.Equal(t, int64(340), s.tokenTotal.Total)
+}
+
 func TestChatSession_AddTurnPlan_Upsert(t *testing.T) {
 	s := newTestSession()
 	s.addTurnPlan(StoredPlan{PlanID: "p1", Name: "Plan A"})

@@ -377,23 +377,15 @@ func (s *ChatSession) addTokenReport(report TokenReport) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	isIntent := len(s.tokenReports) == 0
-
+	// Attribute input and output to their own buckets. Previously non-intent
+	// reports folded input into output, double-counting tokens (U2).
+	s.tokenTotal.Input += report.Input
 	s.tokenTotal.Output += report.Output
-	if isIntent {
-		s.tokenTotal.Input += report.Input
-	} else {
-		s.tokenTotal.Output += report.Input
-	}
 	s.tokenTotal.Reasoning += report.Reason
 	s.tokenTotal.Total += report.Total
 
+	s.turnUsage.Input += report.Input
 	s.turnUsage.Output += report.Output
-	if isIntent {
-		s.turnUsage.Input += report.Input
-	} else {
-		s.turnUsage.Output += report.Input
-	}
 	s.turnUsage.Reasoning += report.Reason
 	s.turnUsage.Total += report.Total
 

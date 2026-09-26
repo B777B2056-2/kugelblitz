@@ -41,15 +41,18 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	core.Info("chat started", "session", req.SessionID, "goal", goalPreview)
 
 	session := s.sessions.GetOrCreate(req.SessionID)
+	// Reset per-turn state under the session lock so a concurrent turn's hooks
+	// never observe a half-reset session (U5).
+	session.mu.Lock()
 	session.Goal = req.Goal
 	session.hitlCh = make(chan string, 1)
 	session.tokenReports = nil
 	session.tokenTotal = TokenTotals{}
-	session.turnMessages = nil
-	session.addTurnMessage(StoredMessage{Role: "user", Content: req.Goal})
+	session.turnMessages = []StoredMessage{{Role: "user", Content: req.Goal}}
 	session.turnPlans = nil
 	session.turnUsage = StoredUsage{}
 	session.currentPlan = nil
+	session.mu.Unlock()
 
 	// Set up AgentLoop — reuse framework session across turns via WithExistingSessionID
 	opts := []runtime.AgentLoopOption{}
@@ -161,9 +164,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			writeSSEEvent(w, flusher, SSEEvent{Event: "reply", Data: map[string]any{"text": text, "identity": string(id)}})
 		},
 		OnFunctionCall: func(id constants.AgentIdentity, detail core.ToolCallDetail) {
-			capturedToolCalls = append(capturedToolCalls, detail)
 			sseMu.Lock()
 			defer sseMu.Unlock()
+			capturedToolCalls = append(capturedToolCalls, detail)
 			writeSSEEvent(w, flusher, SSEEvent{Event: "tool_call", Data: map[string]any{
 				"tool_call_id": detail.ID,
 				"tool_name":    detail.ToolName,
@@ -216,6 +219,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			}
 		},
 		OnWaitForHumanAction: func(id constants.AgentIdentity, reason, prompt string) {
+			sseMu.Lock()
 			toolCallID := ""
 			for _, tc := range capturedToolCalls {
 				if tc.ToolName == "ask_human" {
@@ -223,12 +227,14 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 			}
+			capturedToolCalls = nil
+			sseMu.Unlock()
+
+			session.mu.Lock()
 			hitlSource := "generic"
 			if session.currentPlan != nil {
 				hitlSource = "planner_confirm"
 			}
-
-			session.mu.Lock()
 			session.hitlWaiting = true
 			session.hitlInfo = &HitlInfo{
 				ToolCallID: toolCallID, Question: prompt, Reason: reason,
@@ -250,7 +256,6 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				"reason":       reason,
 				"source":       hitlSource,
 			}})
-			capturedToolCalls = nil
 		},
 		OnPlanRollback: func(id constants.AgentIdentity, planID string, targetVersion int, planName string) {
 			sseMu.Lock()

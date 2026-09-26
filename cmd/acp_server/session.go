@@ -17,7 +17,28 @@ type Session struct {
 	Messages  []core.Message `json:"messages"`
 	CreatedAt time.Time      `json:"created_at"`
 	Agent     core.IAgent    `json:"-"`
-	cancelFn  context.CancelFunc
+
+	// cancelMu guards cancelFn, which is written by SetCancelFunc during an
+	// active prompt and read by Cancel from another goroutine (A3).
+	cancelMu sync.Mutex
+	cancelFn context.CancelFunc
+}
+
+// setCancelFn stores the active execution's cancel function.
+func (s *Session) setCancelFn(fn context.CancelFunc) {
+	s.cancelMu.Lock()
+	s.cancelFn = fn
+	s.cancelMu.Unlock()
+}
+
+// cancel invokes the stored cancel function, if any.
+func (s *Session) cancel() {
+	s.cancelMu.Lock()
+	fn := s.cancelFn
+	s.cancelMu.Unlock()
+	if fn != nil {
+		fn()
+	}
 }
 
 // SessionManager manages ACP session lifecycle in memory only.
@@ -113,10 +134,8 @@ func (sm *SessionManager) Cancel(sessionID string) error {
 	if !ok {
 		return fmt.Errorf("session: not found: %s", sessionID)
 	}
-	if session.cancelFn != nil {
-		core.Debug("ACP: session manager cancelling execution", "id", sessionID)
-		session.cancelFn()
-	}
+	core.Debug("ACP: session manager cancelling execution", "id", sessionID)
+	session.cancel()
 	return nil
 }
 
@@ -129,6 +148,6 @@ func (sm *SessionManager) SetCancelFunc(sessionID string, fn context.CancelFunc)
 	if !ok {
 		return fmt.Errorf("session: not found: %s", sessionID)
 	}
-	session.cancelFn = fn
+	session.setCancelFn(fn)
 	return nil
 }
