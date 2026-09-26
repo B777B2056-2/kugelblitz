@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 )
 
@@ -81,6 +82,7 @@ func (tr *ToolRegistry) ListDefinitions() []ToolDefinition {
 	for _, entry := range tr.tools {
 		defs = append(defs, entry.def)
 	}
+	sort.Slice(defs, func(i, j int) bool { return defs[i].Name < defs[j].Name })
 	return defs
 }
 

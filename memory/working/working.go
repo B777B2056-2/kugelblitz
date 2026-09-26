@@ -109,7 +109,7 @@ func saveCheckpoint(p *Plan, reason string) error {
 		ID:                        p.ID,
 		SessionID:                 p.SessionID,
 		Name:                      p.Name,
-		SubTasks:                  append([]Task{}, p.SubTasks...),
+		SubTasks:                  copyTasks(p.SubTasks),
 		CurrentActivateSubTaskIDs: append([]string{}, p.CurrentActivateSubTaskIDs...),
 		State:                     p.State,
 		FinishedReason:            p.FinishedReason,
@@ -133,6 +133,20 @@ func saveCheckpoint(p *Plan, reason string) error {
 		return fmt.Errorf("persist checkpoint %s@%d: %w", p.ID, cp.Version, err)
 	}
 	return nil
+}
+
+// copyTasks deep-copies tasks so checkpoint snapshots do not share the
+// *core.Usage pointer with the live plan (B20).
+func copyTasks(tasks []Task) []Task {
+	out := make([]Task, len(tasks))
+	for i, t := range tasks {
+		out[i] = t
+		if t.Usage != nil {
+			u := *t.Usage
+			out[i].Usage = &u
+		}
+	}
+	return out
 }
 
 // ListPlans returns all plans in memory.

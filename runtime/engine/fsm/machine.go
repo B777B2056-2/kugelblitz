@@ -100,7 +100,7 @@ func (m *Machine) Run(ctx context.Context, input core.AgentInput) ([]core.Messag
 			return fsmCtx.Results, err
 		}
 	}
-	return fsmCtx.Results, nil
+	return fsmCtx.Results, core.ErrMaxCyclesExceeded
 }
 
 // reset returns the state machine to its initial state.
