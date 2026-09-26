@@ -184,8 +184,10 @@ func (smm *SessionMemoryManager) CreateSessionMemory(sessionID string) *SessionM
 		return mem
 	}
 	mem := newSessionMemory(sessionID)
-	smm.SessionMemoryMap.Store(sessionID, mem)
-	return mem
+	// LoadOrStore makes concurrent creators converge on a single instance,
+	// instead of last-writer-wins overwriting (B7).
+	actual, _ := smm.SessionMemoryMap.LoadOrStore(sessionID, mem)
+	return actual.(*SessionMemory)
 }
 
 func (smm *SessionMemoryManager) GetSessionMemory(sessionID string) (*SessionMemory, bool) {
