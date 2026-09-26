@@ -52,7 +52,10 @@ func (t *AskHumanTool) Execute(ctx context.Context, detail core.ToolCallDetail) 
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "ask_human", err)
 	}
-	reason, _ := tools.Arg(detail, "reason")
+	reason, err := tools.OptionalStringErr(detail, "reason")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "ask_human", err)
+	}
 
 	response, err := t.Gate.WaitForHuman(ctx, reason, question)
 	if err != nil {

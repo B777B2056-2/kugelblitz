@@ -3,6 +3,7 @@ package internals
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 
@@ -65,7 +66,9 @@ func (t *FileCopy) Execute(ctx context.Context, detail core.ToolCallDetail) core
 			if err := copyFile(src, dst); err != nil {
 				return tools.ErrorResult(detail.ID, "file_copy", err)
 			}
-			_ = os.Remove(src)
+			if err := os.Remove(src); err != nil {
+				return tools.ErrorResult(detail.ID, "file_copy", fmt.Errorf("move fallback: remove source: %w", err))
+			}
 		}
 	} else {
 		if err := copyFile(src, dst); err != nil {

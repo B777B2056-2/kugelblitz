@@ -2,6 +2,8 @@ package internals
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
@@ -146,6 +148,49 @@ func TestTaskStatusUpdate(t *testing.T) {
 	result := ts.Execute(context.Background(), core.ToolCallDetail{ID: "s1", Args: map[string]any{"task_id": taskID, "status": "doing"}})
 	assert.Nil(t, result.Outputs["error"])
 	assert.Equal(t, "doing", result.Outputs["status"])
+}
+
+func TestPlanRollback_InvalidVersionType_ReturnsError(t *testing.T) {
+	resetStore(t)
+	working.ResetPlans()
+
+	pc := &PlanCreate{}
+	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "P"}})
+	planID := pres.Outputs["id"].(string)
+
+	pr := &PlanRollback{}
+	result := pr.Execute(context.Background(), core.ToolCallDetail{
+		ID: "r1", Args: map[string]any{"plan_id": planID, "version": "abc"},
+	})
+	assert.NotNil(t, result.Outputs["error"], "wrong-typed version must be surfaced (T7)")
+}
+
+func TestTaskInsert_Concurrent(t *testing.T) {
+	resetStore(t)
+	working.ResetPlans()
+
+	pc := &PlanCreate{}
+	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "P"}})
+	planID := pres.Outputs["id"].(string)
+
+	const n = 20
+	ti := &TaskInsert{}
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			ti.Execute(context.Background(), core.ToolCallDetail{
+				ID:       fmt.Sprintf("i%d", i),
+				ToolName: "task_insert",
+				Args:     map[string]any{"plan_id": planID, "goal": fmt.Sprintf("goal-%d", i)},
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	plan, _ := working.GetPlan(planID)
+	assert.Len(t, plan.SubTasks, n, "concurrent inserts must not lose tasks (T9)")
 }
 
 func TestPlanPersistAndLoad(t *testing.T) {

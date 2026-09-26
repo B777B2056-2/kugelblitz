@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/B777B2056-2/kugelblitz/core"
 
@@ -206,4 +207,20 @@ func TestDecodeEntities(t *testing.T) {
 	input := "A &amp; B &lt; C &gt; D"
 	output := decodeEntities(input)
 	assert.Equal(t, "A & B < C > D", output)
+}
+
+func TestTruncateUTF8(t *testing.T) {
+	assert.Equal(t, "héllo", truncateUTF8("héllo", 100))
+	assert.Equal(t, "héllo", truncateUTF8("héllo", 6))
+	assert.Equal(t, "hé", truncateUTF8("héllo", 3))
+	// Cut mid-rune: the trailing lead byte of 'é' must be dropped (T2).
+	assert.Equal(t, "h", truncateUTF8("héllo", 2))
+	assert.True(t, utf8.ValidString(truncateUTF8("héllo", 2)))
+	assert.True(t, utf8.ValidString(truncateUTF8("héllo", 3)))
+}
+
+func TestFindAfter_NegativeStart(t *testing.T) {
+	// A negative start must clamp to 0 instead of panicking (T6).
+	idx := findAfter("hello world", "hello", -100)
+	assert.Equal(t, 0, idx)
 }

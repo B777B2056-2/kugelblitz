@@ -281,6 +281,9 @@ func ddgHTMLFallback(ctx context.Context, client *http.Client, query string, lim
 }
 
 func findAfter(s, substr string, start int) int {
+	if start < 0 {
+		start = 0
+	}
 	for i := start; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
 			return i

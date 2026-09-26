@@ -91,6 +91,20 @@ func OptionalString(detail core.ToolCallDetail, key string) string {
 	return s
 }
 
+// OptionalStringErr extracts an optional string argument, returning "" if
+// missing and an error if present with a non-string type (T8).
+func OptionalStringErr(detail core.ToolCallDetail, key string) (string, error) {
+	v, ok := detail.Args[key]
+	if !ok {
+		return "", nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("argument %q must be a string, got %T", key, v)
+	}
+	return s, nil
+}
+
 // RequiredInt extracts a required integer argument (handles JSON float64 decoding).
 func RequiredInt(detail core.ToolCallDetail, key string) (int, error) {
 	v, ok := detail.Args[key]

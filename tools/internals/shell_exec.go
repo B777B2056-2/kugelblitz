@@ -56,7 +56,10 @@ func (t *ShellExec) Execute(ctx context.Context, detail core.ToolCallDetail) cor
 		return tools.ErrorResult(detail.ID, "shell_exec", err)
 	}
 
-	cwd, _ := tools.Arg(detail, "cwd")
+	cwd, err := tools.OptionalStringErr(detail, "cwd")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "shell_exec", err)
+	}
 
 	timeout := 30 * time.Second
 	if timeoutSec, err := tools.OptionalInt(detail, "timeout", 30); err != nil {

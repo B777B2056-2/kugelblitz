@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/tools"
@@ -96,7 +97,7 @@ func (t *WebFetch) Execute(ctx context.Context, detail core.ToolCallDetail) core
 	}
 
 	if len(markdown) > maxMDLen {
-		markdown = markdown[:maxMDLen] + "\n\n... (truncated)"
+		markdown = truncateUTF8(markdown, maxMDLen) + "\n\n... (truncated)"
 	}
 
 	return tools.SuccessResult(detail.ID, "web_fetch", map[string]any{
@@ -195,6 +196,18 @@ func extractTitle(htmlStr string) string {
 	}
 	walk(doc)
 	return title
+}
+
+// truncateUTF8 truncates s to at most max bytes without splitting a multi-byte
+// rune at the cut point (T2).
+func truncateUTF8(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	for max > 0 && !utf8.RuneStart(s[max]) {
+		max--
+	}
+	return s[:max]
 }
 
 func collapseBlankLines(s string) string {

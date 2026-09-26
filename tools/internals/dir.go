@@ -2,6 +2,7 @@ package internals
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -96,7 +97,9 @@ func (t *DirCopy) Execute(ctx context.Context, detail core.ToolCallDetail) core.
 			if err := copyDir(src, dst); err != nil {
 				return tools.ErrorResult(detail.ID, "dir_copy", err)
 			}
-			_ = os.RemoveAll(src)
+			if err := os.RemoveAll(src); err != nil {
+				return tools.ErrorResult(detail.ID, "dir_copy", fmt.Errorf("move fallback: remove source: %w", err))
+			}
 		}
 	} else {
 		if err := copyDir(src, dst); err != nil {

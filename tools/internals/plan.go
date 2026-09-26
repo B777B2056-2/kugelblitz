@@ -165,10 +165,12 @@ func (t *ConfirmPlan) Execute(ctx context.Context, detail core.ToolCallDetail) c
 	}
 
 	newStatus := constants.PlanState(statusStr)
+	plan.Lock()
 	plan.State = newStatus
 	if reason != "" {
 		plan.FinishedReason = reason
 	}
+	plan.Unlock()
 	if err := working.PutPlan(plan); err != nil {
 		return tools.ErrorResult(detail.ID, "confirm_plan", err)
 	}
@@ -244,7 +246,9 @@ func (t *TaskInsert) Execute(ctx context.Context, detail core.ToolCallDetail) co
 		Action:       action,
 		Status:       working.TaskStatusPending,
 	}
+	plan.Lock()
 	plan.SubTasks = append(plan.SubTasks, task)
+	plan.Unlock()
 	if err := working.PutPlan(plan); err != nil {
 		return tools.ErrorResult(detail.ID, "task_insert", err)
 	}
@@ -294,8 +298,10 @@ func (t *TaskDelete) Execute(ctx context.Context, detail core.ToolCallDetail) co
 	if idx < 0 {
 		return tools.ErrorResult(detail.ID, "task_delete", fmt.Errorf("task not found in plan"))
 	}
+	plan.Lock()
 	plan.SubTasks = append(plan.SubTasks[:idx], plan.SubTasks[idx+1:]...)
 	plan.CurrentActivateSubTaskIDs = working.RemoveFromSlice(plan.CurrentActivateSubTaskIDs, taskID)
+	plan.Unlock()
 	if err := working.PutPlan(plan); err != nil {
 		return tools.ErrorResult(detail.ID, "task_delete", err)
 	}
@@ -424,10 +430,12 @@ func (t *TaskStatusUpdate) Execute(ctx context.Context, detail core.ToolCallDeta
 		return tools.ErrorResult(detail.ID, "task_status_update", fmt.Errorf("task not found: %s", taskID))
 	}
 
+	plan.Lock()
 	task.Status = working.TaskStatus(statusStr)
 	if reason != "" {
 		task.FinishedReason = reason
 	}
+	plan.Unlock()
 	if err := working.PutPlan(plan); err != nil {
 		return tools.ErrorResult(detail.ID, "task_status_update", err)
 	}
@@ -480,14 +488,15 @@ func (t *PlanRollback) Execute(ctx context.Context, detail core.ToolCallDetail) 
 		return tools.ErrorResult(detail.ID, "plan_rollback", fmt.Errorf("plan not found: %s", planID))
 	}
 
+	plan.Lock()
 	fromVersion := plan.Version
-	var targetVersion int
-	if v, ok := detail.Args["version"].(float64); ok {
-		targetVersion = int(v)
-	} else if v, ok := detail.Args["version"].(int); ok {
-		targetVersion = v
-	} else {
-		targetVersion = fromVersion - 1
+	plan.Unlock()
+
+	// OptionalInt surfaces a wrong-typed version instead of silently defaulting
+	// to current-1 and rolling back to the wrong checkpoint (T7).
+	targetVersion, err := tools.OptionalInt(detail, "version", fromVersion-1)
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "plan_rollback", err)
 	}
 	if targetVersion < 1 || targetVersion >= fromVersion {
 		return tools.ErrorResult(detail.ID, "plan_rollback",
@@ -499,11 +508,13 @@ func (t *PlanRollback) Execute(ctx context.Context, detail core.ToolCallDetail) 
 		return tools.ErrorResult(detail.ID, "plan_rollback", err)
 	}
 
+	plan.Lock()
 	plan.Name = cp.Plan.Name
 	plan.SubTasks = cp.Plan.SubTasks
 	plan.CurrentActivateSubTaskIDs = cp.Plan.CurrentActivateSubTaskIDs
 	plan.State = cp.Plan.State
 	plan.FinishedReason = cp.Plan.FinishedReason
+	plan.Unlock()
 	if err := working.PutPlan(plan); err != nil {
 		return tools.ErrorResult(detail.ID, "plan_rollback", err)
 	}
