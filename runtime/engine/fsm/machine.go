@@ -72,7 +72,7 @@ func (m *Machine) Run(ctx context.Context, input core.AgentInput) ([]core.Messag
 		if err != nil {
 			if fsmCtx.Plan != nil {
 				fsmCtx.Plan.State = m.currentState
-				working.PutPlan(fsmCtx.Plan)
+				_ = working.PutPlan(fsmCtx.Plan)
 			}
 			return fsmCtx.Results, err
 		}
@@ -81,18 +81,24 @@ func (m *Machine) Run(ctx context.Context, input core.AgentInput) ([]core.Messag
 		if isTerminal(nextState) && nextState == m.currentState {
 			if fsmCtx.Plan != nil {
 				fsmCtx.Plan.State = nextState
-				working.PutPlan(fsmCtx.Plan)
+				if err := working.PutPlan(fsmCtx.Plan); err != nil {
+					return fsmCtx.Results, err
+				}
 			}
 			return fsmCtx.Results, nil
 		}
 
 		// Non-terminal transition: move to next state and continue loop.
-		m.transition(fsmCtx, nextState)
+		if err := m.transition(fsmCtx, nextState); err != nil {
+			return fsmCtx.Results, err
+		}
 		fsmCtx.StepCount++
 	}
 
 	if fsmCtx.Plan != nil {
-		working.PutPlan(fsmCtx.Plan)
+		if err := working.PutPlan(fsmCtx.Plan); err != nil {
+			return fsmCtx.Results, err
+		}
 	}
 	return fsmCtx.Results, nil
 }
@@ -119,12 +125,14 @@ func (m *Machine) initialState() constants.PlanState {
 
 // transition updates the state machine to the next state, persists the plan,
 // logs the change, and appends a system message.
-func (m *Machine) transition(ctx *Context, next constants.PlanState) {
+func (m *Machine) transition(ctx *Context, next constants.PlanState) error {
 	m.prevState = m.currentState
 	m.currentState = next
 	if ctx.Plan != nil {
 		ctx.Plan.State = next
-		working.PutPlan(ctx.Plan)
+		if err := working.PutPlan(ctx.Plan); err != nil {
+			return err
+		}
 	}
 	core.Info("planner state machine", "status update",
 		fmt.Sprintf("%s -> %s", string(m.prevState), string(m.currentState)))
@@ -134,6 +142,7 @@ func (m *Machine) transition(ctx *Context, next constants.PlanState) {
 				ctx.Plan.Name, string(m.prevState), string(m.currentState)),
 		}))
 	}
+	return nil
 }
 
 // isTerminal reports whether the given state is terminal (the loop should exit).

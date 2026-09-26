@@ -54,7 +54,9 @@ func (t *PlanCreate) Execute(ctx context.Context, detail core.ToolCallDetail) co
 		Name:      name,
 		State:     constants.PlanStateInit,
 	}
-	working.PutPlan(plan)
+	if err := working.PutPlan(plan); err != nil {
+		return tools.ErrorResult(detail.ID, "plan_create", err)
+	}
 	return tools.SuccessResult(detail.ID, "plan_create", working.PlanToMap(plan))
 }
 
@@ -167,7 +169,9 @@ func (t *ConfirmPlan) Execute(ctx context.Context, detail core.ToolCallDetail) c
 	if reason != "" {
 		plan.FinishedReason = reason
 	}
-	working.PutPlan(plan)
+	if err := working.PutPlan(plan); err != nil {
+		return tools.ErrorResult(detail.ID, "confirm_plan", err)
+	}
 
 	return tools.SuccessResult(detail.ID, "confirm_plan", map[string]any{
 		"id": plan.ID, "status": string(plan.State),
@@ -241,7 +245,9 @@ func (t *TaskInsert) Execute(ctx context.Context, detail core.ToolCallDetail) co
 		Status:       working.TaskStatusPending,
 	}
 	plan.SubTasks = append(plan.SubTasks, task)
-	working.PutPlan(plan)
+	if err := working.PutPlan(plan); err != nil {
+		return tools.ErrorResult(detail.ID, "task_insert", err)
+	}
 
 	return tools.SuccessResult(detail.ID, "task_insert", map[string]any{
 		"task_id": task.ID, "goal": task.Goal,
@@ -290,7 +296,9 @@ func (t *TaskDelete) Execute(ctx context.Context, detail core.ToolCallDetail) co
 	}
 	plan.SubTasks = append(plan.SubTasks[:idx], plan.SubTasks[idx+1:]...)
 	plan.CurrentActivateSubTaskIDs = working.RemoveFromSlice(plan.CurrentActivateSubTaskIDs, taskID)
-	working.PutPlan(plan)
+	if err := working.PutPlan(plan); err != nil {
+		return tools.ErrorResult(detail.ID, "task_delete", err)
+	}
 	return tools.SuccessResult(detail.ID, "task_delete", map[string]any{"deleted": true})
 }
 
@@ -420,7 +428,9 @@ func (t *TaskStatusUpdate) Execute(ctx context.Context, detail core.ToolCallDeta
 	if reason != "" {
 		task.FinishedReason = reason
 	}
-	working.PutPlan(plan)
+	if err := working.PutPlan(plan); err != nil {
+		return tools.ErrorResult(detail.ID, "task_status_update", err)
+	}
 
 	return tools.SuccessResult(detail.ID, "task_status_update", map[string]any{
 		"id": task.ID, "status": string(task.Status),
@@ -494,7 +504,9 @@ func (t *PlanRollback) Execute(ctx context.Context, detail core.ToolCallDetail) 
 	plan.CurrentActivateSubTaskIDs = cp.Plan.CurrentActivateSubTaskIDs
 	plan.State = cp.Plan.State
 	plan.FinishedReason = cp.Plan.FinishedReason
-	working.PutPlan(plan)
+	if err := working.PutPlan(plan); err != nil {
+		return tools.ErrorResult(detail.ID, "plan_rollback", err)
+	}
 
 	return tools.SuccessResult(detail.ID, "plan_rollback", map[string]any{
 		"plan_id": planID, "from_version": fromVersion, "to_version": plan.Version,

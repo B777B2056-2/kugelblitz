@@ -89,13 +89,14 @@ func GetPlan(id string) (*Plan, bool) {
 }
 
 // PutPlan stores a plan in memory and persists it with a checkpoint.
-func PutPlan(p *Plan) { putPlanWithReason(p, "") }
+// A non-nil error means persistence failed and the caller should surface it.
+func PutPlan(p *Plan) error { return putPlanWithReason(p, "") }
 
-func putPlanWithReason(p *Plan, reason string) { saveCheckpoint(p, reason) }
+func putPlanWithReason(p *Plan, reason string) error { return saveCheckpoint(p, reason) }
 
-func saveCheckpoint(p *Plan, reason string) {
+func saveCheckpoint(p *Plan, reason string) error {
 	if p == nil {
-		return
+		return nil
 	}
 
 	p.mu.Lock()
@@ -125,8 +126,13 @@ func saveCheckpoint(p *Plan, reason string) {
 	planStore[p.ID] = p
 	planStoreMu.Unlock()
 
-	_ = p.Persist()
-	_ = persist.SaveCheckpointJSON(p.ID, cp.Version, cp)
+	if err := p.Persist(); err != nil {
+		return fmt.Errorf("persist plan %s: %w", p.ID, err)
+	}
+	if err := persist.SaveCheckpointJSON(p.ID, cp.Version, cp); err != nil {
+		return fmt.Errorf("persist checkpoint %s@%d: %w", p.ID, cp.Version, err)
+	}
+	return nil
 }
 
 // ListPlans returns all plans in memory.

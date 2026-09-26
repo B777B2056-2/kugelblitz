@@ -142,14 +142,18 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 				t.Status = working.TaskStatusFailed
 				t.FinishedReason = "cancelled"
 			}
-			working.PutPlan(plan)
+			if err := working.PutPlan(plan); err != nil {
+				core.Warn("dag: persist plan", "plan", plan.ID, "err", err)
+			}
 			return BatchResult{Batched: anyBatch, HasFailed: true, AllDone: d.isDAGDone(plan)}
 		}
 
 		for _, t := range ready {
 			t.Status = working.TaskStatusDoing
 		}
-		working.PutPlan(plan)
+		if err := working.PutPlan(plan); err != nil {
+			core.Warn("dag: persist plan", "plan", plan.ID, "err", err)
+		}
 
 		g, gctx := errgroup.WithContext(ctx)
 		failCount := int32(0)
@@ -162,7 +166,9 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 						if _, taskMu := working.FindTask(task.ID); taskMu != nil {
 							taskMu.Status = working.TaskStatusFailed
 							taskMu.FinishedReason = "cancelled"
-							working.PutPlan(planMu)
+							if err := working.PutPlan(planMu); err != nil {
+								core.Warn("dag: persist plan", "plan", planMu.ID, "err", err)
+							}
 						}
 					}
 					return nil
@@ -203,7 +209,9 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 				}
 				taskMu.Usage = usage
 				planMu.Unlock()
-				working.PutPlan(planMu)
+				if err := working.PutPlan(planMu); err != nil {
+					core.Warn("dag: persist plan", "plan", planMu.ID, "err", err)
+				}
 
 				if d.workerHooks.OnTaskUpdated != nil {
 					d.workerHooks.OnTaskUpdated(d.workerAgentIdentity, task.ID, task.Goal, string(taskMu.Status), output)
