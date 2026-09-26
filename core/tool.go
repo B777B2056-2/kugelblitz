@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	types "github.com/B777B2056-2/kugelblitz/core/types"
 )
 
 type registryEntry struct {
-	fn  ToolCallFunc
-	def ToolDefinition
+	fn  types.ToolCallFunc
+	def types.ToolDefinition
 }
 
 // ToolRegistry stores tool implementations and their definitions.
@@ -48,20 +49,20 @@ func ResetToolRegistry() {
 
 // Register adds or replaces a tool. It stores both the implementation
 // and its definition (used when building provider requests).
-func (tr *ToolRegistry) Register(def ToolDefinition, fn ToolCallFunc) {
+func (tr *ToolRegistry) Register(def types.ToolDefinition, fn types.ToolCallFunc) {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
 	tr.tools[def.Name] = registryEntry{fn: fn, def: def}
 }
 
 // Call looks up and executes a tool by name. If the tool is not found,
-// it returns a ToolCallResult with an error output.
-func (tr *ToolRegistry) Call(ctx context.Context, detail ToolCallDetail) ToolCallResult {
+// it returns a types.ToolCallResult with an error output.
+func (tr *ToolRegistry) Call(ctx context.Context, detail types.ToolCallDetail) types.ToolCallResult {
 	tr.mu.RLock()
 	entry, ok := tr.tools[detail.ToolName]
 	tr.mu.RUnlock()
 	if !ok {
-		return ToolCallResult{
+		return types.ToolCallResult{
 			ToolCallID: detail.ID,
 			ToolName:   detail.ToolName,
 			Outputs:    MakeErrorToolOutputs(fmt.Errorf("tool not found: %s", detail.ToolName)),
@@ -72,10 +73,10 @@ func (tr *ToolRegistry) Call(ctx context.Context, detail ToolCallDetail) ToolCal
 
 // ListDefinitions returns all registered tool definitions, suitable for
 // passing to GenerateParams.Tools when calling a provider.
-func (tr *ToolRegistry) ListDefinitions() []ToolDefinition {
+func (tr *ToolRegistry) ListDefinitions() []types.ToolDefinition {
 	tr.mu.RLock()
 	defer tr.mu.RUnlock()
-	defs := make([]ToolDefinition, 0, len(tr.tools))
+	defs := make([]types.ToolDefinition, 0, len(tr.tools))
 	for _, entry := range tr.tools {
 		defs = append(defs, entry.def)
 	}
@@ -102,7 +103,7 @@ func (tr *ToolRegistry) MarkAsInternal(names ...string) {
 }
 
 // RegisterCustomTool registers a user-defined tool with name-conflict detection.
-func (tr *ToolRegistry) RegisterCustomTool(def ToolDefinition, fn ToolCallFunc) error {
+func (tr *ToolRegistry) RegisterCustomTool(def types.ToolDefinition, fn types.ToolCallFunc) error {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
 	if _, exists := tr.tools[def.Name]; exists {
@@ -126,23 +127,23 @@ func (tr *ToolRegistry) CustomToolNames() []string {
 }
 
 // RegisterTool registers a tool on the global ToolRegistry.
-func RegisterTool(def ToolDefinition, fn ToolCallFunc) {
+func RegisterTool(def types.ToolDefinition, fn types.ToolCallFunc) {
 	GetToolRegistry().Register(def, fn)
 }
 
 // RegisterCustomTool registers a user-defined tool on the global ToolRegistry
 // with name-conflict detection. Returns an error if the name already exists.
-func RegisterCustomTool(def ToolDefinition, fn ToolCallFunc) error {
+func RegisterCustomTool(def types.ToolDefinition, fn types.ToolCallFunc) error {
 	return GetToolRegistry().RegisterCustomTool(def, fn)
 }
 
 // CallTool calls a tool on the global ToolRegistry.
-func CallTool(ctx context.Context, detail ToolCallDetail) ToolCallResult {
+func CallTool(ctx context.Context, detail types.ToolCallDetail) types.ToolCallResult {
 	return GetToolRegistry().Call(ctx, detail)
 }
 
 // ListToolDefinitions returns all tool definitions from the global ToolRegistry.
-func ListToolDefinitions() []ToolDefinition {
+func ListToolDefinitions() []types.ToolDefinition {
 	return GetToolRegistry().ListDefinitions()
 }
 

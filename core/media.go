@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
+	types "github.com/B777B2056-2/kugelblitz/core/types"
 )
 
 // MediaTypeValidator defines per-type validation rules and metadata extraction.
@@ -105,12 +106,12 @@ func NewMediaPreprocessor(registry *MediaValidatorRegistry) *MediaPreprocessor {
 	return &MediaPreprocessor{validators: registry}
 }
 
-// Normalize validates and normalizes a MultiModalDetail.
+// Normalize validates and normalizes a types.MultiModalDetail.
 //   - Path + no scheme → read local file
 //   - Path + "://" scheme → HTTP download (future: not yet implemented)
 //   - Base64 != "" → decode and validate
 //   - Neither → error
-func (p *MediaPreprocessor) Normalize(ctx context.Context, detail MultiModalDetail) (*MultiModalDetail, error) {
+func (p *MediaPreprocessor) Normalize(ctx context.Context, detail types.MultiModalDetail) (*types.MultiModalDetail, error) {
 	var data []byte
 	var err error
 

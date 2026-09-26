@@ -5,17 +5,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type mockExtractProvider struct{ response string }
 
-func (m *mockExtractProvider) Generate(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-	return &core.Message{
-		Content: core.TextContent{Text: m.response},
-		Usage:   &core.Usage{InputTokens: 100, OutputTokens: 50, TotalTokens: 150},
+func (m *mockExtractProvider) Generate(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
+	return &coretypes.Message{
+		Content: coretypes.TextContent{Text: m.response},
+		Usage:   &coretypes.Usage{InputTokens: 100, OutputTokens: 50, TotalTokens: 150},
 	}, nil
 }
 
@@ -23,15 +23,15 @@ func TestBuildPrompt_IncludesToolCalls(t *testing.T) {
 	ext := NewExtractor(&mockExtractProvider{})
 	ec := &ExtractionContext{
 		UserMessage: "Fix the bug",
-		Conversation: []core.Message{
-			{Role: "assistant", Content: core.ToolCallContent{
-				Details: []core.ToolCallDetail{
+		Conversation: []coretypes.Message{
+			{Role: "assistant", Content: coretypes.ToolCallContent{
+				Details: []coretypes.ToolCallDetail{
 					{ID: "t1", ToolName: "file_read", Args: map[string]any{"path": "main.go"}},
 					{ID: "t2", ToolName: "web_search", Args: map[string]any{"query": "Go generics"}},
 				},
 			}},
-			{Role: "tool", Content: core.ToolResultContent{
-				Results: []core.ToolCallResult{
+			{Role: "tool", Content: coretypes.ToolResultContent{
+				Results: []coretypes.ToolCallResult{
 					{ToolCallID: "t1", ToolName: "file_read", Outputs: map[string]any{"content": "package main..."}},
 					{ToolCallID: "t2", ToolName: "web_search", Outputs: map[string]any{"results": "3 items"}},
 				},

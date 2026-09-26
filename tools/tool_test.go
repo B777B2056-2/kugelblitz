@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,11 +14,11 @@ import (
 
 type testTool struct{}
 
-func (t *testTool) Definition() core.ToolDefinition {
-	return core.ToolDefinition{Name: "test", Description: "A test tool"}
+func (t *testTool) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{Name: "test", Description: "A test tool"}
 }
 
-func (t *testTool) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *testTool) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	return OkResult(detail.ID, "test")
 }
 
@@ -51,11 +52,11 @@ type toolWithName struct {
 	name, desc string
 }
 
-func (t *toolWithName) Definition() core.ToolDefinition {
-	return core.ToolDefinition{Name: t.name, Description: t.desc}
+func (t *toolWithName) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{Name: t.name, Description: t.desc}
 }
 
-func (t *toolWithName) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *toolWithName) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	return OkResult(detail.ID, t.name)
 }
 
@@ -79,7 +80,7 @@ func TestOkResult(t *testing.T) {
 }
 
 func TestArg_Valid(t *testing.T) {
-	detail := core.ToolCallDetail{
+	detail := coretypes.ToolCallDetail{
 		ID:   "id1",
 		Args: map[string]any{"path": "/tmp/test.txt"},
 	}
@@ -89,7 +90,7 @@ func TestArg_Valid(t *testing.T) {
 }
 
 func TestArg_Missing(t *testing.T) {
-	detail := core.ToolCallDetail{
+	detail := coretypes.ToolCallDetail{
 		ID:   "id1",
 		Args: map[string]any{},
 	}
@@ -99,7 +100,7 @@ func TestArg_Missing(t *testing.T) {
 }
 
 func TestArg_NotString(t *testing.T) {
-	detail := core.ToolCallDetail{
+	detail := coretypes.ToolCallDetail{
 		ID:   "id1",
 		Args: map[string]any{"path": 42},
 	}

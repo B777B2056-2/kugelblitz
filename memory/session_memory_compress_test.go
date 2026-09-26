@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 )
@@ -16,17 +16,17 @@ import (
 func TestSessionMemory_Compress_PreservesMessagesAppendedDuringSummarize(t *testing.T) {
 	mem := newSessionMemory("compress-race")
 	for i := 0; i < 6; i++ {
-		mem.AppendMessage(core.NewUserMessage(core.TextContent{Text: fmt.Sprintf("m%d", i)}))
+		mem.AppendMessage(coretypes.NewUserMessage(coretypes.TextContent{Text: fmt.Sprintf("m%d", i)}))
 	}
 
 	entered := make(chan struct{})
 	release := make(chan struct{})
 
 	mp := &mockCompressProvider{
-		generate: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		generate: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			close(entered) // snapshot has been taken; summarization is now "in flight"
 			<-release
-			msg := core.NewAssistantMessage(core.TextContent{Text: "summary"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "summary"})
 			return &msg, nil
 		},
 	}
@@ -39,14 +39,14 @@ func TestSessionMemory_Compress_PreservesMessagesAppendedDuringSummarize(t *test
 	}()
 
 	<-entered
-	mem.AppendMessage(core.NewUserMessage(core.TextContent{Text: "during-compress"}))
+	mem.AppendMessage(coretypes.NewUserMessage(coretypes.TextContent{Text: "during-compress"}))
 	close(release)
 
 	require.NoError(t, <-done)
 
 	texts := make([]string, 0, 4)
 	for _, m := range mem.GetHistoryMessages() {
-		if tc, ok := m.Content.(core.TextContent); ok {
+		if tc, ok := m.Content.(coretypes.TextContent); ok {
 			texts = append(texts, tc.Text)
 		}
 	}

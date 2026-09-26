@@ -1,6 +1,9 @@
 package core
 
-import "github.com/B777B2056-2/kugelblitz/constants"
+import (
+	"github.com/B777B2056-2/kugelblitz/constants"
+	types "github.com/B777B2056-2/kugelblitz/core/types"
+)
 
 // Chain returns a copy of `original` where every non-nil callback in `sys`
 // runs BEFORE the matching callback in `original`. Nil original callbacks
@@ -54,7 +57,7 @@ func Chain(original, sys AgentEventHooks) AgentEventHooks {
 	}
 	if sys.OnFunctionCall != nil {
 		prev := result.OnFunctionCall
-		result.OnFunctionCall = func(id constants.AgentIdentity, detail ToolCallDetail) {
+		result.OnFunctionCall = func(id constants.AgentIdentity, detail types.ToolCallDetail) {
 			sys.OnFunctionCall(id, detail)
 			if prev != nil {
 				prev(id, detail)
@@ -81,7 +84,7 @@ func Chain(original, sys AgentEventHooks) AgentEventHooks {
 	}
 	if sys.OnUsageUpdated != nil {
 		prev := result.OnUsageUpdated
-		result.OnUsageUpdated = func(id constants.AgentIdentity, usage Usage) {
+		result.OnUsageUpdated = func(id constants.AgentIdentity, usage types.Usage) {
 			sys.OnUsageUpdated(id, usage)
 			if prev != nil {
 				prev(id, usage)
@@ -90,7 +93,7 @@ func Chain(original, sys AgentEventHooks) AgentEventHooks {
 	}
 	if sys.OnToolCallEnd != nil {
 		prev := result.OnToolCallEnd
-		result.OnToolCallEnd = func(id constants.AgentIdentity, r ToolCallResult) {
+		result.OnToolCallEnd = func(id constants.AgentIdentity, r types.ToolCallResult) {
 			sys.OnToolCallEnd(id, r)
 			if prev != nil {
 				prev(id, r)

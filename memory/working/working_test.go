@@ -3,7 +3,7 @@ package working
 import (
 	"testing"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -122,10 +122,10 @@ func TestIsValidDAG_SelfLoopInMulti(t *testing.T) {
 }
 
 // TestCopyTasks_DeepCopiesUsage guards B20: checkpoint snapshots must not share
-// the *core.Usage pointer with the live plan, so later mutations do not corrupt
+// the *coretypes.Usage pointer with the live plan, so later mutations do not corrupt
 // already-persisted checkpoints.
 func TestCopyTasks_DeepCopiesUsage(t *testing.T) {
-	usage := &core.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15}
+	usage := &coretypes.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15}
 	tasks := []Task{{ID: "t1", Usage: usage}}
 
 	out := copyTasks(tasks)

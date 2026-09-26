@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,16 +16,16 @@ type dreamProvider struct {
 	callCount int
 }
 
-func (m *dreamProvider) Generate(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+func (m *dreamProvider) Generate(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 	idx := m.callCount
 	m.callCount++
 	resp := "empty response"
 	if idx < len(m.responses) {
 		resp = m.responses[idx]
 	}
-	return &core.Message{
-		Content: core.TextContent{Text: resp},
-		Usage:   &core.Usage{InputTokens: 100, OutputTokens: 50, TotalTokens: 150},
+	return &coretypes.Message{
+		Content: coretypes.TextContent{Text: resp},
+		Usage:   &coretypes.Usage{InputTokens: 100, OutputTokens: 50, TotalTokens: 150},
 	}, nil
 }
 

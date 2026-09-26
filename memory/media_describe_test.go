@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,7 +24,7 @@ func TestNewMediaDescriber(t *testing.T) {
 
 func TestMediaDescriber_MetaSummaryImage(t *testing.T) {
 	d := NewMediaDescriber(nil, nil)
-	desc := d.Describe(context.Background(), core.MultiModalDetail{
+	desc := d.Describe(context.Background(), coretypes.MultiModalDetail{
 		Type:     constants.MultiModalTypeImage,
 		MimeType: "image/png",
 		Meta:     map[string]any{"width": 1920, "height": 1080},
@@ -37,7 +37,7 @@ func TestMediaDescriber_MetaSummaryImage(t *testing.T) {
 
 func TestMediaDescriber_MetaSummaryAudio(t *testing.T) {
 	d := NewMediaDescriber(nil, nil)
-	desc := d.Describe(context.Background(), core.MultiModalDetail{
+	desc := d.Describe(context.Background(), coretypes.MultiModalDetail{
 		Type:     constants.MultiModalTypeAudio,
 		MimeType: "audio/mp3",
 		Meta:     map[string]any{"duration_sec": 120.5, "sample_rate": float64(44100), "channels": 2},
@@ -49,7 +49,7 @@ func TestMediaDescriber_MetaSummaryAudio(t *testing.T) {
 
 func TestMediaDescriber_MetaSummaryVideo(t *testing.T) {
 	d := NewMediaDescriber(nil, nil)
-	desc := d.Describe(context.Background(), core.MultiModalDetail{
+	desc := d.Describe(context.Background(), coretypes.MultiModalDetail{
 		Type:     constants.MultiModalTypeVideo,
 		MimeType: "video/mp4",
 		Meta:     map[string]any{"width": 1920, "height": 1080, "duration_sec": 45.0, "fps": float64(30)},
@@ -62,7 +62,7 @@ func TestMediaDescriber_MetaSummaryVideo(t *testing.T) {
 func TestMediaDescriber_MetaSummaryMinimalMeta(t *testing.T) {
 	d := NewMediaDescriber(nil, nil)
 	// No Meta at all — should still produce a minimal description
-	desc := d.Describe(context.Background(), core.MultiModalDetail{
+	desc := d.Describe(context.Background(), coretypes.MultiModalDetail{
 		Type:     constants.MultiModalTypeImage,
 		MimeType: "image/jpeg",
 	})
@@ -73,7 +73,7 @@ func TestMediaDescriber_MetaSummaryMinimalMeta(t *testing.T) {
 
 func TestMediaDescriber_MetaSummaryNilMeta(t *testing.T) {
 	d := NewMediaDescriber(nil, nil)
-	desc := d.Describe(context.Background(), core.MultiModalDetail{
+	desc := d.Describe(context.Background(), coretypes.MultiModalDetail{
 		Type:     constants.MultiModalTypeImage,
 		MimeType: "image/webp",
 		Meta:     nil,
@@ -86,7 +86,7 @@ func TestMediaDescriber_WithProvider_NoPrompt(t *testing.T) {
 	d := NewMediaDescriber(nil, nil)
 	d.RegisterPrompt(constants.MultiModalTypeImage, "") // empty prompt → fall through
 
-	desc := d.Describe(context.Background(), core.MultiModalDetail{
+	desc := d.Describe(context.Background(), coretypes.MultiModalDetail{
 		Type:     constants.MultiModalTypeImage,
 		MimeType: "image/png",
 	})
@@ -101,7 +101,7 @@ func TestMediaDescriber_RegisterPrompt(t *testing.T) {
 
 func TestBuildMediaMessage(t *testing.T) {
 	d := NewMediaDescriber(nil, nil)
-	detail := core.MultiModalDetail{
+	detail := coretypes.MultiModalDetail{
 		ID:       "img-1",
 		Type:     constants.MultiModalTypeImage,
 		MimeType: "image/png",
@@ -113,18 +113,18 @@ func TestBuildMediaMessage(t *testing.T) {
 	assert.NotEmpty(t, msg.ID)
 	assert.Equal(t, constants.RoleUser, msg.Role)
 
-	cc, ok := msg.Content.(core.CompositeContent)
+	cc, ok := msg.Content.(coretypes.CompositeContent)
 	require.True(t, ok)
 	require.Len(t, cc.Parts, 2)
 
 	// First part: text description
-	textPart, ok := cc.Parts[0].(core.TextContent)
+	textPart, ok := cc.Parts[0].(coretypes.TextContent)
 	require.True(t, ok)
 	assert.NotEmpty(t, textPart.Text)
 	assert.Contains(t, textPart.Text, "image/png")
 
 	// Second part: multimodal content
-	mmPart, ok := cc.Parts[1].(core.MultiModalContent)
+	mmPart, ok := cc.Parts[1].(coretypes.MultiModalContent)
 	require.True(t, ok)
 	assert.Equal(t, "img-1", mmPart.Detail.ID)
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory/longterm"
 	"github.com/B777B2056-2/kugelblitz/persist"
 
@@ -23,7 +23,7 @@ func TestMemoryStore_StoresFact(t *testing.T) {
 	ltm := newTestLTMMemtools(t)
 
 	tool := &MemoryStore{ltm: ltm}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "m1", ToolName: "memory_store",
 		Args: map[string]any{"section": "prefs", "key": "language", "value": "Go"},
 	})
@@ -38,7 +38,7 @@ func TestMemoryStore_Conflict(t *testing.T) {
 	_, _, _ = ltm.Store("prefs", "lang", "Python")
 
 	tool := &MemoryStore{ltm: ltm}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "m1", ToolName: "memory_store",
 		Args: map[string]any{"section": "prefs", "key": "lang", "value": "Go"},
 	})
@@ -56,7 +56,7 @@ func TestMemorySearch_FindsResults(t *testing.T) {
 	_, _, _ = ltm.Store("prefs", "editor", "VSCode")
 
 	tool := &MemorySearch{ltm: ltm}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "m1", ToolName: "memory_search",
 		Args: map[string]any{"query": "lang"},
 	})
@@ -78,7 +78,7 @@ func TestMemoryGetSection_ReturnsAll(t *testing.T) {
 	_, _, _ = ltm.Store("prefs", "b", "2")
 
 	tool := &MemoryGetSection{ltm: ltm}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "m1", ToolName: "memory_get_section",
 		Args: map[string]any{"section": "prefs"},
 	})

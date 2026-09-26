@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/prompts"
 
 	"github.com/stretchr/testify/assert"
@@ -13,9 +13,9 @@ import (
 )
 
 func TestBuildSummarizePrompt_NoExistingSummary(t *testing.T) {
-	msgs := []core.Message{
-		core.NewUserMessage(core.TextContent{Text: "hello"}),
-		core.NewAssistantMessage(core.TextContent{Text: "world"}),
+	msgs := []coretypes.Message{
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "hello"}),
+		coretypes.NewAssistantMessage(coretypes.TextContent{Text: "world"}),
 	}
 	prompt := prompts.BuildSummarizePrompt(msgs, "")
 	assert.Contains(t, prompt, "Summarize the following conversation")
@@ -26,8 +26,8 @@ func TestBuildSummarizePrompt_NoExistingSummary(t *testing.T) {
 }
 
 func TestBuildSummarizePrompt_WithExistingSummary(t *testing.T) {
-	msgs := []core.Message{
-		core.NewUserMessage(core.TextContent{Text: "new info"}),
+	msgs := []coretypes.Message{
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "new info"}),
 	}
 	existing := "User likes Go programming."
 	prompt := prompts.BuildSummarizePrompt(msgs, existing)
@@ -39,11 +39,11 @@ func TestBuildSummarizePrompt_WithExistingSummary(t *testing.T) {
 }
 
 func TestBuildSummarizePrompt_ToolCalls(t *testing.T) {
-	msgs := []core.Message{
+	msgs := []coretypes.Message{
 		{
 			Role: "assistant",
-			Content: core.ToolCallContent{
-				Details: []core.ToolCallDetail{
+			Content: coretypes.ToolCallContent{
+				Details: []coretypes.ToolCallDetail{
 					{ID: "t1", ToolName: "search"},
 					{ID: "t2", ToolName: "calculate"},
 				},
@@ -55,11 +55,11 @@ func TestBuildSummarizePrompt_ToolCalls(t *testing.T) {
 }
 
 func TestBuildSummarizePrompt_ToolResults(t *testing.T) {
-	msgs := []core.Message{
+	msgs := []coretypes.Message{
 		{
 			Role: "tool",
-			Content: core.ToolResultContent{
-				Results: []core.ToolCallResult{
+			Content: coretypes.ToolResultContent{
+				Results: []coretypes.ToolCallResult{
 					{ToolCallID: "t1"},
 					{ToolCallID: "t2"},
 					{ToolCallID: "t3"},
@@ -86,27 +86,27 @@ func TestTruncate_Long(t *testing.T) {
 }
 
 type mockCompressProvider struct {
-	generate func(ctx context.Context, params core.GenerateParams) (*core.Message, error)
+	generate func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error)
 }
 
-func (m *mockCompressProvider) Generate(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+func (m *mockCompressProvider) Generate(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 	return m.generate(ctx, params)
 }
 
 func TestCompressor_Summarize_ReturnsUsage(t *testing.T) {
-	usage := &core.Usage{InputTokens: 200, OutputTokens: 150, TotalTokens: 350}
+	usage := &coretypes.Usage{InputTokens: 200, OutputTokens: 150, TotalTokens: 350}
 	mp := &mockCompressProvider{
-		generate: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			return &core.Message{
+		generate: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
+			return &coretypes.Message{
 				Role:    "assistant",
-				Content: core.TextContent{Text: "compressed summary"},
+				Content: coretypes.TextContent{Text: "compressed summary"},
 				Usage:   usage,
 			}, nil
 		},
 	}
 	c := NewCompressor(mp, otel.Tracer("test"))
-	summary, gotUsage, err := c.Summarize(context.Background(), []core.Message{
-		core.NewUserMessage(core.TextContent{Text: "hello"}),
+	summary, gotUsage, err := c.Summarize(context.Background(), []coretypes.Message{
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "hello"}),
 	}, "")
 	assert.NoError(t, err)
 	assert.Equal(t, "compressed summary", summary)
@@ -118,13 +118,13 @@ func TestCompressor_Summarize_ReturnsUsage(t *testing.T) {
 
 func TestCompressor_Summarize_NilUsageWhenError(t *testing.T) {
 	mp := &mockCompressProvider{
-		generate: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		generate: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			return nil, assert.AnError
 		},
 	}
 	c := NewCompressor(mp, otel.Tracer("test"))
-	_, gotUsage, err := c.Summarize(context.Background(), []core.Message{
-		core.NewUserMessage(core.TextContent{Text: "hello"}),
+	_, gotUsage, err := c.Summarize(context.Background(), []coretypes.Message{
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "hello"}),
 	}, "")
 	assert.Error(t, err)
 	assert.Nil(t, gotUsage)

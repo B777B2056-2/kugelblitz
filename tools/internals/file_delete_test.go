@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/tools"
 
 	"github.com/stretchr/testify/assert"
@@ -19,7 +19,7 @@ func TestFileDelete_DeletesFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte("delete me"), 0644))
 
 	tool := &FileDelete{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "file_delete",
 		Args: map[string]any{"path": path},
 	})
@@ -34,7 +34,7 @@ func TestFileDelete_DeletesFile(t *testing.T) {
 
 func TestFileDelete_NotFound(t *testing.T) {
 	tool := &FileDelete{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "file_delete",
 		Args: map[string]any{"path": "/nonexistent/file.txt"},
 	})

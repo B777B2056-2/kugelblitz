@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,7 +41,7 @@ type flagProvider struct {
 	calls *atomic.Int32
 }
 
-func (p *flagProvider) Generate(_ context.Context, _ core.GenerateParams) (*core.Message, error) {
+func (p *flagProvider) Generate(_ context.Context, _ coretypes.GenerateParams) (*coretypes.Message, error) {
 	n := p.calls.Add(1)
 	var resp string
 	if n%2 == 1 {
@@ -49,7 +49,7 @@ func (p *flagProvider) Generate(_ context.Context, _ core.GenerateParams) (*core
 	} else {
 		resp = `{"insights":[{"section":"insights","key":"i","value":"v"}],"summary":"s"}`
 	}
-	return &core.Message{Content: core.TextContent{Text: resp}}, nil
+	return &coretypes.Message{Content: coretypes.TextContent{Text: resp}}, nil
 }
 
 func TestDreamScheduler_NoDreamWhenActive(t *testing.T) {

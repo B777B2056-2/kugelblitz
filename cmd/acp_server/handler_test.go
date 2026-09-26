@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -85,9 +86,9 @@ func TestHandler_Dispatch_SessionPrompt(t *testing.T) {
 
 	// Set up mock agent to return a simple response
 	mockAgent := newMockAgent()
-	mockAgent.executeFn = func(ctx context.Context, sys core.Message, userMsgs []core.Message) ([]core.Message, error) {
-		return []core.Message{
-			core.NewAssistantMessage(core.TextContent{Text: "Hello from agent!"}),
+	mockAgent.executeFn = func(ctx context.Context, sys coretypes.Message, userMsgs []coretypes.Message) ([]coretypes.Message, error) {
+		return []coretypes.Message{
+			coretypes.NewAssistantMessage(coretypes.TextContent{Text: "Hello from agent!"}),
 		}, nil
 	}
 
@@ -220,23 +221,23 @@ func TestHandler_Prompt_StreamingNotifications(t *testing.T) {
 	mockAgent := newMockAgent()
 	// Simulate a tool call flow — the agent returns tool calls then text
 	callCount := 0
-	mockAgent.executeFn = func(ctx context.Context, sys core.Message, userMsgs []core.Message) ([]core.Message, error) {
+	mockAgent.executeFn = func(ctx context.Context, sys coretypes.Message, userMsgs []coretypes.Message) ([]coretypes.Message, error) {
 		callCount++
 		if callCount == 1 {
-			return []core.Message{
+			return []coretypes.Message{
 				{
 					ID:   "m1",
 					Role: "assistant",
-					Content: core.ToolCallContent{
-						Details: []core.ToolCallDetail{
+					Content: coretypes.ToolCallContent{
+						Details: []coretypes.ToolCallDetail{
 							{ID: "tc_1", ToolName: "read_file", Args: map[string]any{"path": "/tmp/test.txt"}},
 						},
 					},
 				},
 			}, nil
 		}
-		return []core.Message{
-			core.NewAssistantMessage(core.TextContent{Text: "File contents: hello"}),
+		return []coretypes.Message{
+			coretypes.NewAssistantMessage(coretypes.TextContent{Text: "File contents: hello"}),
 		}, nil
 	}
 
@@ -264,23 +265,23 @@ func TestHandler_Prompt_StreamingNotifications(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 }
 
-// mockProvider implements core.ILMProvider for testing.
+// mockProvider implements coretypes.ILMProvider for testing.
 type mockProvider struct {
-	generateFn func(ctx context.Context, params core.GenerateParams) (*core.Message, error)
+	generateFn func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error)
 }
 
-func (m *mockProvider) Generate(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+func (m *mockProvider) Generate(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 	if m.generateFn != nil {
 		return m.generateFn(ctx, params)
 	}
-	return &core.Message{
+	return &coretypes.Message{
 		ID:      "resp",
 		Role:    "assistant",
-		Content: core.TextContent{Text: "mock response"},
+		Content: coretypes.TextContent{Text: "mock response"},
 	}, nil
 }
 
-var _ core.ILMProvider = (*mockProvider)(nil)
+var _ coretypes.ILMProvider = (*mockProvider)(nil)
 
 // ---- Handler error paths ----
 
@@ -333,7 +334,7 @@ func TestHandler_Dispatch_SessionLoad(t *testing.T) {
 
 	// Create a session with messages so Load can replay them
 	s := sm.Create("/proj", newMockAgent())
-	_ = sm.AppendMessage(s.ID, core.NewUserMessage(core.TextContent{Text: "hello"}))
+	_ = sm.AppendMessage(s.ID, coretypes.NewUserMessage(coretypes.TextContent{Text: "hello"}))
 
 	params := SessionLoadParams{SessionID: s.ID}
 	paramsBytes, _ := json.Marshal(params)
@@ -428,12 +429,12 @@ func TestHandler_Dispatch_NonRequest(t *testing.T) {
 // ---- Shared test helpers ----
 
 type mockAgent struct {
-	executeFn   func(ctx context.Context, systemMsg core.Message, userMsgs []core.Message) ([]core.Message, error)
+	executeFn   func(ctx context.Context, systemMsg coretypes.Message, userMsgs []coretypes.Message) ([]coretypes.Message, error)
 	interruptFn func(ctx context.Context) error
 }
 
 func (m *mockAgent) RegisterEventHooks(hooks core.AgentEventHooks) {}
-func (m *mockAgent) Execute(ctx context.Context, systemMsg core.Message, userMsgs []core.Message) ([]core.Message, error) {
+func (m *mockAgent) Execute(ctx context.Context, systemMsg coretypes.Message, userMsgs []coretypes.Message) ([]coretypes.Message, error) {
 	if m.executeFn != nil {
 		return m.executeFn(ctx, systemMsg, userMsgs)
 	}

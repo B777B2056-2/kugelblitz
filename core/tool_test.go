@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 
+	types "github.com/B777B2056-2/kugelblitz/core/types"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,9 +21,9 @@ func TestToolRegistry_RegisterAndCall(t *testing.T) {
 	r := registry()
 
 	r.Register(
-		ToolDefinition{Name: "greet", Description: "Greets someone", JSONSchema: map[string]any{"type": "object"}},
-		func(ctx context.Context, detail ToolCallDetail) ToolCallResult {
-			return ToolCallResult{
+		types.ToolDefinition{Name: "greet", Description: "Greets someone", JSONSchema: map[string]any{"type": "object"}},
+		func(ctx context.Context, detail types.ToolCallDetail) types.ToolCallResult {
+			return types.ToolCallResult{
 				ToolCallID: detail.ID,
 				ToolName:   detail.ToolName,
 				Outputs:    map[string]any{"greeting": "hello"},
@@ -29,7 +31,7 @@ func TestToolRegistry_RegisterAndCall(t *testing.T) {
 		},
 	)
 
-	result := r.Call(context.Background(), ToolCallDetail{ID: "tc-1", ToolName: "greet", Args: map[string]any{}})
+	result := r.Call(context.Background(), types.ToolCallDetail{ID: "tc-1", ToolName: "greet", Args: map[string]any{}})
 	assert.Equal(t, "tc-1", result.ToolCallID)
 	assert.Equal(t, "greet", result.ToolName)
 	assert.Equal(t, "hello", result.Outputs["greeting"])
@@ -38,7 +40,7 @@ func TestToolRegistry_RegisterAndCall(t *testing.T) {
 func TestToolRegistry_CallUnknownTool(t *testing.T) {
 	r := registry()
 
-	result := r.Call(context.Background(), ToolCallDetail{ID: "tc-1", ToolName: "nonexistent"})
+	result := r.Call(context.Background(), types.ToolCallDetail{ID: "tc-1", ToolName: "nonexistent"})
 	assert.Equal(t, "tc-1", result.ToolCallID)
 	assert.Equal(t, "nonexistent", result.ToolName)
 	assert.Contains(t, result.Outputs["error"], "tool not found")
@@ -53,8 +55,8 @@ func TestToolRegistry_ListDefinitions_HasBuiltins(t *testing.T) {
 func TestToolRegistry_ListDefinitions_HasEntries(t *testing.T) {
 	r := registry()
 
-	r.Register(ToolDefinition{Name: "tool1", Description: "First tool"}, nil)
-	r.Register(ToolDefinition{Name: "tool2", Description: "Second tool"}, nil)
+	r.Register(types.ToolDefinition{Name: "tool1", Description: "First tool"}, nil)
+	r.Register(types.ToolDefinition{Name: "tool2", Description: "Second tool"}, nil)
 
 	defs := r.ListDefinitions()
 	assert.GreaterOrEqual(t, len(defs), 2)
@@ -72,9 +74,9 @@ func TestToolRegistry_ListDefinitions_HasEntries(t *testing.T) {
 func TestToolRegistry_ListDefinitions_Sorted(t *testing.T) {
 	tr := &ToolRegistry{
 		tools: map[string]registryEntry{
-			"zeta":  {def: ToolDefinition{Name: "zeta"}},
-			"alpha": {def: ToolDefinition{Name: "alpha"}},
-			"mid":   {def: ToolDefinition{Name: "mid"}},
+			"zeta":  {def: types.ToolDefinition{Name: "zeta"}},
+			"alpha": {def: types.ToolDefinition{Name: "alpha"}},
+			"mid":   {def: types.ToolDefinition{Name: "mid"}},
 		},
 	}
 
@@ -88,13 +90,13 @@ func TestToolRegistry_ListDefinitions_Sorted(t *testing.T) {
 func TestToolRegistry_RegisterOverwrites(t *testing.T) {
 	r := registry()
 
-	r.Register(ToolDefinition{Name: "test_overwrite", Description: "v1"},
-		func(ctx context.Context, detail ToolCallDetail) ToolCallResult {
-			return ToolCallResult{ToolCallID: detail.ID}
+	r.Register(types.ToolDefinition{Name: "test_overwrite", Description: "v1"},
+		func(ctx context.Context, detail types.ToolCallDetail) types.ToolCallResult {
+			return types.ToolCallResult{ToolCallID: detail.ID}
 		})
-	r.Register(ToolDefinition{Name: "test_overwrite", Description: "v2"},
-		func(ctx context.Context, detail ToolCallDetail) ToolCallResult {
-			return ToolCallResult{ToolCallID: detail.ID}
+	r.Register(types.ToolDefinition{Name: "test_overwrite", Description: "v2"},
+		func(ctx context.Context, detail types.ToolCallDetail) types.ToolCallResult {
+			return types.ToolCallResult{ToolCallID: detail.ID}
 		})
 
 	defs := r.ListDefinitions()
@@ -118,9 +120,9 @@ func TestToolRegistry_ConcurrentAccess(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			r.Register(
-				ToolDefinition{Name: "tool_concurrent", Description: "concurrent"},
-				func(ctx context.Context, detail ToolCallDetail) ToolCallResult {
-					return ToolCallResult{ToolCallID: detail.ID}
+				types.ToolDefinition{Name: "tool_concurrent", Description: "concurrent"},
+				func(ctx context.Context, detail types.ToolCallDetail) types.ToolCallResult {
+					return types.ToolCallResult{ToolCallID: detail.ID}
 				},
 			)
 		}(i)
@@ -131,7 +133,7 @@ func TestToolRegistry_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			_ = r.Call(context.Background(), ToolCallDetail{ID: "tc", ToolName: "tool_concurrent"})
+			_ = r.Call(context.Background(), types.ToolCallDetail{ID: "tc", ToolName: "tool_concurrent"})
 		}(i)
 	}
 
@@ -157,9 +159,9 @@ func TestToolRegistry_ConcurrentRegisterCallReset(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			name := fmt.Sprintf("t%d", idx)
-			r.Register(ToolDefinition{Name: name, Description: "test"},
-				func(ctx context.Context, detail ToolCallDetail) ToolCallResult {
-					return ToolCallResult{ToolCallID: detail.ID, ToolName: name}
+			r.Register(types.ToolDefinition{Name: name, Description: "test"},
+				func(ctx context.Context, detail types.ToolCallDetail) types.ToolCallResult {
+					return types.ToolCallResult{ToolCallID: detail.ID, ToolName: name}
 				})
 		}(i)
 	}
@@ -170,7 +172,7 @@ func TestToolRegistry_ConcurrentRegisterCallReset(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			_ = r.Call(context.Background(), ToolCallDetail{ID: "tc", ToolName: fmt.Sprintf("t%d", idx)})
+			_ = r.Call(context.Background(), types.ToolCallDetail{ID: "tc", ToolName: fmt.Sprintf("t%d", idx)})
 		}(i)
 	}
 	wg.Wait()
@@ -184,7 +186,7 @@ func TestToolRegistry_ConcurrentRegisterCallReset(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			r.Register(ToolDefinition{Name: fmt.Sprintf("new%d", idx), Description: "after reset"}, nil)
+			r.Register(types.ToolDefinition{Name: fmt.Sprintf("new%d", idx), Description: "after reset"}, nil)
 		}(i)
 	}
 	wg.Wait()
@@ -199,7 +201,7 @@ func TestMakeErrorToolOutputs_ContainsErrorMessage(t *testing.T) {
 }
 
 func TestToolDefinition_Fields(t *testing.T) {
-	def := ToolDefinition{
+	def := types.ToolDefinition{
 		Name:        "search",
 		Description: "Search the web",
 		JSONSchema: map[string]any{
@@ -223,20 +225,20 @@ func TestGetToolRegistry_ReturnsSingleton(t *testing.T) {
 func TestRegisterTool_ConvenienceFunction(t *testing.T) {
 
 	RegisterTool(
-		ToolDefinition{Name: "global_tool", Description: "Registered globally"},
-		func(ctx context.Context, detail ToolCallDetail) ToolCallResult {
-			return ToolCallResult{ToolCallID: detail.ID, ToolName: "global_tool", Outputs: map[string]any{"ok": true}}
+		types.ToolDefinition{Name: "global_tool", Description: "Registered globally"},
+		func(ctx context.Context, detail types.ToolCallDetail) types.ToolCallResult {
+			return types.ToolCallResult{ToolCallID: detail.ID, ToolName: "global_tool", Outputs: map[string]any{"ok": true}}
 		},
 	)
 
-	result := CallTool(context.Background(), ToolCallDetail{ID: "t1", ToolName: "global_tool"})
+	result := CallTool(context.Background(), types.ToolCallDetail{ID: "t1", ToolName: "global_tool"})
 	assert.Equal(t, "global_tool", result.ToolName)
 	assert.Equal(t, true, result.Outputs["ok"])
 }
 
 func TestListToolDefinitions_ConvenienceFunction(t *testing.T) {
 	r := registry()
-	r.Register(ToolDefinition{Name: "listed", Description: "A tool"}, nil)
+	r.Register(types.ToolDefinition{Name: "listed", Description: "A tool"}, nil)
 
 	defs := ListToolDefinitions()
 	found := false
@@ -251,9 +253,9 @@ func TestListToolDefinitions_ConvenienceFunction(t *testing.T) {
 
 func TestResetToolRegistry_Isolates(t *testing.T) {
 	ResetToolRegistry()
-	GetToolRegistry().Register(ToolDefinition{Name: "reset_probe"},
-		func(ctx context.Context, detail ToolCallDetail) ToolCallResult {
-			return ToolCallResult{ToolCallID: detail.ID, ToolName: "reset_probe"}
+	GetToolRegistry().Register(types.ToolDefinition{Name: "reset_probe"},
+		func(ctx context.Context, detail types.ToolCallDetail) types.ToolCallResult {
+			return types.ToolCallResult{ToolCallID: detail.ID, ToolName: "reset_probe"}
 		})
 	assert.Len(t, GetToolRegistry().ListDefinitions(), 1, "registry should contain only the probe after reset")
 

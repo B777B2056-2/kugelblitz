@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/persist"
@@ -18,8 +19,8 @@ import (
 // calls), which drives the FSM through its fallback paths deterministically.
 type noopProvider struct{}
 
-func (noopProvider) Generate(_ context.Context, _ core.GenerateParams) (*core.Message, error) {
-	msg := core.NewAssistantMessage(core.TextContent{Text: "ok"})
+func (noopProvider) Generate(_ context.Context, _ coretypes.GenerateParams) (*coretypes.Message, error) {
+	msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "ok"})
 	return &msg, nil
 }
 
@@ -47,9 +48,9 @@ func newTestMachine(forceMode string, maxCycles int) *Machine {
 func TestMachine_Run_MaxCyclesExceeded(t *testing.T) {
 	m := newTestMachine("plan", 1)
 
-	_, err := m.Run(context.Background(), core.AgentInput{Text: "do it"})
+	_, err := m.Run(context.Background(), coretypes.AgentInput{Text: "do it"})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, core.ErrMaxCyclesExceeded)
+	assert.ErrorIs(t, err, coretypes.ErrMaxCyclesExceeded)
 }
 
 // ---- B13: an Intent phase that produces no valid work mode falls back to
@@ -58,7 +59,7 @@ func TestMachine_Run_MaxCyclesExceeded(t *testing.T) {
 func TestMachine_Run_IntentFallsBackToDirect(t *testing.T) {
 	m := newTestMachine("", 10)
 
-	msgs, err := m.Run(context.Background(), core.AgentInput{Text: "do it"})
+	msgs, err := m.Run(context.Background(), coretypes.AgentInput{Text: "do it"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, msgs, "direct execution should produce results")
 }

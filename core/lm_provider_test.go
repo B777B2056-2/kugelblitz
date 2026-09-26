@@ -4,16 +4,18 @@ import (
 	"context"
 	"testing"
 
+	types "github.com/B777B2056-2/kugelblitz/core/types"
+
 	"github.com/stretchr/testify/assert"
 )
 
-// testEventHandler implements ModelEventHandler for testing.
+// testEventHandler implements types.ModelEventHandler for testing.
 type testEventHandler struct {
 	thinkingChunks []string
 	replyChunks    []string
-	toolCalls      []ToolCallDetail
+	toolCalls      []types.ToolCallDetail
 	finishReasons  []string
-	usages         []Usage
+	usages         []types.Usage
 	errors         []error
 }
 
@@ -25,16 +27,16 @@ func (h *testEventHandler) OnBlockThinking(reasoning string) {
 	h.thinkingChunks = append(h.thinkingChunks, reasoning)
 }
 func (h *testEventHandler) OnBlockReply(text string) { h.replyChunks = append(h.replyChunks, text) }
-func (h *testEventHandler) OnFunctionCall(detail ToolCallDetail) {
+func (h *testEventHandler) OnFunctionCall(detail types.ToolCallDetail) {
 	h.toolCalls = append(h.toolCalls, detail)
 }
 func (h *testEventHandler) OnFinished(reason string) {
 	h.finishReasons = append(h.finishReasons, reason)
 }
-func (h *testEventHandler) OnUsageUpdated(usage Usage) { h.usages = append(h.usages, usage) }
+func (h *testEventHandler) OnUsageUpdated(usage types.Usage) { h.usages = append(h.usages, usage) }
 func (h *testEventHandler) OnError(err error)          { h.errors = append(h.errors, err) }
 
-var _ ModelEventHandler = (*testEventHandler)(nil)
+var _ types.ModelEventHandler = (*testEventHandler)(nil)
 
 func TestModelEventHandler_InterfaceImplementation(t *testing.T) {
 	h := &testEventHandler{}
@@ -54,7 +56,7 @@ func TestModelEventHandler_ChunkCallbacksOptional(t *testing.T) {
 }
 
 func TestGenerateParams_ZeroValue(t *testing.T) {
-	params := GenerateParams{}
+	params := types.GenerateParams{}
 	assert.False(t, params.Stream)
 	assert.Nil(t, params.Messages)
 	assert.Nil(t, params.Tools)
@@ -63,8 +65,8 @@ func TestGenerateParams_ZeroValue(t *testing.T) {
 
 func TestGenerateParams_WithBlockMode(t *testing.T) {
 	h := &testEventHandler{}
-	params := GenerateParams{
-		Messages:     []Message{NewUserMessage(TextContent{Text: "hi"})},
+	params := types.GenerateParams{
+		Messages:     []types.Message{types.NewUserMessage(types.TextContent{Text: "hi"})},
 		Stream:       false,
 		EventHandler: h,
 	}
@@ -74,9 +76,9 @@ func TestGenerateParams_WithBlockMode(t *testing.T) {
 
 func TestGenerateParams_WithStreamMode(t *testing.T) {
 	h := &testEventHandler{}
-	params := GenerateParams{
-		Messages:     []Message{NewUserMessage(TextContent{Text: "hi"})},
-		Tools:        []ToolDefinition{{Name: "tool1"}},
+	params := types.GenerateParams{
+		Messages:     []types.Message{types.NewUserMessage(types.TextContent{Text: "hi"})},
+		Tools:        []types.ToolDefinition{{Name: "tool1"}},
 		Stream:       true,
 		EventHandler: h,
 	}
@@ -87,19 +89,19 @@ func TestGenerateParams_WithStreamMode(t *testing.T) {
 
 func TestGenerateParams_WithThinkingEnabled(t *testing.T) {
 	enabled := true
-	params := GenerateParams{
-		Messages:        []Message{NewUserMessage(TextContent{Text: "hi"})},
+	params := types.GenerateParams{
+		Messages:        []types.Message{types.NewUserMessage(types.TextContent{Text: "hi"})},
 		EnableThinking:  &enabled,
-		ReasoningEffort: ReasoningEffortHigh,
+		ReasoningEffort: types.ReasoningEffortHigh,
 	}
 	assert.NotNil(t, params.EnableThinking)
 	assert.True(t, *params.EnableThinking)
-	assert.Equal(t, ReasoningEffortHigh, params.ReasoningEffort)
+	assert.Equal(t, types.ReasoningEffortHigh, params.ReasoningEffort)
 }
 
 func TestGenerateParams_WithThinkingDisabled(t *testing.T) {
 	disabled := false
-	params := GenerateParams{
+	params := types.GenerateParams{
 		EnableThinking: &disabled,
 	}
 	assert.NotNil(t, params.EnableThinking)
@@ -107,23 +109,23 @@ func TestGenerateParams_WithThinkingDisabled(t *testing.T) {
 }
 
 func TestGenerateParams_ThinkingDefaultNil(t *testing.T) {
-	params := GenerateParams{}
+	params := types.GenerateParams{}
 	assert.Nil(t, params.EnableThinking)
 	assert.Empty(t, params.ReasoningEffort)
 }
 
 type mockProvider struct {
-	generateFn func(ctx context.Context, params GenerateParams) (*Message, error)
+	generateFn func(ctx context.Context, params types.GenerateParams) (*types.Message, error)
 }
 
-func (m *mockProvider) Generate(ctx context.Context, params GenerateParams) (*Message, error) {
+func (m *mockProvider) Generate(ctx context.Context, params types.GenerateParams) (*types.Message, error) {
 	if m.generateFn != nil {
 		return m.generateFn(ctx, params)
 	}
 	return nil, nil
 }
 
-var _ ILMProvider = (*mockProvider)(nil)
+var _ types.ILMProvider = (*mockProvider)(nil)
 
 func TestILMProvider_InterfaceSatisfied(t *testing.T) {
 	p := &mockProvider{}
@@ -131,13 +133,13 @@ func TestILMProvider_InterfaceSatisfied(t *testing.T) {
 }
 
 func TestMockProvider_Generate_Delegates(t *testing.T) {
-	expected := NewAssistantMessage(TextContent{Text: "response"})
+	expected := types.NewAssistantMessage(types.TextContent{Text: "response"})
 	p := &mockProvider{
-		generateFn: func(ctx context.Context, params GenerateParams) (*Message, error) {
+		generateFn: func(ctx context.Context, params types.GenerateParams) (*types.Message, error) {
 			return &expected, nil
 		},
 	}
-	result, err := p.Generate(context.Background(), GenerateParams{})
+	result, err := p.Generate(context.Background(), types.GenerateParams{})
 	assert.NoError(t, err)
-	assert.Equal(t, "response", result.Content.(TextContent).Text)
+	assert.Equal(t, "response", result.Content.(types.TextContent).Text)
 }

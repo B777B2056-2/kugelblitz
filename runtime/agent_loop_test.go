@@ -11,6 +11,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/config"
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
 
@@ -18,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testCfg(provider core.ILMProvider) config.Config {
+func testCfg(provider coretypes.ILMProvider) config.Config {
 	return config.Config{
 		Model:           config.ModelConfig{Provider: provider, StreamMode: false},
 		Runtime:         config.RuntimeConfig{MaxStateMachineCycles: 30},
@@ -27,12 +28,12 @@ func testCfg(provider core.ILMProvider) config.Config {
 	}
 }
 
-// MockProvider implements core.ILMProvider for tests.
+// MockProvider implements coretypes.ILMProvider for tests.
 type MockProvider struct {
-	GenerateFn func(ctx context.Context, params core.GenerateParams) (*core.Message, error)
+	GenerateFn func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error)
 }
 
-func (m *MockProvider) Generate(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+func (m *MockProvider) Generate(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 	if m.GenerateFn != nil {
 		return m.GenerateFn(ctx, params)
 	}
@@ -80,18 +81,18 @@ func TestPlanner_ContextError_TriggersRetry(t *testing.T) {
 	working.ResetPlans()
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
 			if callCount == 1 {
-				return nil, core.ErrContextLengthExceeded
+				return nil, coretypes.ErrContextLengthExceeded
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "done"})
 			return &msg, nil
 		},
 	}
 
 	planner := mustNewAgentLoop(t, testCfg(provider))
-	_, err := planner.execute(context.Background(), core.AgentInput{Text: "test goal"})
+	_, err := planner.execute(context.Background(), coretypes.AgentInput{Text: "test goal"})
 	assert.NoError(t, err)
 	assert.GreaterOrEqual(t, callCount, 2, "should have retried after compress")
 }
@@ -100,13 +101,13 @@ func TestPlanner_NonContextError_NoRetry(t *testing.T) {
 	core.GetWorkspace().SetDir(t.TempDir())
 	working.ResetPlans()
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			return nil, errors.New("some other error")
 		},
 	}
 
 	planner := mustNewAgentLoop(t, testCfg(provider))
-	_, err := planner.execute(context.Background(), core.AgentInput{Text: "test"})
+	_, err := planner.execute(context.Background(), coretypes.AgentInput{Text: "test"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "some other error")
 }
@@ -114,26 +115,26 @@ func TestPlanner_NonContextError_NoRetry(t *testing.T) {
 func TestPlanner_SecondCallSeesHistory(t *testing.T) {
 
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage(core.TextContent{Text: "result"})
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "result"})
 			return &msg, nil
 		},
 	}
 
 	planner := mustNewAgentLoop(t, testCfg(provider))
 
-	_, err := planner.execute(context.Background(), core.AgentInput{Text: "goal 1"})
+	_, err := planner.execute(context.Background(), coretypes.AgentInput{Text: "goal 1"})
 	require.NoError(t, err)
 
-	_, err = planner.execute(context.Background(), core.AgentInput{Text: "goal 2"})
+	_, err = planner.execute(context.Background(), coretypes.AgentInput{Text: "goal 2"})
 	require.NoError(t, err)
 }
 
 func TestWorkerAgent_ExecuteTask_Simple(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage(core.TextContent{Text: "task completed"})
-			msg.Usage = &core.Usage{TotalTokens: 10, InputTokens: 5, OutputTokens: 5}
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "task completed"})
+			msg.Usage = &coretypes.Usage{TotalTokens: 10, InputTokens: 5, OutputTokens: 5}
 			return &msg, nil
 		},
 	}
@@ -149,7 +150,7 @@ func TestWorkerAgent_ExecuteTask_Simple(t *testing.T) {
 
 func TestWorkerAgent_ExecuteTask_Error(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			return nil, errors.New("api failure")
 		},
 	}
@@ -173,21 +174,21 @@ func TestOnToolResult_CountsFails(t *testing.T) {
 	stepCount := 0
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
 			if callCount == 1 {
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{{ID: "t1", ToolName: "test"}},
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{{ID: "t1", ToolName: "test"}},
 				})
 				return &msg, nil
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "done"})
 			return &msg, nil
 		},
 	}
 
 	agent := infra.NewReactAgent(provider, false)
-	agent.SetOnToolResult(func(results []core.ToolCallResult, step int) bool {
+	agent.SetOnToolResult(func(results []coretypes.ToolCallResult, step int) bool {
 		stepCount++
 		assert.Equal(t, stepCount, step)
 		return true
@@ -195,8 +196,8 @@ func TestOnToolResult_CountsFails(t *testing.T) {
 
 	_, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "sys"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "sys"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "hi"})},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, 1, stepCount, "OnToolResult should fire once for the tool call")
@@ -205,22 +206,22 @@ func TestOnToolResult_CountsFails(t *testing.T) {
 func TestOnToolResult_TracksConsecutiveFails(t *testing.T) {
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
 			if callCount <= 2 {
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{{ID: "t1", ToolName: "test"}},
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{{ID: "t1", ToolName: "test"}},
 				})
 				return &msg, nil
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "done"})
 			return &msg, nil
 		},
 	}
 
 	var capturedFails []int
 	agent := infra.NewReactAgent(provider, false)
-	agent.SetOnToolResult(func(results []core.ToolCallResult, step int) bool {
+	agent.SetOnToolResult(func(results []coretypes.ToolCallResult, step int) bool {
 		hasFailure := false
 		for _, r := range results {
 			if _, isErr := r.Outputs["error"]; isErr {
@@ -236,17 +237,17 @@ func TestOnToolResult_TracksConsecutiveFails(t *testing.T) {
 	})
 
 	_, _ = agent.Execute(context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "sys"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})})
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "sys"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "hi"})})
 }
 
 func TestOnToolResult_AbortOnFalse(t *testing.T) {
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
-			msg := core.NewAssistantMessage(core.ToolCallContent{
-				Details: []core.ToolCallDetail{{ID: "t1", ToolName: "test"}},
+			msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+				Details: []coretypes.ToolCallDetail{{ID: "t1", ToolName: "test"}},
 			})
 			return &msg, nil
 		},
@@ -254,15 +255,15 @@ func TestOnToolResult_AbortOnFalse(t *testing.T) {
 
 	agent := infra.NewReactAgent(provider, false)
 	fireCount := 0
-	agent.SetOnToolResult(func(results []core.ToolCallResult, step int) bool {
+	agent.SetOnToolResult(func(results []coretypes.ToolCallResult, step int) bool {
 		fireCount++
 		return false
 	})
 
 	_, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "sys"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "sys"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "hi"})},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, 1, fireCount, "OnToolResult should fire only once before abort")
@@ -274,68 +275,68 @@ func TestPlanner_Execute_CompressThenReview(t *testing.T) {
 	working.ResetPlans()
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
 			if callCount == 1 {
-				return nil, core.ErrContextLengthExceeded
+				return nil, coretypes.ErrContextLengthExceeded
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "done"})
 			return &msg, nil
 		},
 	}
 
 	planner := mustNewAgentLoop(t, testCfg(provider))
-	_, err := planner.execute(context.Background(), core.AgentInput{Text: "test goal"})
+	_, err := planner.execute(context.Background(), coretypes.AgentInput{Text: "test goal"})
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, callCount, 2)
 }
 
 func TestPlanner_LLMUsageCallback_NilSafe(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "done"})
 			return &msg, nil
 		},
 	}
 	planner := mustNewAgentLoop(t, testCfg(provider))
-	_, err := planner.execute(context.Background(), core.AgentInput{Text: "test"})
+	_, err := planner.execute(context.Background(), coretypes.AgentInput{Text: "test"})
 	require.NoError(t, err)
 }
 
 func TestPlanner_LLMUsageCallback_FiresWithIdentity(t *testing.T) {
 
-	var reports []core.Usage
+	var reports []coretypes.Usage
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
 			if callCount <= 1 {
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{{ID: "t1", ToolName: "test_tool"}},
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{{ID: "t1", ToolName: "test_tool"}},
 				})
-				msg.Usage = &core.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15}
+				msg.Usage = &coretypes.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15}
 				if params.EventHandler != nil {
 					params.EventHandler.OnUsageUpdated(*msg.Usage)
 				}
 				return &msg, nil
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "final"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "final"})
 			return &msg, nil
 		},
 	}
 
-	core.RegisterTool(core.ToolDefinition{Name: "test_tool"},
-		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-			return core.ToolCallResult{ToolCallID: detail.ID, Outputs: map[string]any{"ok": true}}
+	core.RegisterTool(coretypes.ToolDefinition{Name: "test_tool"},
+		func(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
+			return coretypes.ToolCallResult{ToolCallID: detail.ID, Outputs: map[string]any{"ok": true}}
 		})
 
 	planner := mustNewAgentLoop(t, testCfg(provider))
 	planner.RegisterEventHooks(core.AgentEventHooks{
-		OnUsageUpdated: func(id constants.AgentIdentity, usage core.Usage) {
+		OnUsageUpdated: func(id constants.AgentIdentity, usage coretypes.Usage) {
 			reports = append(reports, usage)
 		},
 	})
-	_, err := planner.execute(context.Background(), core.AgentInput{Text: "test"})
+	_, err := planner.execute(context.Background(), coretypes.AgentInput{Text: "test"})
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, reports)
@@ -345,33 +346,33 @@ func TestPlanner_LLMUsageCallback_NoCallback_NoPanic(t *testing.T) {
 
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
 			if callCount <= 1 {
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{{ID: "t1", ToolName: "test_tool"}},
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{{ID: "t1", ToolName: "test_tool"}},
 				})
 				return &msg, nil
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "done"})
 			return &msg, nil
 		},
 	}
 
-	core.RegisterTool(core.ToolDefinition{Name: "test_tool"},
-		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-			return core.ToolCallResult{ToolCallID: detail.ID, Outputs: map[string]any{"ok": true}}
+	core.RegisterTool(coretypes.ToolDefinition{Name: "test_tool"},
+		func(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
+			return coretypes.ToolCallResult{ToolCallID: detail.ID, Outputs: map[string]any{"ok": true}}
 		})
 
 	planner := mustNewAgentLoop(t, testCfg(provider))
-	msgs, err := planner.execute(context.Background(), core.AgentInput{Text: "test"})
+	msgs, err := planner.execute(context.Background(), coretypes.AgentInput{Text: "test"})
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(msgs), 1)
 }
 
 func TestCompressSingleResult_ShortStringUnchanged(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			return nil, nil
 		},
 	}
@@ -379,7 +380,7 @@ func TestCompressSingleResult_ShortStringUnchanged(t *testing.T) {
 	cfg.ContextCompress = config.ContextCompressConfig{MaxAttempts: 1, MaxToolResultChars: 4000}
 	planner := mustNewAgentLoop(t, cfg)
 
-	r := core.ToolCallResult{ToolCallID: "1", ToolName: "test", Outputs: map[string]any{
+	r := coretypes.ToolCallResult{ToolCallID: "1", ToolName: "test", Outputs: map[string]any{
 		"text": "short string",
 		"num":  42,
 	}}
@@ -391,8 +392,8 @@ func TestCompressSingleResult_ShortStringUnchanged(t *testing.T) {
 
 func TestCompressSingleResult_LongStringCompressed(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage(core.TextContent{Text: "compressed summary"})
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "compressed summary"})
 			return &msg, nil
 		},
 	}
@@ -401,7 +402,7 @@ func TestCompressSingleResult_LongStringCompressed(t *testing.T) {
 	planner := mustNewAgentLoop(t, cfg)
 
 	longText := strings.Repeat("abcdefghij", 10)
-	r := core.ToolCallResult{ToolCallID: "1", ToolName: "file_read", Outputs: map[string]any{
+	r := coretypes.ToolCallResult{ToolCallID: "1", ToolName: "file_read", Outputs: map[string]any{
 		"content": longText,
 		"path":    "/short.txt",
 	}}
@@ -413,7 +414,7 @@ func TestCompressSingleResult_LongStringCompressed(t *testing.T) {
 
 func TestCompressSingleResult_SkipsErrors(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			return nil, nil
 		},
 	}
@@ -422,7 +423,7 @@ func TestCompressSingleResult_SkipsErrors(t *testing.T) {
 	planner := mustNewAgentLoop(t, cfg)
 
 	longText := strings.Repeat("x", 100)
-	r := core.ToolCallResult{ToolCallID: "1", ToolName: "test", Outputs: map[string]any{
+	r := coretypes.ToolCallResult{ToolCallID: "1", ToolName: "test", Outputs: map[string]any{
 		"error":   "something went wrong",
 		"details": longText,
 	}}
@@ -434,7 +435,7 @@ func TestCompressSingleResult_SkipsErrors(t *testing.T) {
 
 func TestCompressSingleResult_DisabledWhenZero(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			t.Error("provider should not be called when compression is disabled")
 			return nil, nil
 		},
@@ -444,7 +445,7 @@ func TestCompressSingleResult_DisabledWhenZero(t *testing.T) {
 	planner := mustNewAgentLoop(t, cfg)
 
 	longText := strings.Repeat("x", 10000)
-	r := core.ToolCallResult{ToolCallID: "1", ToolName: "test", Outputs: map[string]any{
+	r := coretypes.ToolCallResult{ToolCallID: "1", ToolName: "test", Outputs: map[string]any{
 		"content": longText,
 	}}
 	planner.sessionMem.CompressToolResult(context.Background(), planner.planner.Compressor(), planner.cfg.ContextCompress.MaxToolResultChars, &r)
@@ -454,8 +455,8 @@ func TestCompressSingleResult_DisabledWhenZero(t *testing.T) {
 
 func TestCompressSingleResult_MultipleFields(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage(core.TextContent{Text: "summary"})
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "summary"})
 			return &msg, nil
 		},
 	}
@@ -465,7 +466,7 @@ func TestCompressSingleResult_MultipleFields(t *testing.T) {
 
 	long1 := strings.Repeat("a", 100)
 	long2 := strings.Repeat("b", 200)
-	r := core.ToolCallResult{ToolCallID: "1", ToolName: "test", Outputs: map[string]any{
+	r := coretypes.ToolCallResult{ToolCallID: "1", ToolName: "test", Outputs: map[string]any{
 		"field_a": long1,
 		"field_b": long2,
 		"field_c": "hi",
@@ -497,17 +498,17 @@ func TestAgentLoop_IntentToDirect_SimpleTask(t *testing.T) {
 
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
 			if callCount == 1 {
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-1", ToolName: "set_work_mode", Args: map[string]any{"mode": "simple"}},
 					},
 				})
 				return &msg, nil
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "done"})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -517,14 +518,14 @@ func TestAgentLoop_IntentToDirect_SimpleTask(t *testing.T) {
 	defer cancel()
 
 	al := mustNewAgentLoop(t, testCfg(provider))
-	al.Run(ctx, core.AgentInput{Text: "echo hello"})
+	al.Run(ctx, coretypes.AgentInput{Text: "echo hello"})
 	<-al.Done()
 
 	assert.Empty(t, working.ListPlans(), "simple task should not create a plan")
 }
 
 // toolNames extracts the tool definition names offered in a Generate call.
-func toolNames(params core.GenerateParams) []string {
+func toolNames(params coretypes.GenerateParams) []string {
 	var names []string
 	for _, td := range params.Tools {
 		names = append(names, td.Name)
@@ -539,16 +540,16 @@ func TestAgentLoop_ForceModeSimple_SkipsIntent(t *testing.T) {
 	var firstTools []string
 	var firstSystemPrompt string
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			if firstTools == nil {
 				firstTools = toolNames(params)
 				if len(params.Messages) > 0 {
-					if tc, ok := params.Messages[0].Content.(core.TextContent); ok {
+					if tc, ok := params.Messages[0].Content.(coretypes.TextContent); ok {
 						firstSystemPrompt = tc.Text
 					}
 				}
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "done"})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -560,7 +561,7 @@ func TestAgentLoop_ForceModeSimple_SkipsIntent(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	al.Run(ctx, core.AgentInput{Text: "echo hello"})
+	al.Run(ctx, coretypes.AgentInput{Text: "echo hello"})
 	<-al.Done()
 
 	assert.Empty(t, working.ListPlans(), "force_mode=simple should not create a plan")
@@ -575,11 +576,11 @@ func TestAgentLoop_ForceModePlan_SkipsIntent(t *testing.T) {
 
 	var firstTools []string
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			if firstTools == nil {
 				firstTools = toolNames(params)
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "done"})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -591,7 +592,7 @@ func TestAgentLoop_ForceModePlan_SkipsIntent(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	al.Run(ctx, core.AgentInput{Text: "build a web app"})
+	al.Run(ctx, coretypes.AgentInput{Text: "build a web app"})
 	<-al.Done()
 
 	assert.Contains(t, firstTools, "plan_create", "plan mode should offer plan_create directly")
@@ -605,30 +606,30 @@ func TestAgentLoop_RejectPath_UserRejectsPlan(t *testing.T) {
 	var mu sync.Mutex
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			mu.Lock()
 			callCount++
 			c := callCount
 			mu.Unlock()
 			switch c {
 			case 1:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-1", ToolName: "set_work_mode", Args: map[string]any{"mode": "plan"}},
 					},
 				})
 				return &msg, nil
 			case 2:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-2", ToolName: "plan_create", Args: map[string]any{"name": "Test Plan"}},
 					},
 				})
 				return &msg, nil
 			case 3:
 				pid := working.ListPlans()[0].ID
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-3", ToolName: "task_insert",
 							Args: map[string]any{"plan_id": pid, "goal": "Task 1"},
 						},
@@ -636,11 +637,11 @@ func TestAgentLoop_RejectPath_UserRejectsPlan(t *testing.T) {
 				})
 				return &msg, nil
 			case 4:
-				msg := core.NewAssistantMessage(core.TextContent{Text: "plan ready"})
+				msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "plan ready"})
 				return &msg, nil
 			case 5:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-4", ToolName: "ask_human",
 							Args: map[string]any{"question": "Approve?", "reason": "confirm"},
 						},
@@ -648,8 +649,8 @@ func TestAgentLoop_RejectPath_UserRejectsPlan(t *testing.T) {
 				})
 				return &msg, nil
 			case 6:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-5", ToolName: "confirm_plan",
 							Args: map[string]any{"status": "rejected", "plan_id": latestPlanID()},
 						},
@@ -657,7 +658,7 @@ func TestAgentLoop_RejectPath_UserRejectsPlan(t *testing.T) {
 				})
 				return &msg, nil
 			default:
-				msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+				msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "done"})
 				return &msg, nil
 			}
 		},
@@ -673,7 +674,7 @@ func TestAgentLoop_RejectPath_UserRejectsPlan(t *testing.T) {
 			hitlCh <- struct{}{}
 		},
 	})
-	al.Run(ctx, core.AgentInput{Text: "build a web app"})
+	al.Run(ctx, coretypes.AgentInput{Text: "build a web app"})
 
 	select {
 	case <-hitlCh:
@@ -697,54 +698,54 @@ func TestAgentLoop_HappyPath_IntentToDone(t *testing.T) {
 	var mu sync.Mutex
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			mu.Lock()
 			callCount++
 			c := callCount
 			mu.Unlock()
 			switch c {
 			case 1:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-1", ToolName: "set_work_mode", Args: map[string]any{"mode": "plan"}},
 					},
 				})
 				return &msg, nil
 			case 2:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-2", ToolName: "plan_create", Args: map[string]any{"name": "Happy Plan"}},
 					},
 				})
 				return &msg, nil
 			case 3:
 				pid := latestPlanID()
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-3a", ToolName: "task_insert", Args: map[string]any{"plan_id": pid, "goal": "Step 1"}},
 						{ID: "tc-3b", ToolName: "task_insert", Args: map[string]any{"plan_id": pid, "goal": "Step 2"}},
 					},
 				})
 				return &msg, nil
 			case 4:
-				msg := core.NewAssistantMessage(core.TextContent{Text: "plan ready"})
+				msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "plan ready"})
 				return &msg, nil
 			case 5:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-4", ToolName: "ask_human", Args: map[string]any{"question": "OK?", "reason": "confirm"}},
 					},
 				})
 				return &msg, nil
 			case 6:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-5", ToolName: "confirm_plan", Args: map[string]any{"status": "doing", "plan_id": latestPlanID()}},
 					},
 				})
 				return &msg, nil
 			default:
-				msg := core.NewAssistantMessage(core.TextContent{Text: "task completed"})
+				msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "task completed"})
 				msg.FinishReason = "stop"
 				return &msg, nil
 			}
@@ -761,7 +762,7 @@ func TestAgentLoop_HappyPath_IntentToDone(t *testing.T) {
 			hitlCh <- struct{}{}
 		},
 	})
-	al.Run(ctx, core.AgentInput{Text: "build a web app"})
+	al.Run(ctx, coretypes.AgentInput{Text: "build a web app"})
 
 	select {
 	case <-hitlCh:
@@ -788,91 +789,91 @@ func TestAgentLoop_RecoveryPath_FailReplanRetry(t *testing.T) {
 	var mu sync.Mutex
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			mu.Lock()
 			callCount++
 			c := callCount
 			mu.Unlock()
 			switch c {
 			case 1:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-1", ToolName: "set_work_mode", Args: map[string]any{"mode": "plan"}},
 					},
 				})
 				return &msg, nil
 			case 2:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-2", ToolName: "plan_create", Args: map[string]any{"name": "Recovery Plan"}},
 					},
 				})
 				return &msg, nil
 			case 3:
 				pid := latestPlanID()
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-3", ToolName: "task_insert", Args: map[string]any{"plan_id": pid, "goal": "Risky task"}},
 					},
 				})
 				return &msg, nil
 			case 4:
-				msg := core.NewAssistantMessage(core.TextContent{Text: "plan ready"})
+				msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "plan ready"})
 				return &msg, nil
 			case 5:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-4", ToolName: "ask_human", Args: map[string]any{"question": "Proceed?", "reason": "confirm"}},
 					},
 				})
 				return &msg, nil
 			case 6:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-5", ToolName: "confirm_plan", Args: map[string]any{"status": "doing", "plan_id": latestPlanID()}},
 					},
 				})
 				return &msg, nil
 			case 7:
 				// End ConfirmedState ReAct loop
-				msg := core.NewAssistantMessage(core.TextContent{Text: "confirmed"})
+				msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "confirmed"})
 				return &msg, nil
 			case 8:
 				return nil, errors.New("worker failure")
 			case 9:
 				// UpdatingState: task_insert (plan_id not needed, LLM has it from context)
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-6", ToolName: "task_insert", Args: map[string]any{"goal": "Fix and retry", "plan_id": latestPlanID()}},
 					},
 				})
 				return &msg, nil
 			case 10:
 				// End UpdatingState ReAct loop with text
-				msg := core.NewAssistantMessage(core.TextContent{Text: "plan updated"})
+				msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "plan updated"})
 				return &msg, nil
 			case 11:
 				// ConfirmedState round 2: ask_human
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-7", ToolName: "ask_human", Args: map[string]any{"question": "Retry?", "reason": "retry_confirm"}},
 					},
 				})
 				return &msg, nil
 			case 12:
 				// confirm_plan
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-8", ToolName: "confirm_plan", Args: map[string]any{"status": "doing", "plan_id": latestPlanID()}},
 					},
 				})
 				return &msg, nil
 			case 13:
 				// End ConfirmedState round 2 with text
-				msg := core.NewAssistantMessage(core.TextContent{Text: "reconfirmed"})
+				msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "reconfirmed"})
 				return &msg, nil
 			default:
-				msg := core.NewAssistantMessage(core.TextContent{Text: "retry succeeded"})
+				msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "retry succeeded"})
 				msg.FinishReason = "stop"
 				return &msg, nil
 			}
@@ -889,7 +890,7 @@ func TestAgentLoop_RecoveryPath_FailReplanRetry(t *testing.T) {
 			hitlCh <- struct{}{}
 		},
 	})
-	al.Run(ctx, core.AgentInput{Text: "complex task"})
+	al.Run(ctx, coretypes.AgentInput{Text: "complex task"})
 
 	select {
 	case <-hitlCh:
@@ -919,85 +920,85 @@ func TestAgentLoop_AbandonPath_FailReplanThenReject(t *testing.T) {
 	var mu sync.Mutex
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			mu.Lock()
 			callCount++
 			c := callCount
 			mu.Unlock()
 			switch c {
 			case 1:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-1", ToolName: "set_work_mode", Args: map[string]any{"mode": "plan"}},
 					},
 				})
 				return &msg, nil
 			case 2:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-2", ToolName: "plan_create", Args: map[string]any{"name": "Abandoned Plan"}},
 					},
 				})
 				return &msg, nil
 			case 3:
 				pid := latestPlanID()
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-3", ToolName: "task_insert", Args: map[string]any{"plan_id": pid, "goal": "Task"}},
 					},
 				})
 				return &msg, nil
 			case 4:
-				msg := core.NewAssistantMessage(core.TextContent{Text: "plan ready"})
+				msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "plan ready"})
 				return &msg, nil
 			case 5:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-4", ToolName: "ask_human", Args: map[string]any{"question": "Go?", "reason": "confirm"}},
 					},
 				})
 				return &msg, nil
 			case 6:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-5", ToolName: "confirm_plan", Args: map[string]any{"status": "doing", "plan_id": latestPlanID()}},
 					},
 				})
 				return &msg, nil
 			case 7:
-				msg := core.NewAssistantMessage(core.TextContent{Text: "confirmed"})
+				msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "confirmed"})
 				return &msg, nil
 			case 8:
 				return nil, errors.New("worker failure")
 			case 9:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-6", ToolName: "task_insert", Args: map[string]any{"goal": "Fix task", "plan_id": latestPlanID()}},
 					},
 				})
 				return &msg, nil
 			case 10:
-				msg := core.NewAssistantMessage(core.TextContent{Text: "plan updated"})
+				msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "plan updated"})
 				return &msg, nil
 			case 11:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-7", ToolName: "ask_human", Args: map[string]any{"question": "Retry?", "reason": "retry"}},
 					},
 				})
 				return &msg, nil
 			case 12:
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-8", ToolName: "confirm_plan", Args: map[string]any{"status": "rejected", "plan_id": latestPlanID()}},
 					},
 				})
 				return &msg, nil
 			case 13:
-				msg := core.NewAssistantMessage(core.TextContent{Text: "abandoned"})
+				msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "abandoned"})
 				return &msg, nil
 			default:
-				msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+				msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "done"})
 				return &msg, nil
 			}
 		},
@@ -1013,7 +1014,7 @@ func TestAgentLoop_AbandonPath_FailReplanThenReject(t *testing.T) {
 			hitlCh <- struct{}{}
 		},
 	})
-	al.Run(ctx, core.AgentInput{Text: "abandoned task"})
+	al.Run(ctx, coretypes.AgentInput{Text: "abandoned task"})
 
 	select {
 	case <-hitlCh:

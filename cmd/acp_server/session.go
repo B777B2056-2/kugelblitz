@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/google/uuid"
 )
 
@@ -14,7 +15,7 @@ import (
 type Session struct {
 	ID        string         `json:"id"`
 	Cwd       string         `json:"cwd"`
-	Messages  []core.Message `json:"messages"`
+	Messages  []coretypes.Message `json:"messages"`
 	CreatedAt time.Time      `json:"created_at"`
 	Agent     core.IAgent    `json:"-"`
 
@@ -114,7 +115,7 @@ func (sm *SessionManager) Delete(sessionID string) error {
 }
 
 // AppendMessage adds a message to a session's history.
-func (sm *SessionManager) AppendMessage(sessionID string, msg core.Message) error {
+func (sm *SessionManager) AppendMessage(sessionID string, msg coretypes.Message) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 

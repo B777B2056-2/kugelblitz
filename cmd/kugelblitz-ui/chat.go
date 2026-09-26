@@ -11,6 +11,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory"
 	"github.com/B777B2056-2/kugelblitz/runtime"
 )
@@ -65,11 +66,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		opts = append(opts, runtime.WithExistingSessionID(session.FrameworkSessionID))
 	}
 	// ── Media preprocessing ──
-	var inputMedia []core.MultiModalDetail
+	var inputMedia []coretypes.MultiModalDetail
 	if len(req.Media) > 0 {
 		preprocessor := core.NewMediaPreprocessor(core.NewDefaultRegistry())
 
-		var imageProv, audioProv core.ILMProvider
+		var imageProv, audioProv coretypes.ILMProvider
 		if appCfg.Multimodal.AutoDescribeMedia {
 			if appCfg.Multimodal.ImageModel != nil {
 				imageProv = appCfg.Multimodal.ImageModel.Provider
@@ -86,7 +87,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				mediaType = constants.MultiModalTypeAudio
 			}
 
-			detail, err := preprocessor.Normalize(r.Context(), core.MultiModalDetail{
+			detail, err := preprocessor.Normalize(r.Context(), coretypes.MultiModalDetail{
 				Type:     mediaType,
 				Base64:   m.Base64,
 				MimeType: m.MimeType,
@@ -141,7 +142,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var sseMu sync.Mutex
-	var capturedToolCalls []core.ToolCallDetail
+	var capturedToolCalls []coretypes.ToolCallDetail
 	var assistantReply strings.Builder
 
 	// ── Register hooks with inline callbacks (no sseModelHandler) ──
@@ -168,7 +169,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			assistantReply.WriteString(text)
 			writeSSEEvent(w, flusher, SSEEvent{Event: "reply", Data: map[string]any{"text": text, "identity": string(id)}})
 		},
-		OnFunctionCall: func(id constants.AgentIdentity, detail core.ToolCallDetail) {
+		OnFunctionCall: func(id constants.AgentIdentity, detail coretypes.ToolCallDetail) {
 			sseMu.Lock()
 			defer sseMu.Unlock()
 			capturedToolCalls = append(capturedToolCalls, detail)
@@ -183,7 +184,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			defer sseMu.Unlock()
 			writeSSEEvent(w, flusher, SSEEvent{Event: "finished", Data: map[string]string{"reason": reason}})
 		},
-		OnUsageUpdated: func(id constants.AgentIdentity, usage core.Usage) {
+		OnUsageUpdated: func(id constants.AgentIdentity, usage coretypes.Usage) {
 			core.Debug("sse usage updated", "id", id, "total", usage.TotalTokens)
 			session.addTokenReport(TokenReport{
 				Identity: string(id),
@@ -208,7 +209,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			defer sseMu.Unlock()
 			writeSSEEvent(w, flusher, SSEEvent{Event: "error", Data: map[string]string{"message": err.Error()}})
 		},
-		OnToolCallEnd: func(id constants.AgentIdentity, result core.ToolCallResult) {
+		OnToolCallEnd: func(id constants.AgentIdentity, result coretypes.ToolCallResult) {
 			sseMu.Lock()
 			defer sseMu.Unlock()
 			writeSSEEvent(w, flusher, SSEEvent{Event: "tool_result", Data: map[string]any{
@@ -285,7 +286,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// ── Run AgentLoop ──
-	loop.Run(chatCtx, core.AgentInput{Text: req.Goal, Media: inputMedia})
+	loop.Run(chatCtx, coretypes.AgentInput{Text: req.Goal, Media: inputMedia})
 
 	// ── HITL / Done event loop ──
 	for {
@@ -348,7 +349,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 // ── Plan derivation (from tool results, zero memory/working dependency) ──
 
-func (s *Server) derivePlanUpdate(session *ChatSession, result core.ToolCallResult) *PlanUpdate {
+func (s *Server) derivePlanUpdate(session *ChatSession, result coretypes.ToolCallResult) *PlanUpdate {
 	switch result.ToolName {
 	case "plan_create":
 		planID, _ := result.Outputs["id"].(string)

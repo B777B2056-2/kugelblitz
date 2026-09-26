@@ -9,7 +9,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +28,7 @@ func slowCommand() string {
 // ---- T1: a timed-out command surfaces an error instead of reporting success.
 
 func TestShellExec_TimeoutReturnsError(t *testing.T) {
-	result := (&ShellExec{}).Execute(context.Background(), core.ToolCallDetail{
+	result := (&ShellExec{}).Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "shell_exec",
 		Args: map[string]any{"command": slowCommand(), "timeout": 1},
 	})
@@ -56,7 +56,7 @@ func TestTruncateString_UnderLimitUnchanged(t *testing.T) {
 // ---- T8: wrong-typed optional args are surfaced, not silently discarded.
 
 func TestShellExec_CwdTypeMismatch(t *testing.T) {
-	result := (&ShellExec{}).Execute(context.Background(), core.ToolCallDetail{
+	result := (&ShellExec{}).Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "shell_exec",
 		Args: map[string]any{"command": "echo hi", "cwd": 123},
 	})
@@ -65,7 +65,7 @@ func TestShellExec_CwdTypeMismatch(t *testing.T) {
 }
 
 func TestShellExec_TimeoutTypeMismatch(t *testing.T) {
-	result := (&ShellExec{}).Execute(context.Background(), core.ToolCallDetail{
+	result := (&ShellExec{}).Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "shell_exec",
 		Args: map[string]any{"command": "echo hi", "timeout": "lots"},
 	})
@@ -74,7 +74,7 @@ func TestShellExec_TimeoutTypeMismatch(t *testing.T) {
 }
 
 func TestAskHuman_ReasonTypeMismatch(t *testing.T) {
-	result := (&AskHumanTool{}).Execute(context.Background(), core.ToolCallDetail{
+	result := (&AskHumanTool{}).Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "ask_human",
 		Args: map[string]any{"question": "why?", "reason": 123},
 	})
@@ -90,7 +90,7 @@ func TestFileCopy_Move_RemovesSource(t *testing.T) {
 	dst := filepath.Join(dir, "b.txt")
 	require.NoError(t, os.WriteFile(src, []byte("hello"), 0644))
 
-	result := (&FileCopy{}).Execute(context.Background(), core.ToolCallDetail{
+	result := (&FileCopy{}).Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "file_copy",
 		Args: map[string]any{"source": src, "destination": dst, "move": true},
 	})
@@ -108,7 +108,7 @@ func TestDirCopy_Move_RemovesSource(t *testing.T) {
 	require.NoError(t, os.MkdirAll(src, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(src, "f.txt"), []byte("x"), 0644))
 
-	result := (&DirCopy{}).Execute(context.Background(), core.ToolCallDetail{
+	result := (&DirCopy{}).Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "dir_copy",
 		Args: map[string]any{"source": src, "destination": dst, "move": true},
 	})
@@ -134,7 +134,7 @@ func TestFileCopy_MoveFallback_RemoveErrorSurfaced(t *testing.T) {
 	defer os.Chmod(srcDir, 0755)
 
 	dst := filepath.Join(t.TempDir(), "b.txt")
-	result := (&FileCopy{}).Execute(context.Background(), core.ToolCallDetail{
+	result := (&FileCopy{}).Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "file_copy",
 		Args: map[string]any{"source": src, "destination": dst, "move": true},
 	})
@@ -156,7 +156,7 @@ func TestDirCopy_MoveFallback_RemoveErrorSurfaced(t *testing.T) {
 	defer os.Chmod(srcParent, 0755)
 
 	dst := filepath.Join(t.TempDir(), "dst")
-	result := (&DirCopy{}).Execute(context.Background(), core.ToolCallDetail{
+	result := (&DirCopy{}).Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "dir_copy",
 		Args: map[string]any{"source": src, "destination": dst, "move": true},
 	})

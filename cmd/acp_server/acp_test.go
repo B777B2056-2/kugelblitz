@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -294,9 +294,9 @@ func TestServer_Run_EOF(t *testing.T) {
 func TestServer_FullFlow(t *testing.T) {
 	// Build mock agent
 	mockAgent := newMockAgent()
-	mockAgent.executeFn = func(ctx context.Context, sys core.Message, userMsgs []core.Message) ([]core.Message, error) {
-		return []core.Message{
-			core.NewAssistantMessage(core.TextContent{Text: "I can help with that!"}),
+	mockAgent.executeFn = func(ctx context.Context, sys coretypes.Message, userMsgs []coretypes.Message) ([]coretypes.Message, error) {
+		return []coretypes.Message{
+			coretypes.NewAssistantMessage(coretypes.TextContent{Text: "I can help with that!"}),
 		}, nil
 	}
 

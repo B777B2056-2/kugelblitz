@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -54,15 +54,15 @@ func TestSessionManager_Delete_NotFound(t *testing.T) {
 func TestSessionManager_AppendMessage(t *testing.T) {
 	sm := NewSessionManager()
 	s := sm.Create("/tmp", nil)
-	msg := core.NewUserMessage(core.TextContent{Text: "hello"})
+	msg := coretypes.NewUserMessage(coretypes.TextContent{Text: "hello"})
 	require.NoError(t, sm.AppendMessage(s.ID, msg))
 	assert.Len(t, s.Messages, 1)
-	assert.Equal(t, "hello", s.Messages[0].Content.(core.TextContent).Text)
+	assert.Equal(t, "hello", s.Messages[0].Content.(coretypes.TextContent).Text)
 }
 
 func TestSessionManager_AppendMessage_NotFound(t *testing.T) {
 	sm := NewSessionManager()
-	err := sm.AppendMessage("nonexistent", core.Message{})
+	err := sm.AppendMessage("nonexistent", coretypes.Message{})
 	assert.Error(t, err)
 }
 

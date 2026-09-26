@@ -6,6 +6,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/config"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -86,7 +87,7 @@ func TestManager_CallMCPTool(t *testing.T) {
 	err := m.discoverAndRegister(context.Background(), "test", m.sessions["test"].session)
 	require.NoError(t, err)
 
-	result := core.CallTool(context.Background(), core.ToolCallDetail{
+	result := core.CallTool(context.Background(), coretypes.ToolCallDetail{
 		ID:       "call_1",
 		ToolName: "mcp_test_echo",
 		Args:     map[string]any{"message": "hello"},
@@ -128,7 +129,7 @@ func TestManager_CallMCPTool_Error(t *testing.T) {
 	err = m.discoverAndRegister(context.Background(), "errsrv", session)
 	require.NoError(t, err)
 
-	result := core.CallTool(context.Background(), core.ToolCallDetail{
+	result := core.CallTool(context.Background(), coretypes.ToolCallDetail{
 		ID:       "call_2",
 		ToolName: "mcp_errsrv_failing",
 		Args:     map[string]any{},

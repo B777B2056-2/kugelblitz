@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/stretchr/testify/assert"
@@ -19,8 +19,8 @@ func newConverter() *Converter { return NewConverter() }
 
 func TestConvertMessages_SystemMessage(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{
-		{ID: "s1", Role: constants.RoleSystem, Content: core.TextContent{Text: "system prompt"}},
+	msgs := []coretypes.Message{
+		{ID: "s1", Role: constants.RoleSystem, Content: coretypes.TextContent{Text: "system prompt"}},
 	}
 	result, err := c.ConvertMessages(msgs)
 	require.NoError(t, err)
@@ -29,7 +29,7 @@ func TestConvertMessages_SystemMessage(t *testing.T) {
 
 func TestConvertMessages_UserTextMessage(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{core.NewUserMessage(core.TextContent{Text: "hello"})}
+	msgs := []coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "hello"})}
 	result, err := c.ConvertMessages(msgs)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
@@ -37,7 +37,7 @@ func TestConvertMessages_UserTextMessage(t *testing.T) {
 
 func TestConvertMessages_AssistantTextMessage(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{core.NewAssistantMessage(core.TextContent{Text: "response"})}
+	msgs := []coretypes.Message{coretypes.NewAssistantMessage(coretypes.TextContent{Text: "response"})}
 	result, err := c.ConvertMessages(msgs)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
@@ -45,27 +45,27 @@ func TestConvertMessages_AssistantTextMessage(t *testing.T) {
 
 func TestConvertMessages_ToolCallWithReasoning(t *testing.T) {
 	c := newConverter()
-	msg := core.Message{
+	msg := coretypes.Message{
 		ID:   "a1",
 		Role: constants.RoleAssistant,
-		Content: core.CompositeContent{
-			Parts: []core.Content{
-				core.ReasoningContent{Reasoning: "I need to search"},
-				core.ToolCallContent{Details: []core.ToolCallDetail{
+		Content: coretypes.CompositeContent{
+			Parts: []coretypes.Content{
+				coretypes.ReasoningContent{Reasoning: "I need to search"},
+				coretypes.ToolCallContent{Details: []coretypes.ToolCallDetail{
 					{ID: "tc-1", ToolName: "search", Args: map[string]any{"q": "test"}},
 				}},
 			},
 		},
 	}
-	result, err := c.ConvertMessages([]core.Message{msg})
+	result, err := c.ConvertMessages([]coretypes.Message{msg})
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 }
 
 func TestConvertMessages_ToolResultMessage(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{
-		core.NewToolMessage([]core.ToolCallResult{
+	msgs := []coretypes.Message{
+		coretypes.NewToolMessage([]coretypes.ToolCallResult{
 			{ToolCallID: "tc-1", ToolName: "search", Outputs: map[string]any{"result": "found"}},
 		}),
 	}
@@ -76,14 +76,14 @@ func TestConvertMessages_ToolResultMessage(t *testing.T) {
 
 func TestConvertMessages_EmptyList(t *testing.T) {
 	c := newConverter()
-	result, err := c.ConvertMessages([]core.Message{})
+	result, err := c.ConvertMessages([]coretypes.Message{})
 	require.NoError(t, err)
 	assert.Empty(t, result)
 }
 
 func TestConvertMessages_UnknownRole(t *testing.T) {
 	c := newConverter()
-	_, err := c.ConvertMessages([]core.Message{{Role: constants.RoleType("invalid")}})
+	_, err := c.ConvertMessages([]coretypes.Message{{Role: constants.RoleType("invalid")}})
 	assert.Error(t, err)
 }
 
@@ -91,7 +91,7 @@ func TestConvertMessages_UnknownRole(t *testing.T) {
 
 func TestConvertTools_SingleTool(t *testing.T) {
 	c := newConverter()
-	tools := []core.ToolDefinition{
+	tools := []coretypes.ToolDefinition{
 		{Name: "search", Description: "Search", JSONSchema: map[string]any{"type": "object"}},
 	}
 	result, err := c.ConvertTools(tools)
@@ -101,7 +101,7 @@ func TestConvertTools_SingleTool(t *testing.T) {
 
 func TestConvertTools_Empty(t *testing.T) {
 	c := newConverter()
-	result, err := c.ConvertTools([]core.ToolDefinition{})
+	result, err := c.ConvertTools([]coretypes.ToolDefinition{})
 	require.NoError(t, err)
 	assert.Nil(t, result)
 }
@@ -155,7 +155,7 @@ func TestIsStrictCompliant(t *testing.T) {
 
 func TestConvertTools_StrictOnlyWhenCompliant(t *testing.T) {
 	c := newConverter()
-	compliant := core.ToolDefinition{
+	compliant := coretypes.ToolDefinition{
 		Name: "compliant", Description: "C",
 		JSONSchema: map[string]any{
 			"type": "object",
@@ -166,7 +166,7 @@ func TestConvertTools_StrictOnlyWhenCompliant(t *testing.T) {
 			"additionalProperties": false,
 		},
 	}
-	nonCompliant := core.ToolDefinition{
+	nonCompliant := coretypes.ToolDefinition{
 		Name: "noncompliant", Description: "N",
 		JSONSchema: map[string]any{
 			"type": "object",
@@ -176,7 +176,7 @@ func TestConvertTools_StrictOnlyWhenCompliant(t *testing.T) {
 		},
 	}
 
-	result, err := c.ConvertTools([]core.ToolDefinition{compliant, nonCompliant})
+	result, err := c.ConvertTools([]coretypes.ToolDefinition{compliant, nonCompliant})
 	require.NoError(t, err)
 	require.Len(t, result, 2)
 
@@ -197,7 +197,7 @@ func TestParseResponse_TextMessage(t *testing.T) {
 	result, err := c.ParseResponse(context.Background(), "p1", raw)
 	require.NoError(t, err)
 
-	text, ok := result.Content.(core.TextContent)
+	text, ok := result.Content.(coretypes.TextContent)
 	require.True(t, ok)
 	assert.Equal(t, "hello world", text.Text)
 }
@@ -212,7 +212,7 @@ func TestParseResponse_ToolCalls(t *testing.T) {
 	result, err := c.ParseResponse(context.Background(), "p1", raw)
 	require.NoError(t, err)
 
-	toolContent, ok := result.Content.(core.ToolCallContent)
+	toolContent, ok := result.Content.(coretypes.ToolCallContent)
 	require.True(t, ok)
 	assert.Equal(t, "search", toolContent.Details[0].ToolName)
 }
@@ -228,7 +228,7 @@ func TestParseStreamChunk_TextDelta(t *testing.T) {
 	}
 	result, err := c.ParseStreamChunk(context.Background(), "p1", raw)
 	require.NoError(t, err)
-	text, ok := result.Content.(core.TextContent)
+	text, ok := result.Content.(coretypes.TextContent)
 	require.True(t, ok)
 	assert.Equal(t, "hello", text.Text)
 }
@@ -289,9 +289,9 @@ func TestParseReasoningFromChunkRaw_Absent(t *testing.T) {
 
 func TestConvertMessages_UserImageMessage(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{
-		core.NewUserMessage(core.MultiModalContent{
-			Detail: core.MultiModalDetail{
+	msgs := []coretypes.Message{
+		coretypes.NewUserMessage(coretypes.MultiModalContent{
+			Detail: coretypes.MultiModalDetail{
 				ID:       "img-1",
 				Type:     constants.MultiModalTypeImage,
 				Base64:   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk",
@@ -320,9 +320,9 @@ func TestConvertMessages_UserImageMessage(t *testing.T) {
 
 func TestConvertMessages_UserAudioMessage(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{
-		core.NewUserMessage(core.MultiModalContent{
-			Detail: core.MultiModalDetail{
+	msgs := []coretypes.Message{
+		coretypes.NewUserMessage(coretypes.MultiModalContent{
+			Detail: coretypes.MultiModalDetail{
 				ID:       "aud-1",
 				Type:     constants.MultiModalTypeAudio,
 				Base64:   "ZGF0YQ==", // "data" in base64
@@ -348,12 +348,12 @@ func TestConvertMessages_UserAudioMessage(t *testing.T) {
 
 func TestConvertMessages_UserCompositeTextAndImage(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{
-		core.NewUserMessage(core.CompositeContent{
-			Parts: []core.Content{
-				core.TextContent{Text: "请描述这张图片"},
-				core.MultiModalContent{
-					Detail: core.MultiModalDetail{
+	msgs := []coretypes.Message{
+		coretypes.NewUserMessage(coretypes.CompositeContent{
+			Parts: []coretypes.Content{
+				coretypes.TextContent{Text: "请描述这张图片"},
+				coretypes.MultiModalContent{
+					Detail: coretypes.MultiModalDetail{
 						ID:       "img-1",
 						Type:     constants.MultiModalTypeImage,
 						Base64:   "iVBORw0KGgo=",
@@ -384,9 +384,9 @@ func TestConvertMessages_UserCompositeTextAndImage(t *testing.T) {
 
 func TestConvertMessages_UserVideoMessage(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{
-		core.NewUserMessage(core.MultiModalContent{
-			Detail: core.MultiModalDetail{
+	msgs := []coretypes.Message{
+		coretypes.NewUserMessage(coretypes.MultiModalContent{
+			Detail: coretypes.MultiModalDetail{
 				ID:       "vid-1",
 				Type:     constants.MultiModalTypeVideo,
 				Base64:   "iVBORw0KGgo=",
@@ -408,9 +408,9 @@ func TestConvertMessages_UserVideoMessage(t *testing.T) {
 
 func TestConvertMessages_UnsupportedMediaType(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{
-		core.NewUserMessage(core.MultiModalContent{
-			Detail: core.MultiModalDetail{
+	msgs := []coretypes.Message{
+		coretypes.NewUserMessage(coretypes.MultiModalContent{
+			Detail: coretypes.MultiModalDetail{
 				ID:   "pdf-1",
 				Type: constants.MultiModalTypePDF,
 			},

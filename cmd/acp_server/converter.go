@@ -2,24 +2,24 @@ package main
 
 import (
 	"github.com/B777B2056-2/kugelblitz/constants"
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/google/uuid"
 )
 
 // ContentBlocksToMessages converts ACP content blocks into Kugelblitz core.Messages.
 // Each content block becomes a user message (since ACP sessions receive user prompts).
-func ContentBlocksToMessages(blocks []ContentBlock) ([]core.Message, error) {
+func ContentBlocksToMessages(blocks []ContentBlock) ([]coretypes.Message, error) {
 	if len(blocks) == 0 {
 		return nil, nil
 	}
 
-	msgs := make([]core.Message, 0, len(blocks))
+	msgs := make([]coretypes.Message, 0, len(blocks))
 	for _, block := range blocks {
 		content := contentBlockToCoreContent(block)
 		if content == nil {
 			continue
 		}
-		msgs = append(msgs, core.Message{
+		msgs = append(msgs, coretypes.Message{
 			ID:      uuid.New().String(),
 			Role:    constants.RoleUser,
 			Content: content,
@@ -28,11 +28,11 @@ func ContentBlocksToMessages(blocks []ContentBlock) ([]core.Message, error) {
 	return msgs, nil
 }
 
-// contentBlockToCoreContent converts a single ACP content block to a core.Content.
-func contentBlockToCoreContent(block ContentBlock) core.Content {
+// contentBlockToCoreContent converts a single ACP content block to a coretypes.Content.
+func contentBlockToCoreContent(block ContentBlock) coretypes.Content {
 	switch block.Type {
 	case ContentBlockTypeText:
-		return core.TextContent{Text: block.Text}
+		return coretypes.TextContent{Text: block.Text}
 
 	case ContentBlockTypeImage:
 		mimeType := block.MimeType
@@ -40,16 +40,16 @@ func contentBlockToCoreContent(block ContentBlock) core.Content {
 		if mimeType != "" {
 			mmType = mimeToMultiModalType(mimeType)
 		}
-		return core.MultiModalContent{
-			Detail: core.MultiModalDetail{
+		return coretypes.MultiModalContent{
+			Detail: coretypes.MultiModalDetail{
 				Type:   mmType,
 				Base64: block.Data,
 			},
 		}
 
 	case ContentBlockTypeResourceLink:
-		return core.MultiModalContent{
-			Detail: core.MultiModalDetail{
+		return coretypes.MultiModalContent{
+			Detail: coretypes.MultiModalDetail{
 				Type: constants.MultiModalTypeUnknown,
 				Path: block.URI,
 			},
@@ -57,19 +57,19 @@ func contentBlockToCoreContent(block ContentBlock) core.Content {
 
 	case ContentBlockTypeResource:
 		if block.Resource != nil {
-			return core.TextContent{Text: block.Resource.Text}
+			return coretypes.TextContent{Text: block.Resource.Text}
 		}
-		return core.TextContent{Text: block.Text}
+		return coretypes.TextContent{Text: block.Text}
 
 	default:
 		// Fallback: treat unknown types as text
-		return core.TextContent{Text: block.Text}
+		return coretypes.TextContent{Text: block.Text}
 	}
 }
 
 // MessagesToContentBlocks converts Kugelblitz core.Messages back into ACP content blocks.
 // This is used when replaying session history during session/load.
-func MessagesToContentBlocks(msgs []core.Message) []ContentBlock {
+func MessagesToContentBlocks(msgs []coretypes.Message) []ContentBlock {
 	if len(msgs) == 0 {
 		return nil
 	}
@@ -84,32 +84,32 @@ func MessagesToContentBlocks(msgs []core.Message) []ContentBlock {
 	return blocks
 }
 
-// coreContentToContentBlock converts a core.Content to an ACP content block.
-func coreContentToContentBlock(c core.Content) *ContentBlock {
+// coreContentToContentBlock converts a coretypes.Content to an ACP content block.
+func coreContentToContentBlock(c coretypes.Content) *ContentBlock {
 	if c == nil {
 		return nil
 	}
 
 	switch ct := c.(type) {
-	case core.TextContent:
+	case coretypes.TextContent:
 		return &ContentBlock{
 			Type: ContentBlockTypeText,
 			Text: ct.Text,
 		}
 
-	case core.ReasoningContent:
+	case coretypes.ReasoningContent:
 		// Reasoning is internal — don't expose as a content block
 		return nil
 
-	case core.ToolCallContent:
+	case coretypes.ToolCallContent:
 		// Tool calls are sent via session/update notifications, not content blocks
 		return nil
 
-	case core.ToolResultContent:
+	case coretypes.ToolResultContent:
 		// Tool results are sent via session/update notifications, not content blocks
 		return nil
 
-	case core.MultiModalContent:
+	case coretypes.MultiModalContent:
 		switch ct.Detail.Type {
 		case constants.MultiModalTypeImage:
 			return &ContentBlock{
@@ -125,10 +125,10 @@ func coreContentToContentBlock(c core.Content) *ContentBlock {
 			}
 		}
 
-	case core.CompositeContent:
+	case coretypes.CompositeContent:
 		// Return the first text part (composite combines multiple parts)
 		for _, part := range ct.Parts {
-			if tc, ok := part.(core.TextContent); ok {
+			if tc, ok := part.(coretypes.TextContent); ok {
 				return &ContentBlock{
 					Type: ContentBlockTypeText,
 					Text: tc.Text,
@@ -153,15 +153,15 @@ func TextToStreamChunks(text string) []AgentMessageChunk {
 	}
 }
 
-// ToolCallToNotification converts a core.ToolCallDetail to an ACP v1 tool_call notification.
+// ToolCallToNotification converts a coretypes.ToolCallDetail to an ACP v1 tool_call notification.
 // Deprecated: use NewToolCallNotification for direct construction.
-func ToolCallToNotification(detail core.ToolCallDetail) ToolCallNotification {
+func ToolCallToNotification(detail coretypes.ToolCallDetail) ToolCallNotification {
 	return NewToolCallNotification(detail.ID, detail.ToolName, detail.Args)
 }
 
-// ToolResultToNotification converts a core.ToolCallResult to an ACP v1 tool_call_update notification.
+// ToolResultToNotification converts a coretypes.ToolCallResult to an ACP v1 tool_call_update notification.
 // Deprecated: use NewToolCallUpdateNotification for direct construction.
-func ToolResultToNotification(result core.ToolCallResult) ToolCallUpdateNotification {
+func ToolResultToNotification(result coretypes.ToolCallResult) ToolCallUpdateNotification {
 	status := ToolCallStatusCompleted
 	if _, hasErr := result.Outputs["error"]; hasErr {
 		status = ToolCallStatusError

@@ -7,6 +7,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 )
 
 // Handler processes ACP JSON-RPC method calls and routes them to the
@@ -16,7 +17,7 @@ type Handler struct {
 	transport  *Transport
 	sessions   *SessionManager
 	agent      core.IAgent
-	provider   core.ILMProvider
+	provider   coretypes.ILMProvider
 	serverInfo ServerInfo
 }
 
@@ -185,10 +186,10 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 		return nil, fmt.Errorf("failed to convert prompt: %w", err)
 	}
 
-	systemMsg := core.Message{
+	systemMsg := coretypes.Message{
 		ID:   "system",
 		Role: "system",
-		Content: core.TextContent{
+		Content: coretypes.TextContent{
 			Text: fmt.Sprintf("You are an AI coding agent. Working directory: %s", session.Cwd),
 		},
 	}
@@ -206,14 +207,14 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 				SessionID: sid, Update: NewAgentMessageChunk(text),
 			})
 		},
-		OnFunctionCall: func(id constants.AgentIdentity, detail core.ToolCallDetail) {
+		OnFunctionCall: func(id constants.AgentIdentity, detail coretypes.ToolCallDetail) {
 			core.Debug("ACP: tool call", "session", sid, "tool", detail.ToolName, "tool_call_id", detail.ID)
 			notif := NewToolCallNotification(detail.ID, detail.ToolName, detail.Args)
 			h.notify("session/update", SessionUpdateParams{
 				SessionID: sid, Update: notif,
 			})
 		},
-		OnToolCallEnd: func(id constants.AgentIdentity, result core.ToolCallResult) {
+		OnToolCallEnd: func(id constants.AgentIdentity, result coretypes.ToolCallResult) {
 			status := ToolCallStatusCompleted
 			if _, hasErr := result.Outputs["error"]; hasErr {
 				status = ToolCallStatusError
@@ -235,7 +236,7 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 				}
 			}()
 		},
-		OnUsageUpdated: func(id constants.AgentIdentity, usage core.Usage) {
+		OnUsageUpdated: func(id constants.AgentIdentity, usage coretypes.Usage) {
 			core.Debug("ACP: usage", "session", sid, "identity", string(id), "total", usage.TotalTokens)
 		},
 		OnError: func(id constants.AgentIdentity, err error) {

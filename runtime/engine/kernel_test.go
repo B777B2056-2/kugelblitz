@@ -6,6 +6,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/config"
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory"
 
 	"github.com/stretchr/testify/assert"
@@ -49,7 +50,7 @@ func TestKernel_RegisterEventHooks(t *testing.T) {
 	k := newTestKernel()
 
 	hooks := core.AgentEventHooks{
-		OnToolCallEnd: func(id constants.AgentIdentity, result core.ToolCallResult) {},
+		OnToolCallEnd: func(id constants.AgentIdentity, result coretypes.ToolCallResult) {},
 	}
 	k.RegisterEventHooks(hooks)
 

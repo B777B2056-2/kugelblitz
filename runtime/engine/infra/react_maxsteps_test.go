@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,19 +15,19 @@ import (
 // forever (B4).
 func TestReactAgent_MaxSteps_BoundsInfiniteLoop(t *testing.T) {
 	core.RegisterTool(
-		core.ToolDefinition{Name: "loop_tool", Description: "always called"},
-		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-			return core.ToolCallResult{ToolCallID: detail.ID, ToolName: detail.ToolName, Outputs: map[string]any{"ok": true}}
+		coretypes.ToolDefinition{Name: "loop_tool", Description: "always called"},
+		func(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
+			return coretypes.ToolCallResult{ToolCallID: detail.ID, ToolName: detail.ToolName, Outputs: map[string]any{"ok": true}}
 		},
 	)
 
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
-			msg := core.NewAssistantMessage(nil)
-			msg.Content = core.ToolCallContent{
-				Details: []core.ToolCallDetail{
+			msg := coretypes.NewAssistantMessage(nil)
+			msg.Content = coretypes.ToolCallContent{
+				Details: []coretypes.ToolCallDetail{
 					{ID: "tc", ToolName: "loop_tool", Args: map[string]any{}},
 				},
 			}
@@ -39,12 +40,12 @@ func TestReactAgent_MaxSteps_BoundsInfiniteLoop(t *testing.T) {
 
 	_, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "go"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "go"})},
 	)
 
 	require.Error(t, err)
-	require.True(t, errors.Is(err, core.ErrMaxStepsExceeded), "expected ErrMaxStepsExceeded, got %v", err)
+	require.True(t, errors.Is(err, coretypes.ErrMaxStepsExceeded), "expected ErrMaxStepsExceeded, got %v", err)
 	require.Equal(t, 5, callCount, "expected exactly maxSteps LLM calls")
 }
 
@@ -53,9 +54,9 @@ func TestReactAgent_MaxSteps_BoundsInfiniteLoop(t *testing.T) {
 func TestReactAgent_MaxSteps_ZeroMeansUnlimited(t *testing.T) {
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
-			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "done"})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -65,8 +66,8 @@ func TestReactAgent_MaxSteps_ZeroMeansUnlimited(t *testing.T) {
 
 	_, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "hi"})},
 	)
 
 	require.NoError(t, err)

@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 )
 
 // Server is the top-level ACP adapter. It reads JSON-RPC 2.0 messages from
@@ -28,7 +29,7 @@ import (
 //	srv.Run(context.Background())
 type Server struct {
 	agent     core.IAgent
-	provider  core.ILMProvider
+	provider  coretypes.ILMProvider
 	sessions  *SessionManager
 	handler   *Handler
 	transport *Transport
@@ -74,7 +75,7 @@ func WithIO(stdin io.Reader, stdout io.Writer) Option {
 
 // NewServer creates a new ACP Server with the given agent and provider.
 // Options can customize the workspace, capabilities, tool filter, etc.
-func NewServer(agent core.IAgent, provider core.ILMProvider, opts ...Option) *Server {
+func NewServer(agent core.IAgent, provider coretypes.ILMProvider, opts ...Option) *Server {
 	s := &Server{
 		agent:    agent,
 		provider: provider,

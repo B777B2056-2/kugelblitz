@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel"
@@ -12,9 +12,9 @@ import (
 
 func TestReviewer_Review_NoDrift(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage(core.ToolCallContent{
-				Details: []core.ToolCallDetail{{
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
+			msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+				Details: []coretypes.ToolCallDetail{{
 					ID: "tc-1", ToolName: "reviewer_report",
 					Args: map[string]any{"drift": false, "reason": "All tasks aligned with goal"},
 				}},
@@ -31,9 +31,9 @@ func TestReviewer_Review_NoDrift(t *testing.T) {
 
 func TestReviewer_Review_Drift(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage(core.ToolCallContent{
-				Details: []core.ToolCallDetail{{
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
+			msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+				Details: []coretypes.ToolCallDetail{{
 					ID: "tc-1", ToolName: "reviewer_report",
 					Args: map[string]any{
 						"drift":      true,
@@ -55,7 +55,7 @@ func TestReviewer_Review_Drift(t *testing.T) {
 
 func TestReviewer_Review_ProviderError(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			return nil, assert.AnError
 		},
 	}
@@ -70,9 +70,9 @@ func TestReviewer_Review_ProviderError(t *testing.T) {
 
 func TestReviewer_Review_MissingDriftField(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage(core.ToolCallContent{
-				Details: []core.ToolCallDetail{{
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
+			msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+				Details: []coretypes.ToolCallDetail{{
 					ID: "tc-1", ToolName: "reviewer_report",
 					Args: map[string]any{"reason": "no drift field present"},
 				}},
@@ -88,9 +88,9 @@ func TestReviewer_Review_MissingDriftField(t *testing.T) {
 
 func TestReviewer_Review_NonBoolDriftField(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage(core.ToolCallContent{
-				Details: []core.ToolCallDetail{{
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
+			msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+				Details: []coretypes.ToolCallDetail{{
 					ID: "tc-1", ToolName: "reviewer_report",
 					Args: map[string]any{"drift": "yes", "reason": "drift is a string"},
 				}},
@@ -106,8 +106,8 @@ func TestReviewer_Review_NonBoolDriftField(t *testing.T) {
 
 func TestReviewer_Review_PlainTextFallback(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage(core.TextContent{Text: "Everything looks good"})
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "Everything looks good"})
 			return &msg, nil
 		},
 	}

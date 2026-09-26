@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,12 +14,12 @@ import (
 // producing "Hello WorldHello World".
 func TestWorkerAgent_ExecuteTask_NoDuplicateOutput_StreamMode(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			if params.EventHandler != nil {
 				params.EventHandler.OnReplyChunk("Hello")
 				params.EventHandler.OnReplyChunk(" World")
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "Hello World"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "Hello World"})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -35,8 +35,8 @@ func TestWorkerAgent_ExecuteTask_NoDuplicateOutput_StreamMode(t *testing.T) {
 // captured from the returned message.
 func TestWorkerAgent_ExecuteTask_BlockMode_CapturesOutput(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage(core.TextContent{Text: "Hello World"})
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "Hello World"})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -51,14 +51,14 @@ func TestWorkerAgent_ExecuteTask_BlockMode_CapturesOutput(t *testing.T) {
 // (reasoning + text): the text portion must be captured without duplication.
 func TestWorkerAgent_ExecuteTask_CompositeReply(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			if params.EventHandler != nil {
 				params.EventHandler.OnReplyChunk("final answer")
 			}
-			msg := core.NewAssistantMessage(core.CompositeContent{
-				Parts: []core.Content{
-					core.ReasoningContent{Reasoning: "thinking"},
-					core.TextContent{Text: "final answer"},
+			msg := coretypes.NewAssistantMessage(coretypes.CompositeContent{
+				Parts: []coretypes.Content{
+					coretypes.ReasoningContent{Reasoning: "thinking"},
+					coretypes.TextContent{Text: "final answer"},
 				},
 			})
 			msg.FinishReason = "stop"

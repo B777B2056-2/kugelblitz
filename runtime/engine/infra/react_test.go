@@ -9,18 +9,19 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/tools/internals"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// MockProvider implements core.ILMProvider for testing ReactAgent.
+// MockProvider implements coretypes.ILMProvider for testing ReactAgent.
 type MockProvider struct {
-	GenerateFn func(ctx context.Context, params core.GenerateParams) (*core.Message, error)
+	GenerateFn func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error)
 }
 
-func (m *MockProvider) Generate(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+func (m *MockProvider) Generate(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 	if m.GenerateFn != nil {
 		return m.GenerateFn(ctx, params)
 	}
@@ -29,8 +30,8 @@ func (m *MockProvider) Generate(ctx context.Context, params core.GenerateParams)
 
 func TestReactAgent_Execute_SimpleTextResponse(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage(core.TextContent{Text: "hello world"})
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "hello world"})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -39,14 +40,14 @@ func TestReactAgent_Execute_SimpleTextResponse(t *testing.T) {
 	agent := NewReactAgent(provider, false)
 	messages, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "hi"})},
 	)
 
 	require.NoError(t, err)
 	require.Len(t, messages, 1)
 
-	textContent, ok := messages[0].Content.(core.TextContent)
+	textContent, ok := messages[0].Content.(coretypes.TextContent)
 	require.True(t, ok, "expected TextContent, got %T", messages[0].Content)
 	assert.Equal(t, "hello world", textContent.Text)
 }
@@ -54,9 +55,9 @@ func TestReactAgent_Execute_SimpleTextResponse(t *testing.T) {
 func TestReactAgent_Execute_SingleToolCall(t *testing.T) {
 
 	core.RegisterTool(
-		core.ToolDefinition{Name: "get_weather", Description: "Get weather"},
-		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-			return core.ToolCallResult{
+		coretypes.ToolDefinition{Name: "get_weather", Description: "Get weather"},
+		func(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
+			return coretypes.ToolCallResult{
 				ToolCallID: detail.ID,
 				ToolName:   detail.ToolName,
 				Outputs:    map[string]any{"temp": 72},
@@ -66,18 +67,18 @@ func TestReactAgent_Execute_SingleToolCall(t *testing.T) {
 
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
 			if callCount == 1 {
-				msg := core.NewAssistantMessage(nil)
-				msg.Content = core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(nil)
+				msg.Content = coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-1", ToolName: "get_weather", Args: map[string]any{"city": "NYC"}},
 					},
 				}
 				return &msg, nil
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "The weather is 72°F"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "The weather is 72°F"})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -86,19 +87,19 @@ func TestReactAgent_Execute_SingleToolCall(t *testing.T) {
 	agent := NewReactAgent(provider, false)
 	messages, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "what's the weather?"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "what's the weather?"})},
 	)
 
 	require.NoError(t, err)
 	require.Len(t, messages, 3)
 	assert.Equal(t, 2, callCount)
 
-	toolCallContent, ok := messages[0].Content.(core.ToolCallContent)
+	toolCallContent, ok := messages[0].Content.(coretypes.ToolCallContent)
 	require.True(t, ok)
 	assert.Equal(t, "get_weather", toolCallContent.Details[0].ToolName)
 
-	textContent, ok := messages[2].Content.(core.TextContent)
+	textContent, ok := messages[2].Content.(coretypes.TextContent)
 	require.True(t, ok)
 	assert.Equal(t, "The weather is 72°F", textContent.Text)
 }
@@ -106,37 +107,37 @@ func TestReactAgent_Execute_SingleToolCall(t *testing.T) {
 func TestReactAgent_Execute_MultiTurnToolCalls(t *testing.T) {
 
 	core.RegisterTool(
-		core.ToolDefinition{Name: "step1", Description: "First step"},
-		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-			return core.ToolCallResult{ToolCallID: detail.ID, ToolName: detail.ToolName, Outputs: map[string]any{"done": true}}
+		coretypes.ToolDefinition{Name: "step1", Description: "First step"},
+		func(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
+			return coretypes.ToolCallResult{ToolCallID: detail.ID, ToolName: detail.ToolName, Outputs: map[string]any{"done": true}}
 		},
 	)
 	core.RegisterTool(
-		core.ToolDefinition{Name: "step2", Description: "Second step"},
-		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-			return core.ToolCallResult{ToolCallID: detail.ID, ToolName: detail.ToolName, Outputs: map[string]any{"done": true}}
+		coretypes.ToolDefinition{Name: "step2", Description: "Second step"},
+		func(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
+			return coretypes.ToolCallResult{ToolCallID: detail.ID, ToolName: detail.ToolName, Outputs: map[string]any{"done": true}}
 		},
 	)
 
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
 			switch callCount {
 			case 1:
-				msg := core.NewAssistantMessage(nil)
-				msg.Content = core.ToolCallContent{
-					Details: []core.ToolCallDetail{{ID: "tc-1", ToolName: "step1", Args: nil}},
+				msg := coretypes.NewAssistantMessage(nil)
+				msg.Content = coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{{ID: "tc-1", ToolName: "step1", Args: nil}},
 				}
 				return &msg, nil
 			case 2:
-				msg := core.NewAssistantMessage(nil)
-				msg.Content = core.ToolCallContent{
-					Details: []core.ToolCallDetail{{ID: "tc-2", ToolName: "step2", Args: nil}},
+				msg := coretypes.NewAssistantMessage(nil)
+				msg.Content = coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{{ID: "tc-2", ToolName: "step2", Args: nil}},
 				}
 				return &msg, nil
 			default:
-				msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+				msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "done"})
 				return &msg, nil
 			}
 		},
@@ -145,8 +146,8 @@ func TestReactAgent_Execute_MultiTurnToolCalls(t *testing.T) {
 	agent := NewReactAgent(provider, false)
 	messages, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "go"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "go"})},
 	)
 
 	require.NoError(t, err)
@@ -156,7 +157,7 @@ func TestReactAgent_Execute_MultiTurnToolCalls(t *testing.T) {
 
 func TestReactAgent_Execute_ProviderError(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			return nil, errors.New("api error")
 		},
 	}
@@ -164,8 +165,8 @@ func TestReactAgent_Execute_ProviderError(t *testing.T) {
 	agent := NewReactAgent(provider, false)
 	_, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "hi"})},
 	)
 
 	assert.Error(t, err)
@@ -176,18 +177,18 @@ func TestReactAgent_Execute_ToolNotFound(t *testing.T) {
 
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
 			if callCount == 1 {
-				msg := core.NewAssistantMessage(nil)
-				msg.Content = core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(nil)
+				msg.Content = coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-1", ToolName: "nonexistent", Args: nil},
 					},
 				}
 				return &msg, nil
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "I couldn't find that tool"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "I couldn't find that tool"})
 			return &msg, nil
 		},
 	}
@@ -195,8 +196,8 @@ func TestReactAgent_Execute_ToolNotFound(t *testing.T) {
 	agent := NewReactAgent(provider, false)
 	messages, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "hi"})},
 	)
 
 	require.NoError(t, err)
@@ -205,14 +206,14 @@ func TestReactAgent_Execute_ToolNotFound(t *testing.T) {
 
 func TestReactAgent_Execute_BlockMode_CallsEventHandler(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			if params.EventHandler != nil {
 				params.EventHandler.OnFinished("stop")
-				params.EventHandler.OnUsageUpdated(core.Usage{TotalTokens: 42})
+				params.EventHandler.OnUsageUpdated(coretypes.Usage{TotalTokens: 42})
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "response"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "response"})
 			msg.FinishReason = "stop"
-			msg.Usage = &core.Usage{TotalTokens: 42}
+			msg.Usage = &coretypes.Usage{TotalTokens: 42}
 			return &msg, nil
 		},
 	}
@@ -224,16 +225,16 @@ func TestReactAgent_Execute_BlockMode_CallsEventHandler(t *testing.T) {
 		OnThinkingChunk: func(id constants.AgentIdentity, chunk string) { handler.OnThinkingChunk(chunk) },
 		OnBlockReply:    func(id constants.AgentIdentity, text string) { handler.OnBlockReply(text) },
 		OnBlockThinking: func(id constants.AgentIdentity, reasoning string) { handler.OnBlockThinking(reasoning) },
-		OnFunctionCall:  func(id constants.AgentIdentity, detail core.ToolCallDetail) { handler.OnFunctionCall(detail) },
+		OnFunctionCall:  func(id constants.AgentIdentity, detail coretypes.ToolCallDetail) { handler.OnFunctionCall(detail) },
 		OnModelFinished: func(id constants.AgentIdentity, reason string) { handler.OnFinished(reason) },
-		OnUsageUpdated:  func(id constants.AgentIdentity, usage core.Usage) { handler.OnUsageUpdated(usage) },
+		OnUsageUpdated:  func(id constants.AgentIdentity, usage coretypes.Usage) { handler.OnUsageUpdated(usage) },
 		OnError:         func(id constants.AgentIdentity, err error) { handler.OnError(err) },
 	})
 
 	messages, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "hi"})},
 	)
 
 	require.NoError(t, err)
@@ -246,13 +247,13 @@ func TestReactAgent_Execute_BlockMode_CallsEventHandler(t *testing.T) {
 
 func TestReactAgent_Execute_StreamMode_CallsEventHandler(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			if params.EventHandler != nil {
 				params.EventHandler.OnReplyChunk("Hello")
 				params.EventHandler.OnReplyChunk(" World")
 				params.EventHandler.OnFinished("stop")
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "Hello World"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "Hello World"})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -265,16 +266,16 @@ func TestReactAgent_Execute_StreamMode_CallsEventHandler(t *testing.T) {
 		OnThinkingChunk: func(id constants.AgentIdentity, chunk string) { handler.OnThinkingChunk(chunk) },
 		OnBlockReply:    func(id constants.AgentIdentity, text string) { handler.OnBlockReply(text) },
 		OnBlockThinking: func(id constants.AgentIdentity, reasoning string) { handler.OnBlockThinking(reasoning) },
-		OnFunctionCall:  func(id constants.AgentIdentity, detail core.ToolCallDetail) { handler.OnFunctionCall(detail) },
+		OnFunctionCall:  func(id constants.AgentIdentity, detail coretypes.ToolCallDetail) { handler.OnFunctionCall(detail) },
 		OnModelFinished: func(id constants.AgentIdentity, reason string) { handler.OnFinished(reason) },
-		OnUsageUpdated:  func(id constants.AgentIdentity, usage core.Usage) { handler.OnUsageUpdated(usage) },
+		OnUsageUpdated:  func(id constants.AgentIdentity, usage coretypes.Usage) { handler.OnUsageUpdated(usage) },
 		OnError:         func(id constants.AgentIdentity, err error) { handler.OnError(err) },
 	})
 
 	messages, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "hi"})},
 	)
 
 	require.NoError(t, err)
@@ -286,7 +287,7 @@ func TestReactAgent_Execute_StreamMode_CallsEventHandler(t *testing.T) {
 func TestReactAgent_RegisterEventHooks_StoresCorrectly(t *testing.T) {
 	agent := NewReactAgent(nil, false)
 	hooks := core.AgentEventHooks{
-		OnToolCallEnd: func(id constants.AgentIdentity, result core.ToolCallResult) {},
+		OnToolCallEnd: func(id constants.AgentIdentity, result coretypes.ToolCallResult) {},
 	}
 	agent.RegisterEventHooks(hooks)
 	assert.NotNil(t, agent.EventHooks.OnToolCallEnd)
@@ -306,12 +307,12 @@ func TestReactAgent_Interrupt_SendsSignal(t *testing.T) {
 
 func TestReactAgent_WithTools_FiltersVisibleTools(t *testing.T) {
 
-	core.RegisterTool(core.ToolDefinition{Name: "tool_a", Description: "A"}, nil)
-	core.RegisterTool(core.ToolDefinition{Name: "tool_b", Description: "B"}, nil)
-	core.RegisterTool(core.ToolDefinition{Name: "tool_c", Description: "C"}, nil)
+	core.RegisterTool(coretypes.ToolDefinition{Name: "tool_a", Description: "A"}, nil)
+	core.RegisterTool(coretypes.ToolDefinition{Name: "tool_b", Description: "B"}, nil)
+	core.RegisterTool(coretypes.ToolDefinition{Name: "tool_c", Description: "C"}, nil)
 
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			assert.Len(t, params.Tools, 2)
 			names := make(map[string]bool)
 			for _, d := range params.Tools {
@@ -321,7 +322,7 @@ func TestReactAgent_WithTools_FiltersVisibleTools(t *testing.T) {
 			assert.True(t, names["tool_c"])
 			assert.False(t, names["tool_b"])
 
-			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "done"})
 			return &msg, nil
 		},
 	}
@@ -331,20 +332,20 @@ func TestReactAgent_WithTools_FiltersVisibleTools(t *testing.T) {
 
 	_, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "sys"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "sys"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "hi"})},
 	)
 	require.NoError(t, err)
 }
 
 func TestReactAgent_WithTools_EmptyResetsToAll(t *testing.T) {
 
-	core.RegisterTool(core.ToolDefinition{Name: "tool_x", Description: "X"}, nil)
+	core.RegisterTool(coretypes.ToolDefinition{Name: "tool_x", Description: "X"}, nil)
 
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			assert.GreaterOrEqual(t, len(params.Tools), 1)
-			msg := core.NewAssistantMessage(core.TextContent{Text: "ok"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "ok"})
 			return &msg, nil
 		},
 	}
@@ -353,8 +354,8 @@ func TestReactAgent_WithTools_EmptyResetsToAll(t *testing.T) {
 	agent.WithTools("some_other").WithTools()
 	_, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "sys"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "sys"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "hi"})},
 	)
 	require.NoError(t, err)
 }
@@ -368,13 +369,13 @@ func TestReactAgent_WithTools_ChainedCalls(t *testing.T) {
 
 func TestReactAgent_DefaultSeesAllTools(t *testing.T) {
 
-	core.RegisterTool(core.ToolDefinition{Name: "t1", Description: "T1"}, nil)
-	core.RegisterTool(core.ToolDefinition{Name: "t2", Description: "T2"}, nil)
+	core.RegisterTool(coretypes.ToolDefinition{Name: "t1", Description: "T1"}, nil)
+	core.RegisterTool(coretypes.ToolDefinition{Name: "t2", Description: "T2"}, nil)
 
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			assert.GreaterOrEqual(t, len(params.Tools), 2)
-			msg := core.NewAssistantMessage(core.TextContent{Text: "ok"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "ok"})
 			return &msg, nil
 		},
 	}
@@ -382,19 +383,19 @@ func TestReactAgent_DefaultSeesAllTools(t *testing.T) {
 	agent := NewReactAgent(provider, false)
 	_, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "sys"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "sys"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "hi"})},
 	)
 	require.NoError(t, err)
 }
 
-// testEventHandler implements core.ModelEventHandler for testing.
+// testEventHandler implements coretypes.ModelEventHandler for testing.
 type testEventHandler struct {
 	thinkingChunks []string
 	replyChunks    []string
-	toolCalls      []core.ToolCallDetail
+	toolCalls      []coretypes.ToolCallDetail
 	finishReasons  []string
-	usages         []core.Usage
+	usages         []coretypes.Usage
 	errors         []error
 }
 
@@ -406,13 +407,13 @@ func (h *testEventHandler) OnBlockThinking(reasoning string) {
 	h.thinkingChunks = append(h.thinkingChunks, reasoning)
 }
 func (h *testEventHandler) OnBlockReply(text string) { h.replyChunks = append(h.replyChunks, text) }
-func (h *testEventHandler) OnFunctionCall(detail core.ToolCallDetail) {
+func (h *testEventHandler) OnFunctionCall(detail coretypes.ToolCallDetail) {
 	h.toolCalls = append(h.toolCalls, detail)
 }
 func (h *testEventHandler) OnFinished(reason string) {
 	h.finishReasons = append(h.finishReasons, reason)
 }
-func (h *testEventHandler) OnUsageUpdated(usage core.Usage) { h.usages = append(h.usages, usage) }
+func (h *testEventHandler) OnUsageUpdated(usage coretypes.Usage) { h.usages = append(h.usages, usage) }
 func (h *testEventHandler) OnError(err error)               { h.errors = append(h.errors, err) }
 
 func TestEnableHumanInTheLoop_SetsUpLocalTool(t *testing.T) {
@@ -438,7 +439,7 @@ func TestEnableHumanInTheLoop_Idempotent(t *testing.T) {
 
 func TestVisibleTools_IncludesLocalToolAfterEnable(t *testing.T) {
 
-	core.RegisterTool(core.ToolDefinition{Name: "global_tool", Description: "A global tool"}, nil)
+	core.RegisterTool(coretypes.ToolDefinition{Name: "global_tool", Description: "A global tool"}, nil)
 
 	agent := NewReactAgent(nil, false)
 	agent.SetHumanToolFactory(internals.NewAskHumanTool)
@@ -456,9 +457,9 @@ func TestVisibleTools_IncludesLocalToolAfterEnable(t *testing.T) {
 func TestCallTool_LocalToolOverridesGlobal(t *testing.T) {
 
 	core.RegisterTool(
-		core.ToolDefinition{Name: "ask_human", Description: "global fake"},
-		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-			return core.ToolCallResult{
+		coretypes.ToolDefinition{Name: "ask_human", Description: "global fake"},
+		func(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
+			return coretypes.ToolCallResult{
 				ToolCallID: detail.ID,
 				ToolName:   "ask_human",
 				Outputs:    map[string]any{"response": "from global"},
@@ -602,13 +603,13 @@ func TestReactAgent_Execute_MultipleSequentialAskHuman(t *testing.T) {
 
 	callCount := 0
 	mockProv := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
 			switch callCount {
 			case 1:
-				msg := core.NewAssistantMessage(nil)
-				msg.Content = core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(nil)
+				msg.Content = coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-1", ToolName: "ask_human", Args: map[string]any{
 							"question": "Proceed with step 1?",
 							"reason":   "first check",
@@ -617,9 +618,9 @@ func TestReactAgent_Execute_MultipleSequentialAskHuman(t *testing.T) {
 				}
 				return &msg, nil
 			case 2:
-				msg := core.NewAssistantMessage(nil)
-				msg.Content = core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(nil)
+				msg.Content = coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-2", ToolName: "ask_human", Args: map[string]any{
 							"question": "Which method, A or B?",
 							"reason":   "need choice",
@@ -628,7 +629,7 @@ func TestReactAgent_Execute_MultipleSequentialAskHuman(t *testing.T) {
 				}
 				return &msg, nil
 			default:
-				msg := core.NewAssistantMessage(core.TextContent{Text: "Done."})
+				msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "Done."})
 				msg.FinishReason = "stop"
 				return &msg, nil
 			}
@@ -651,15 +652,15 @@ func TestReactAgent_Execute_MultipleSequentialAskHuman(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	var messages []core.Message
+	var messages []coretypes.Message
 	var execErr error
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		messages, execErr = agent.Execute(ctx,
-			core.NewUserMessage(core.TextContent{Text: "system"}),
-			[]core.Message{core.NewUserMessage(core.TextContent{Text: "multi-step"})},
+			coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+			[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "multi-step"})},
 		)
 	}()
 
@@ -696,12 +697,12 @@ func TestReactAgent_OnToolCallEndFiresForAskHuman(t *testing.T) {
 
 	callCount := 0
 	mockProv := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
 			if callCount == 1 {
-				msg := core.NewAssistantMessage(nil)
-				msg.Content = core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(nil)
+				msg.Content = coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-1", ToolName: "ask_human", Args: map[string]any{
 							"question": "OK?",
 						}},
@@ -709,7 +710,7 @@ func TestReactAgent_OnToolCallEndFiresForAskHuman(t *testing.T) {
 				}
 				return &msg, nil
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "done"})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -719,9 +720,9 @@ func TestReactAgent_OnToolCallEndFiresForAskHuman(t *testing.T) {
 	agent.SetHumanToolFactory(internals.NewAskHumanTool)
 	agent.EnableHumanInTheLoop()
 
-	var toolCallEndResults []core.ToolCallResult
+	var toolCallEndResults []coretypes.ToolCallResult
 	agent.RegisterEventHooks(core.AgentEventHooks{
-		OnToolCallEnd: func(id constants.AgentIdentity, r core.ToolCallResult) {
+		OnToolCallEnd: func(id constants.AgentIdentity, r coretypes.ToolCallResult) {
 			toolCallEndResults = append(toolCallEndResults, r)
 		},
 	})
@@ -734,8 +735,8 @@ func TestReactAgent_OnToolCallEndFiresForAskHuman(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		_, _ = agent.Execute(ctx,
-			core.NewUserMessage(core.TextContent{Text: "system"}),
-			[]core.Message{core.NewUserMessage(core.TextContent{Text: "check"})},
+			coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+			[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "check"})},
 		)
 	}()
 
@@ -759,9 +760,9 @@ func TestReactAgent_OnToolCallEndFiresForAskHuman(t *testing.T) {
 func TestReactAgent_ParallelToolsWithAskHuman(t *testing.T) {
 
 	core.RegisterTool(
-		core.ToolDefinition{Name: "side_effect", Description: "A side effect tool"},
-		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-			return core.ToolCallResult{
+		coretypes.ToolDefinition{Name: "side_effect", Description: "A side effect tool"},
+		func(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
+			return coretypes.ToolCallResult{
 				ToolCallID: detail.ID,
 				ToolName:   "side_effect",
 				Outputs:    map[string]any{"done": true},
@@ -771,12 +772,12 @@ func TestReactAgent_ParallelToolsWithAskHuman(t *testing.T) {
 
 	callCount := 0
 	mockProv := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
 			if callCount == 1 {
-				msg := core.NewAssistantMessage(nil)
-				msg.Content = core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(nil)
+				msg.Content = coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-1", ToolName: "side_effect", Args: map[string]any{}},
 						{ID: "tc-2", ToolName: "ask_human", Args: map[string]any{
 							"question": "Continue?",
@@ -785,7 +786,7 @@ func TestReactAgent_ParallelToolsWithAskHuman(t *testing.T) {
 				}
 				return &msg, nil
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "done"})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -801,12 +802,12 @@ func TestReactAgent_ParallelToolsWithAskHuman(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	var messages []core.Message
+	var messages []coretypes.Message
 	go func() {
 		defer wg.Done()
 		messages, _ = agent.Execute(ctx,
-			core.NewUserMessage(core.TextContent{Text: "system"}),
-			[]core.Message{core.NewUserMessage(core.TextContent{Text: "go"})},
+			coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+			[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "go"})},
 		)
 	}()
 
@@ -823,10 +824,10 @@ func TestReactAgent_ParallelToolsWithAskHuman(t *testing.T) {
 
 	wg.Wait()
 	require.Len(t, messages, 3)
-	tcc, ok := messages[0].Content.(core.ToolCallContent)
+	tcc, ok := messages[0].Content.(coretypes.ToolCallContent)
 	require.True(t, ok)
 	assert.Len(t, tcc.Details, 2)
-	txt, ok := messages[2].Content.(core.TextContent)
+	txt, ok := messages[2].Content.(coretypes.TextContent)
 	require.True(t, ok)
 	assert.Equal(t, "done", txt.Text)
 }
@@ -859,7 +860,7 @@ func TestHumanLoopWaiting_ReturnsTrueWhileWaiting(t *testing.T) {
 
 func TestReactAgent_WithTools_FiltersLocalTool(t *testing.T) {
 
-	core.RegisterTool(core.ToolDefinition{Name: "tool_a", Description: "A"}, nil)
+	core.RegisterTool(coretypes.ToolDefinition{Name: "tool_a", Description: "A"}, nil)
 
 	agent := NewReactAgent(nil, false)
 	agent.SetHumanToolFactory(internals.NewAskHumanTool)
@@ -879,12 +880,12 @@ func TestReactAgent_Execute_WithAskHumanIntegration(t *testing.T) {
 
 	callCount := 0
 	mockProv := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
 			if callCount == 1 {
-				msg := core.NewAssistantMessage(nil)
-				msg.Content = core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(nil)
+				msg.Content = coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-1", ToolName: "ask_human", Args: map[string]any{
 							"question": "Should I delete the file?",
 							"reason":   "need approval",
@@ -893,7 +894,7 @@ func TestReactAgent_Execute_WithAskHumanIntegration(t *testing.T) {
 				}
 				return &msg, nil
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "Got it, won't delete."})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "Got it, won't delete."})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -913,15 +914,15 @@ func TestReactAgent_Execute_WithAskHumanIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	var messages []core.Message
+	var messages []coretypes.Message
 	var execErr error
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		messages, execErr = agent.Execute(ctx,
-			core.NewUserMessage(core.TextContent{Text: "system"}),
-			[]core.Message{core.NewUserMessage(core.TextContent{Text: "do it"})},
+			coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+			[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "do it"})},
 		)
 	}()
 
@@ -944,7 +945,7 @@ func TestReactAgent_Execute_WithAskHumanIntegration(t *testing.T) {
 	require.Len(t, messages, 3)
 	assert.Equal(t, 2, callCount)
 
-	textContent, ok := messages[2].Content.(core.TextContent)
+	textContent, ok := messages[2].Content.(coretypes.TextContent)
 	require.True(t, ok)
 	assert.Equal(t, "Got it, won't delete.", textContent.Text)
 }
@@ -954,9 +955,9 @@ func TestReactAgent_Execute_WithAskHumanIntegration(t *testing.T) {
 func TestReactAgent_FullReActCycle_CallbackOrder(t *testing.T) {
 
 	core.RegisterTool(
-		core.ToolDefinition{Name: "get_weather", Description: "Get weather"},
-		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-			return core.ToolCallResult{
+		coretypes.ToolDefinition{Name: "get_weather", Description: "Get weather"},
+		func(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
+			return coretypes.ToolCallResult{
 				ToolCallID: detail.ID, ToolName: detail.ToolName,
 				Outputs: map[string]any{"temp": 72},
 			}
@@ -965,21 +966,21 @@ func TestReactAgent_FullReActCycle_CallbackOrder(t *testing.T) {
 
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
 			if callCount == 1 {
 				// Simulate what real provider does: fire OnFunctionCall for each tool call
 				if params.EventHandler != nil {
-					params.EventHandler.OnFunctionCall(core.ToolCallDetail{ID: "tc-1", ToolName: "get_weather", Args: map[string]any{"city": "NYC"}})
+					params.EventHandler.OnFunctionCall(coretypes.ToolCallDetail{ID: "tc-1", ToolName: "get_weather", Args: map[string]any{"city": "NYC"}})
 				}
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-1", ToolName: "get_weather", Args: map[string]any{"city": "NYC"}},
 					},
 				})
 				return &msg, nil
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "The weather is 72F"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "The weather is 72F"})
 			msg.FinishReason = "stop"
 			if params.EventHandler != nil {
 				params.EventHandler.OnFinished("stop")
@@ -992,11 +993,11 @@ func TestReactAgent_FullReActCycle_CallbackOrder(t *testing.T) {
 	agent := NewReactAgent(provider, false)
 	agent.SetAgentIdentity(constants.AgentMain)
 	agent.RegisterEventHooks(core.AgentEventHooks{
-		OnFunctionCall: func(id constants.AgentIdentity, detail core.ToolCallDetail) {
+		OnFunctionCall: func(id constants.AgentIdentity, detail coretypes.ToolCallDetail) {
 			assert.Equal(t, constants.AgentMain, id)
 			callOrder = append(callOrder, "function_call")
 		},
-		OnToolCallEnd: func(id constants.AgentIdentity, result core.ToolCallResult) {
+		OnToolCallEnd: func(id constants.AgentIdentity, result coretypes.ToolCallResult) {
 			assert.Equal(t, constants.AgentMain, id)
 			callOrder = append(callOrder, "tool_call_end")
 		},
@@ -1008,8 +1009,8 @@ func TestReactAgent_FullReActCycle_CallbackOrder(t *testing.T) {
 
 	messages, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "what's the weather?"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "what's the weather?"})},
 	)
 
 	require.NoError(t, err)
@@ -1021,9 +1022,9 @@ func TestReactAgent_FullReActCycle_CallbackOrder(t *testing.T) {
 func TestReactAgent_MultiTurnWithErrors(t *testing.T) {
 
 	core.RegisterTool(
-		core.ToolDefinition{Name: "get_weather", Description: "Get weather"},
-		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-			return core.ToolCallResult{
+		coretypes.ToolDefinition{Name: "get_weather", Description: "Get weather"},
+		func(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
+			return coretypes.ToolCallResult{
 				ToolCallID: detail.ID, ToolName: detail.ToolName,
 				Outputs: map[string]any{"temp": 72},
 			}
@@ -1033,31 +1034,31 @@ func TestReactAgent_MultiTurnWithErrors(t *testing.T) {
 	callCount := 0
 	var errorHooksFired int
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
 			switch callCount {
 			case 1:
 				if params.EventHandler != nil {
-					params.EventHandler.OnFunctionCall(core.ToolCallDetail{ID: "tc-err", ToolName: "nonexistent"})
+					params.EventHandler.OnFunctionCall(coretypes.ToolCallDetail{ID: "tc-err", ToolName: "nonexistent"})
 				}
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-err", ToolName: "nonexistent", Args: nil},
 					},
 				})
 				return &msg, nil
 			case 2:
 				if params.EventHandler != nil {
-					params.EventHandler.OnFunctionCall(core.ToolCallDetail{ID: "tc-ok", ToolName: "get_weather", Args: map[string]any{"city": "NYC"}})
+					params.EventHandler.OnFunctionCall(coretypes.ToolCallDetail{ID: "tc-ok", ToolName: "get_weather", Args: map[string]any{"city": "NYC"}})
 				}
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-ok", ToolName: "get_weather", Args: map[string]any{"city": "NYC"}},
 					},
 				})
 				return &msg, nil
 			default:
-				msg := core.NewAssistantMessage(core.TextContent{Text: "Weather: 72F"})
+				msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "Weather: 72F"})
 				msg.FinishReason = "stop"
 				if params.EventHandler != nil {
 					params.EventHandler.OnFinished("stop")
@@ -1070,7 +1071,7 @@ func TestReactAgent_MultiTurnWithErrors(t *testing.T) {
 	var functionCalls int
 	agent := NewReactAgent(provider, false)
 	agent.RegisterEventHooks(core.AgentEventHooks{
-		OnFunctionCall: func(id constants.AgentIdentity, detail core.ToolCallDetail) {
+		OnFunctionCall: func(id constants.AgentIdentity, detail coretypes.ToolCallDetail) {
 			functionCalls++
 		},
 		OnError: func(id constants.AgentIdentity, err error) {
@@ -1080,8 +1081,8 @@ func TestReactAgent_MultiTurnWithErrors(t *testing.T) {
 
 	messages, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "weather?"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "weather?"})},
 	)
 
 	require.NoError(t, err)
@@ -1092,13 +1093,13 @@ func TestReactAgent_MultiTurnWithErrors(t *testing.T) {
 }
 func TestReactAgent_StreamMode_FullCallbackChain(t *testing.T) {
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			if params.EventHandler != nil {
 				params.EventHandler.OnReplyChunk("Hel")
 				params.EventHandler.OnReplyChunk("lo World")
 				params.EventHandler.OnFinished("stop")
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "Hello World"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "Hello World"})
 			msg.FinishReason = "stop"
 			return &msg, nil
 		},
@@ -1114,8 +1115,8 @@ func TestReactAgent_StreamMode_FullCallbackChain(t *testing.T) {
 
 	messages, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "hi"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "hi"})},
 	)
 
 	require.NoError(t, err)
@@ -1128,42 +1129,42 @@ func TestReactAgent_StreamMode_FullCallbackChain(t *testing.T) {
 func TestReactAgent_UsageReportedPerCall(t *testing.T) {
 
 	core.RegisterTool(
-		core.ToolDefinition{Name: "tool_a", Description: "A"},
-		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-			return core.ToolCallResult{ToolCallID: detail.ID, ToolName: detail.ToolName, Outputs: map[string]any{"ok": true}}
+		coretypes.ToolDefinition{Name: "tool_a", Description: "A"},
+		func(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
+			return coretypes.ToolCallResult{ToolCallID: detail.ID, ToolName: detail.ToolName, Outputs: map[string]any{"ok": true}}
 		},
 	)
 
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
 			if callCount == 1 {
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{{ID: "t1", ToolName: "tool_a", Args: nil}},
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{{ID: "t1", ToolName: "tool_a", Args: nil}},
 				})
-				msg.Usage = &core.Usage{TotalTokens: 10}
+				msg.Usage = &coretypes.Usage{TotalTokens: 10}
 				return &msg, nil
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "done"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "done"})
 			msg.FinishReason = "stop"
-			msg.Usage = &core.Usage{TotalTokens: 20}
+			msg.Usage = &coretypes.Usage{TotalTokens: 20}
 			return &msg, nil
 		},
 	}
 
-	var usages []core.Usage
+	var usages []coretypes.Usage
 	agent := NewReactAgent(provider, false)
 	agent.RegisterEventHooks(core.AgentEventHooks{
-		OnUsageUpdated: func(id constants.AgentIdentity, usage core.Usage) {
+		OnUsageUpdated: func(id constants.AgentIdentity, usage coretypes.Usage) {
 			usages = append(usages, usage)
 		},
 	})
 
 	_, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "go"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "go"})},
 	)
 
 	require.NoError(t, err)
@@ -1175,31 +1176,31 @@ func TestReactAgent_UsageReportedPerCall(t *testing.T) {
 func TestReactAgent_Interrupt_DuringLoop(t *testing.T) {
 
 	core.RegisterTool(
-		core.ToolDefinition{Name: "slow_tool", Description: "Slow"},
-		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-			return core.ToolCallResult{ToolCallID: detail.ID, ToolName: detail.ToolName, Outputs: map[string]any{"ok": true}}
+		coretypes.ToolDefinition{Name: "slow_tool", Description: "Slow"},
+		func(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
+			return coretypes.ToolCallResult{ToolCallID: detail.ID, ToolName: detail.ToolName, Outputs: map[string]any{"ok": true}}
 		},
 	)
 
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			msg := core.NewAssistantMessage(core.ToolCallContent{
-				Details: []core.ToolCallDetail{{ID: "t1", ToolName: "slow_tool", Args: nil}},
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
+			msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+				Details: []coretypes.ToolCallDetail{{ID: "t1", ToolName: "slow_tool", Args: nil}},
 			})
 			return &msg, nil
 		},
 	}
 
 	agent := NewReactAgent(provider, false)
-	agent.SetOnToolResult(func(results []core.ToolCallResult, step int) bool {
+	agent.SetOnToolResult(func(results []coretypes.ToolCallResult, step int) bool {
 		_ = agent.Interrupt(context.Background())
 		return true
 	})
 
 	messages, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "go"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "go"})},
 	)
 
 	require.NoError(t, err)
@@ -1213,9 +1214,9 @@ func TestReactAgent_Interrupt_DuringLoop(t *testing.T) {
 func TestReactAgent_TerminatingTool_StopsLoop(t *testing.T) {
 
 	core.RegisterTool(
-		core.ToolDefinition{Name: "submit_answer", Description: "Submit final answer", Terminating: true},
-		func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
-			return core.ToolCallResult{
+		coretypes.ToolDefinition{Name: "submit_answer", Description: "Submit final answer", Terminating: true},
+		func(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
+			return coretypes.ToolCallResult{
 				ToolCallID: detail.ID, ToolName: detail.ToolName,
 				Outputs: map[string]any{"answer": "42"},
 			}
@@ -1224,17 +1225,17 @@ func TestReactAgent_TerminatingTool_StopsLoop(t *testing.T) {
 
 	callCount := 0
 	provider := &MockProvider{
-		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			callCount++
 			if callCount == 1 {
-				msg := core.NewAssistantMessage(core.ToolCallContent{
-					Details: []core.ToolCallDetail{
+				msg := coretypes.NewAssistantMessage(coretypes.ToolCallContent{
+					Details: []coretypes.ToolCallDetail{
 						{ID: "tc-1", ToolName: "submit_answer", Args: map[string]any{"value": "42"}},
 					},
 				})
 				return &msg, nil
 			}
-			msg := core.NewAssistantMessage(core.TextContent{Text: "should not be called"})
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "should not be called"})
 			return &msg, nil
 		},
 	}
@@ -1242,8 +1243,8 @@ func TestReactAgent_TerminatingTool_StopsLoop(t *testing.T) {
 	agent := NewReactAgent(provider, false)
 	messages, err := agent.Execute(
 		context.Background(),
-		core.NewUserMessage(core.TextContent{Text: "system"}),
-		[]core.Message{core.NewUserMessage(core.TextContent{Text: "what is 6*7?"})},
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "system"}),
+		[]coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "what is 6*7?"})},
 	)
 
 	require.NoError(t, err)
