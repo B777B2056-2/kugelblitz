@@ -33,8 +33,12 @@ type ReactAction struct {
 func (a *ReactAction) Execute(ctx *Context) (*ActionResult, error) {
 	deps := ctx.Deps
 
+	prompt, err := buildPrompt(a.State, a.Plan)
+	if err != nil {
+		return nil, err
+	}
 	sysMsg := core.NewSystemMessage(core.TextContent{
-		Text: buildPrompt(a.State, a.Plan),
+		Text: prompt,
 	})
 	sessionCtx := core.WithSessionID(ctx.Ctx, deps.Session.SessionID())
 
@@ -108,7 +112,7 @@ func (a *NoOpAction) Execute(ctx *Context) (*ActionResult, error) {
 }
 
 // buildPrompt builds the system prompt for a given state and plan.
-func buildPrompt(status constants.PlanState, plan *working.Plan) string {
+func buildPrompt(status constants.PlanState, plan *working.Plan) (string, error) {
 	var sb strings.Builder
 
 	if agentCtx := core.LoadAgentContext(); agentCtx != "" {
@@ -117,18 +121,24 @@ func buildPrompt(status constants.PlanState, plan *working.Plan) string {
 	}
 
 	if plan != nil {
+		var rendered string
+		var err error
 		if status == constants.PlanStateConfirmed {
-			sb.WriteString(prompts.DefaultFactory.MustRender(
-				prompts.TypePlanConfirm, prompts.BuildPlanConfirmParams(plan)))
+			rendered, err = prompts.DefaultFactory.Render(
+				prompts.TypePlanConfirm, prompts.BuildPlanConfirmParams(plan))
 		} else {
-			sb.WriteString(prompts.DefaultFactory.MustRender(
-				prompts.TypePlanStatus, prompts.BuildPlanStatusParams(plan)))
+			rendered, err = prompts.DefaultFactory.Render(
+				prompts.TypePlanStatus, prompts.BuildPlanStatusParams(plan))
 		}
+		if err != nil {
+			return "", fmt.Errorf("render plan prompt: %w", err)
+		}
+		sb.WriteString(rendered)
 		sb.WriteString("\n\n")
 	}
 
 	sb.WriteString(prompts.PlannerPrompt(status))
-	return sb.String()
+	return sb.String(), nil
 }
 
 // shouldReview checks whether a drift review should be triggered.

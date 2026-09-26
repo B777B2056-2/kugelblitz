@@ -37,11 +37,13 @@ func (r *Reviewer) Review(ctx context.Context, originalGoal, planSummary, recent
 	ctx, span := r.tracer.Start(ctx, "reviewer.check")
 	defer span.End()
 
-	userMsg := core.NewUserMessage(core.TextContent{
-		Text: prompts.DefaultFactory.MustRender(prompts.TypeReview, prompts.ReviewParams{
-			OriginalGoal: originalGoal, PlanSummary: planSummary, RecentActivity: recentActivity,
-		}),
+	text, err := prompts.DefaultFactory.Render(prompts.TypeReview, prompts.ReviewParams{
+		OriginalGoal: originalGoal, PlanSummary: planSummary, RecentActivity: recentActivity,
 	})
+	if err != nil {
+		return ReviewResult{Drift: false, Reason: "prompt render: " + err.Error()}
+	}
+	userMsg := core.NewUserMessage(core.TextContent{Text: text})
 	params := core.GenerateParams{
 		Messages: []core.Message{userMsg},
 		Tools: []core.ToolDefinition{{

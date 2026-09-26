@@ -106,6 +106,89 @@ func TestConvertTools_Empty(t *testing.T) {
 	assert.Nil(t, result)
 }
 
+func TestIsStrictCompliant(t *testing.T) {
+	tests := []struct {
+		name   string
+		schema map[string]any
+		want   bool
+	}{
+		{
+			name: "compliant object with required",
+			schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"drift":  map[string]any{"type": "boolean"},
+					"reason": map[string]any{"type": "string"},
+				},
+				"required":             []any{"drift", "reason"},
+				"additionalProperties": false,
+			},
+			want: true,
+		},
+		{
+			name:   "missing additionalProperties",
+			schema: map[string]any{"type": "object", "properties": map[string]any{"a": map[string]any{"type": "string"}}, "required": []any{"a"}},
+			want:   false,
+		},
+		{
+			name:   "additionalProperties true",
+			schema: map[string]any{"type": "object", "properties": map[string]any{"a": map[string]any{"type": "string"}}, "required": []any{"a"}, "additionalProperties": true},
+			want:   false,
+		},
+		{
+			name:   "non-object type",
+			schema: map[string]any{"type": "string"},
+			want:   false,
+		},
+		{
+			name:   "property missing from required",
+			schema: map[string]any{"type": "object", "properties": map[string]any{"a": map[string]any{"type": "string"}, "b": map[string]any{"type": "string"}}, "required": []any{"a"}, "additionalProperties": false},
+			want:   false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isStrictCompliant(tt.schema))
+		})
+	}
+}
+
+func TestConvertTools_StrictOnlyWhenCompliant(t *testing.T) {
+	c := newConverter()
+	compliant := core.ToolDefinition{
+		Name: "compliant", Description: "C",
+		JSONSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"q": map[string]any{"type": "string"},
+			},
+			"required":             []any{"q"},
+			"additionalProperties": false,
+		},
+	}
+	nonCompliant := core.ToolDefinition{
+		Name: "noncompliant", Description: "N",
+		JSONSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"q": map[string]any{"type": "string"},
+			},
+		},
+	}
+
+	result, err := c.ConvertTools([]core.ToolDefinition{compliant, nonCompliant})
+	require.NoError(t, err)
+	require.Len(t, result, 2)
+
+	// Compliant schema → Strict is set (valid) and true.
+	strict0 := result[0].OfFunction.Function.Strict
+	require.True(t, strict0.Valid())
+	assert.True(t, strict0.Value)
+
+	// Non-compliant schema → Strict is omitted (invalid / not present).
+	assert.False(t, result[1].OfFunction.Function.Strict.Valid())
+}
+
 // --- ParseResponse ---
 
 func TestParseResponse_TextMessage(t *testing.T) {

@@ -62,9 +62,6 @@ func (c *Converter) convertMessage(message core.Message) (openai.ChatCompletionM
 	case constants.RoleAssistant:
 		return c.convertAssistantMessage(message)
 
-	case constants.RoleTool:
-		return c.convertToolMessage(message)
-
 	default:
 		return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("unknown role: %s", message.Role)
 	}
@@ -274,21 +271,6 @@ func (c *Converter) convertCompositeAssistant(ct core.CompositeContent) (openai.
 	return openai.AssistantMessage(textContent), nil
 }
 
-func (c *Converter) convertToolMessage(message core.Message) (openai.ChatCompletionMessageParamUnion, error) {
-	ct, ok := message.Content.(core.ToolResultContent)
-	if !ok {
-		return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("expected ToolResultContent, got %T", message.Content)
-	}
-	if len(ct.Results) == 0 {
-		return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("tool message has no results")
-	}
-	// Multiple tool results need separate tool messages per OpenAI/DeepSeek API spec.
-	// This method returns only the first result; the caller (ConvertMessages) is
-	// expected to call this once per result.
-	r := ct.Results[0]
-	return openai.ToolMessage(utils.ConvertMapToJSONString(r.Outputs), r.ToolCallID), nil
-}
-
 // convertToolResults converts multiple tool results into separate OpenAI tool messages.
 func (c *Converter) convertToolResults(message core.Message) ([]openai.ChatCompletionMessageParamUnion, error) {
 	ct, ok := message.Content.(core.ToolResultContent)
@@ -314,16 +296,50 @@ func (c *Converter) ConvertTools(tools []core.ToolDefinition) ([]openai.ChatComp
 		if tool.OutputSchema != nil {
 			desc += "\nReturns: " + formatOutputSchema(tool.OutputSchema)
 		}
+		// Structured outputs ("Strict") are only valid when the schema satisfies
+		// OpenAI's requirements. Forcing Strict:true on a non-compliant schema
+		// makes the API reject the request, so enable it selectively (B18).
+		strict := param.Opt[bool]{}
+		if isStrictCompliant(tool.JSONSchema) {
+			strict = param.NewOpt(true)
+		}
 		result = append(result, openai.ChatCompletionFunctionTool(
 			openai.FunctionDefinitionParam{
 				Name:        tool.Name,
-				Strict:      param.NewOpt(true),
+				Strict:      strict,
 				Description: param.NewOpt(desc),
 				Parameters:  openai.FunctionParameters(tool.JSONSchema),
 			},
 		))
 	}
 	return result, nil
+}
+
+// isStrictCompliant reports whether a JSON schema satisfies OpenAI's structured
+// outputs ("Strict") requirements: root type object, additionalProperties set
+// to false, and every property listed in "required".
+func isStrictCompliant(schema map[string]any) bool {
+	if typ, _ := schema["type"].(string); typ != "object" {
+		return false
+	}
+	if ap, ok := schema["additionalProperties"].(bool); !ok || ap {
+		return false
+	}
+	props, _ := schema["properties"].(map[string]any)
+	requiredSet := map[string]bool{}
+	if required, _ := schema["required"].([]any); required != nil {
+		for _, r := range required {
+			if s, ok := r.(string); ok {
+				requiredSet[s] = true
+			}
+		}
+	}
+	for name := range props {
+		if !requiredSet[name] {
+			return false
+		}
+	}
+	return true
 }
 
 // formatOutputSchema produces a concise summary of an output schema.

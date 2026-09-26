@@ -101,9 +101,12 @@ func (r *workerResult) setErr(err error) {
 func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (string, *core.Usage, error) {
 	result := &workerResult{}
 
-	sysPrompt := prompts.DefaultFactory.MustRender(prompts.TypeWorker, prompts.WorkerParams{
+	sysPrompt, err := prompts.DefaultFactory.Render(prompts.TypeWorker, prompts.WorkerParams{
 		Goal: goal, Action: action,
 	})
+	if err != nil {
+		return "", nil, fmt.Errorf("render worker prompt: %w", err)
+	}
 	systemMsg := core.NewSystemMessage(core.TextContent{Text: sysPrompt})
 
 	userMsg := core.NewUserMessage(core.TextContent{
@@ -125,13 +128,9 @@ func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (str
 	}
 
 	// Compose hooks: Chain preserves user callbacks.
+	// NOTE: reply text is collected from the returned messages (single source),
+	// not from OnReplyChunk/OnBlockReply, to avoid duplicating the output (B17).
 	hooks := core.Chain(w.hooks, core.AgentEventHooks{
-		OnReplyChunk: func(id constants.AgentIdentity, chunk string) {
-			result.write(chunk)
-		},
-		OnBlockReply: func(id constants.AgentIdentity, text string) {
-			result.write(text)
-		},
 		OnUsageUpdated: func(id constants.AgentIdentity, usage core.Usage) {
 			result.addUsage(usage)
 		},
@@ -163,8 +162,8 @@ func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (str
 	}
 
 	for _, msg := range messages {
-		if tc, ok := msg.Content.(core.TextContent); ok {
-			result.write(tc.Text)
+		if text := extractReplyText(msg.Content); text != "" {
+			result.write(text)
 		}
 	}
 
@@ -179,4 +178,24 @@ func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (str
 		return result.output.String(), usage, result.err
 	}
 	return result.output.String(), usage, nil
+}
+
+// extractReplyText extracts the text portion of a message content for the
+// worker's final output. It handles plain text and composite (reasoning+text)
+// content, ignoring reasoning and tool-call parts.
+func extractReplyText(content core.Content) string {
+	switch ct := content.(type) {
+	case core.TextContent:
+		return ct.Text
+	case core.CompositeContent:
+		var sb strings.Builder
+		for _, part := range ct.Parts {
+			if tc, ok := part.(core.TextContent); ok {
+				sb.WriteString(tc.Text)
+			}
+		}
+		return sb.String()
+	default:
+		return ""
+	}
 }

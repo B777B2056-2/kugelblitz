@@ -7,6 +7,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestToolsForState_AllStatusesRegistered(t *testing.T) {
@@ -97,7 +98,8 @@ func TestBuildPrompt_ConfirmedShowsFullPlan(t *testing.T) {
 			{ID: "task-2", Goal: "Run tests", Action: "go test ./...", Status: working.TaskStatusPending, ParentTaskID: "task-1"},
 		},
 	}
-	prompt := buildPrompt(constants.PlanStateConfirmed, plan)
+	prompt, err := buildPrompt(constants.PlanStateConfirmed, plan)
+	require.NoError(t, err)
 	assert.Contains(t, prompt, "Plan to Confirm")
 	assert.Contains(t, prompt, "Test Plan")
 	assert.Contains(t, prompt, "plan-001")
@@ -121,7 +123,8 @@ func TestBuildPrompt_DoingShowsSummary(t *testing.T) {
 			{ID: "task-3", Goal: "Task 3", Status: working.TaskStatusFailed, FinishedReason: "timeout"},
 		},
 	}
-	prompt := buildPrompt(constants.PlanStateDoing, plan)
+	prompt, err := buildPrompt(constants.PlanStateDoing, plan)
+	require.NoError(t, err)
 	assert.Contains(t, prompt, "Current Plan")
 	assert.Contains(t, prompt, "1/3 done, 1 failed")
 	assert.Contains(t, prompt, "Failed Tasks")

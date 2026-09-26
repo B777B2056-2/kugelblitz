@@ -11,7 +11,6 @@ import (
 // State represents a single state in the finite state machine.
 type State interface {
 	Name() constants.PlanState
-	AvailableTools() []string
 	Execute(ctx *Context) (constants.PlanState, error)
 }
 
@@ -68,7 +67,6 @@ func ToolsForState(status constants.PlanState) []string {
 type IntentState struct{}
 
 func (s *IntentState) Name() constants.PlanState { return constants.PlanStateIntent }
-func (s *IntentState) AvailableTools() []string  { return ToolsForState(constants.PlanStateIntent) }
 func (s *IntentState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateIntent,
@@ -93,7 +91,6 @@ func (s *IntentState) Execute(ctx *Context) (constants.PlanState, error) {
 type DirectState struct{}
 
 func (s *DirectState) Name() constants.PlanState { return constants.PlanStateDirect }
-func (s *DirectState) AvailableTools() []string  { return ToolsForState(constants.PlanStateDirect) }
 func (s *DirectState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateDirect,
@@ -111,7 +108,6 @@ func (s *DirectState) Execute(ctx *Context) (constants.PlanState, error) {
 type InitState struct{}
 
 func (s *InitState) Name() constants.PlanState { return constants.PlanStateInit }
-func (s *InitState) AvailableTools() []string  { return ToolsForState(constants.PlanStateInit) }
 func (s *InitState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateInit,
@@ -149,9 +145,6 @@ func (s *InitState) Execute(ctx *Context) (constants.PlanState, error) {
 type ConfirmedState struct{}
 
 func (s *ConfirmedState) Name() constants.PlanState { return constants.PlanStateConfirmed }
-func (s *ConfirmedState) AvailableTools() []string {
-	return ToolsForState(constants.PlanStateConfirmed)
-}
 func (s *ConfirmedState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateConfirmed,
@@ -177,7 +170,6 @@ func (s *ConfirmedState) Execute(ctx *Context) (constants.PlanState, error) {
 type DoingState struct{}
 
 func (s *DoingState) Name() constants.PlanState { return constants.PlanStateDoing }
-func (s *DoingState) AvailableTools() []string  { return ToolsForState(constants.PlanStateDoing) }
 func (s *DoingState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &DAGAction{
 		Plan: ctx.Plan,
@@ -198,7 +190,6 @@ func (s *DoingState) Execute(ctx *Context) (constants.PlanState, error) {
 type UpdatingState struct{}
 
 func (s *UpdatingState) Name() constants.PlanState { return constants.PlanStateUpdating }
-func (s *UpdatingState) AvailableTools() []string  { return ToolsForState(constants.PlanStateUpdating) }
 func (s *UpdatingState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateUpdating,
@@ -231,7 +222,6 @@ func (s *UpdatingState) Execute(ctx *Context) (constants.PlanState, error) {
 type DoneState struct{}
 
 func (s *DoneState) Name() constants.PlanState { return constants.PlanStateDone }
-func (s *DoneState) AvailableTools() []string  { return ToolsForState(constants.PlanStateDone) }
 func (s *DoneState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateDone,
@@ -250,7 +240,6 @@ func (s *DoneState) Execute(ctx *Context) (constants.PlanState, error) {
 type FailedState struct{}
 
 func (s *FailedState) Name() constants.PlanState { return constants.PlanStateFailed }
-func (s *FailedState) AvailableTools() []string  { return ToolsForState(constants.PlanStateFailed) }
 func (s *FailedState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateFailed,
@@ -269,7 +258,6 @@ func (s *FailedState) Execute(ctx *Context) (constants.PlanState, error) {
 type RejectedState struct{}
 
 func (s *RejectedState) Name() constants.PlanState { return constants.PlanStateRejected }
-func (s *RejectedState) AvailableTools() []string  { return ToolsForState(constants.PlanStateRejected) }
 func (s *RejectedState) Execute(ctx *Context) (constants.PlanState, error) {
 	return constants.PlanStateRejected, nil // terminal, no action
 }

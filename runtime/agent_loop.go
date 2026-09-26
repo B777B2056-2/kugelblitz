@@ -135,11 +135,13 @@ func initSkills() {
 
 func initSemanticJudge(provider core.ILMProvider) {
 	longterm.SetSemanticJudge(func(oldVal, newVal string) bool {
-		msg := core.NewUserMessage(core.TextContent{
-			Text: prompts.DefaultFactory.MustRender(prompts.TypeSemanticJudge, prompts.SemanticJudgeParams{
-				OldVal: oldVal, NewVal: newVal,
-			}),
+		text, err := prompts.DefaultFactory.Render(prompts.TypeSemanticJudge, prompts.SemanticJudgeParams{
+			OldVal: oldVal, NewVal: newVal,
 		})
+		if err != nil {
+			return false
+		}
+		msg := core.NewUserMessage(core.TextContent{Text: text})
 		resp, err := provider.Generate(context.Background(), core.GenerateParams{
 			Messages: []core.Message{msg}, Stream: false,
 		})
