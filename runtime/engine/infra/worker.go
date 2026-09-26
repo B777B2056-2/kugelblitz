@@ -111,6 +111,7 @@ func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (str
 	})
 
 	agent := NewReactAgent(w.provider, w.streamMode)
+	agent.SetMaxSteps(w.maxSteps)
 
 	// Wire per-step OTel tracing for this task
 	if w.stepTracer != nil {

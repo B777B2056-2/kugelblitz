@@ -38,6 +38,7 @@ type ReactAgent struct {
 	toolNames       []string                  // nil=all tools; non-nil=whitelist
 	visibleCache    []core.ToolDefinition     // cached filtered tool list; invalidated by WithTools
 	stepCount       int                       // ReAct loop iterations
+	maxSteps        int                       // max ReAct iterations; 0 = unlimited
 	OnToolResult    OnToolResult              // per-tool-execution callback
 	stepTracer      *observability.StepTracer // per-step trace instrumentation
 	humanLoop       *humanLoopState
@@ -97,6 +98,9 @@ func (a *ReactAgent) WithPauseGate(g *sync.RWMutex) *ReactAgent {
 
 func (a *ReactAgent) SetOnToolResult(fn OnToolResult) { a.OnToolResult = fn }
 
+// SetMaxSteps caps the number of ReAct loop iterations. 0 (default) = unlimited.
+func (a *ReactAgent) SetMaxSteps(n int) *ReactAgent { a.maxSteps = n; return a }
+
 func (a *ReactAgent) Execute(ctx context.Context, systemMessage core.Message, userMessages []core.Message) ([]core.Message, error) {
 	return a.ExecuteWithTools(ctx, systemMessage, userMessages, nil)
 }
@@ -123,6 +127,9 @@ func (a *ReactAgent) ExecuteWithTools(ctx context.Context, systemMessage core.Me
 	a.stepCount = 0
 	for {
 		a.stepCount++
+		if a.maxSteps > 0 && a.stepCount > a.maxSteps {
+			return stripDanglingToolCalls(assistantMessages), core.ErrMaxStepsExceeded
+		}
 
 		select {
 		case <-a.abortSignal:
