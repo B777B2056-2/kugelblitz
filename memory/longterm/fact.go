@@ -341,6 +341,12 @@ func SetSemanticJudge(fn func(oldValue, newValue string) bool) {
 	semanticJudge = fn
 }
 
+// ResetSemanticJudge clears the externally-set semantic judge so isSemanticMatch
+// falls back to pure string comparison. Intended for tests.
+func ResetSemanticJudge() {
+	semanticJudge = nil
+}
+
 // isSemanticMatch returns true if two values are semantically equivalent.
 func (ltm *LongTermMemory) isSemanticMatch(a, b string) bool {
 	if a == b {

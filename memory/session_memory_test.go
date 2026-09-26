@@ -304,3 +304,16 @@ func TestSessionMemory_ConcurrentAppendAndPersist(t *testing.T) {
 	msgs := sm.GetHistoryMessages()
 	assert.GreaterOrEqual(t, len(msgs), 20, "should have base + appended messages")
 }
+
+func TestResetSessionMemoryManager_Isolates(t *testing.T) {
+	ResetSessionMemoryManager()
+	smm := GetSessionMemoryManager()
+	smm.CreateSessionMemory("reset-probe-session")
+	_, ok := smm.GetSessionMemory("reset-probe-session")
+	assert.True(t, ok)
+
+	ResetSessionMemoryManager()
+	smm2 := GetSessionMemoryManager()
+	_, ok = smm2.GetSessionMemory("reset-probe-session")
+	assert.False(t, ok, "reset manager should not remember prior sessions")
+}

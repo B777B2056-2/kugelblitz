@@ -248,3 +248,15 @@ func TestListToolDefinitions_ConvenienceFunction(t *testing.T) {
 	}
 	assert.True(t, found)
 }
+
+func TestResetToolRegistry_Isolates(t *testing.T) {
+	ResetToolRegistry()
+	GetToolRegistry().Register(ToolDefinition{Name: "reset_probe"},
+		func(ctx context.Context, detail ToolCallDetail) ToolCallResult {
+			return ToolCallResult{ToolCallID: detail.ID, ToolName: "reset_probe"}
+		})
+	assert.Len(t, GetToolRegistry().ListDefinitions(), 1, "registry should contain only the probe after reset")
+
+	ResetToolRegistry()
+	assert.Empty(t, GetToolRegistry().ListDefinitions(), "registry should be empty after reset")
+}

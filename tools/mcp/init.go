@@ -49,3 +49,11 @@ func ShutdownGlobal(ctx context.Context) error {
 	}
 	return globalMgr.Shutdown(ctx)
 }
+
+// ResetGlobal resets the global MCP manager singleton so the next Init call
+// reconnects from scratch. Callers should ShutdownGlobal first to close any
+// open connections. Intended for tests.
+func ResetGlobal() {
+	globalOnce = sync.Once{}
+	globalMgr = nil
+}

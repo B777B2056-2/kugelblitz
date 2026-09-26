@@ -180,3 +180,9 @@ func TestManager_Shutdown(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Empty(t, m.sessions)
 }
+
+func TestResetGlobal_ClearsManager(t *testing.T) {
+	globalMgr = &Manager{}
+	ResetGlobal()
+	assert.Nil(t, globalMgr)
+}

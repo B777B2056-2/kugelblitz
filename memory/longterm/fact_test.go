@@ -373,3 +373,11 @@ func TestLongTermMemory_ConcurrentSameKeyStore(t *testing.T) {
 	// Index count should match items count
 	assert.Equal(t, len(ltm.items), len(ltm.index))
 }
+
+func TestResetSemanticJudge_Isolates(t *testing.T) {
+	SetSemanticJudge(func(oldValue, newValue string) bool { return true })
+	assert.NotNil(t, semanticJudge)
+
+	ResetSemanticJudge()
+	assert.Nil(t, semanticJudge)
+}

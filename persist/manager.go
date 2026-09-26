@@ -57,3 +57,11 @@ func GetManager() *Manager {
 	})
 	return globalManager
 }
+
+// ResetManager resets the global Manager singleton so the next GetManager call
+// rebuilds it against the current workspace dir. Intended for tests that change
+// the workspace and need a fresh persistence manager.
+func ResetManager() {
+	globalOnce = sync.Once{}
+	globalManager = nil
+}

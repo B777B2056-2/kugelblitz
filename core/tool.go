@@ -49,6 +49,15 @@ func GetToolRegistry() *ToolRegistry {
 	return globalToolRegistry
 }
 
+// ResetToolRegistry resets the global singleton so the next GetToolRegistry
+// call rebuilds a fresh, empty registry. Intended for tests that need isolation
+// from tools registered by earlier tests or package init(). Callers that need
+// the built-in tools must re-register them (e.g. internals.RegisterAll).
+func ResetToolRegistry() {
+	globalToolRegistryOnce = sync.Once{}
+	globalToolRegistry = nil
+}
+
 // Register adds or replaces a tool. It stores both the implementation
 // and its definition (used when building provider requests).
 func (tr *ToolRegistry) Register(def ToolDefinition, fn ToolCallFunc) {

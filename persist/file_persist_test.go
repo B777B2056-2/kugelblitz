@@ -126,3 +126,14 @@ func requireNoError(t *testing.T, err error, args ...any) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestResetManager_Isolates(t *testing.T) {
+	ResetManager()
+	m1 := GetManager()
+	assert.NotNil(t, m1)
+
+	ResetManager()
+	m2 := GetManager()
+	assert.NotNil(t, m2)
+	assert.NotSame(t, m1, m2, "reset should yield a fresh manager instance")
+}

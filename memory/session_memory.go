@@ -177,6 +177,14 @@ func GetSessionMemoryManager() *SessionMemoryManager {
 	return SessionMemoryManagerInst
 }
 
+// ResetSessionMemoryManager resets the global session-memory manager singleton
+// so the next GetSessionMemoryManager call returns a fresh, empty manager.
+// Intended for tests that need isolation from sessions created by other tests.
+func ResetSessionMemoryManager() {
+	SessionMemoryManagerOnce = sync.Once{}
+	SessionMemoryManagerInst = nil
+}
+
 // CreateSessionMemory returns the session for the given ID, creating it
 // if it does not already exist.
 func (smm *SessionMemoryManager) CreateSessionMemory(sessionID string) *SessionMemory {
