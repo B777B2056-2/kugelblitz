@@ -39,6 +39,7 @@ type WorkerAgent struct {
 	pauseGate  *PauseGate                                     // shared DAG pause gate; nil = no pausing
 	onHITL     func(agent *ReactAgent, reason, prompt string) // fire on worker HITL
 	stepTracer *observability.StepTracer                      // per-step OTel instrumentation (shared from DAG)
+	humanToolFactory HumanToolFactory                         // builds ask_human tool; nil = omit (set by DAG)
 }
 
 // NewWorkerAgent creates a WorkerAgent with built-in execution tools plus custom tools.
@@ -64,6 +65,10 @@ func (w *WorkerAgent) SetStepTracer(st *observability.StepTracer) { w.stepTracer
 
 // SetOnHITL sets the callback fired when the worker enters HITL.
 func (w *WorkerAgent) SetOnHITL(fn func(agent *ReactAgent, reason, prompt string)) { w.onHITL = fn }
+
+// SetHumanToolFactory injects the factory used to build the worker's local
+// ask_human tool. When nil, EnableHumanInTheLoop registers no tool.
+func (w *WorkerAgent) SetHumanToolFactory(f HumanToolFactory) { w.humanToolFactory = f }
 
 // workerResult collects the WorkerAgent's output and usage safely from callbacks.
 type workerResult struct {
@@ -122,6 +127,7 @@ func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (str
 	}
 
 	agent.WithTools(append(workerTools, core.GetToolRegistry().CustomToolNames()...)...)
+	agent.SetHumanToolFactory(w.humanToolFactory)
 	agent.EnableHumanInTheLoop()
 	if w.pauseGate != nil {
 		agent.WithPauseGate(w.pauseGate)

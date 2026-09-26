@@ -24,6 +24,7 @@ type DAGTaskExecutor struct {
 	cancelMu            sync.Mutex                   // protects cancel
 	workerHooks         core.AgentEventHooks         // set by Planner.RegisterEventHooks
 	workerAgentIdentity constants.AgentIdentity      // set by Kernel
+	humanToolFactory    infra.HumanToolFactory       // builds ask_human tool; nil = omit
 	PauseGate           *infra.PauseGate             // shared pause gate for all workers
 	hitlAgents          map[string]*infra.ReactAgent // taskID → waiting worker (HITL)
 	hitlMu              sync.Mutex                    // protects hitlAgents
@@ -43,6 +44,12 @@ func NewDAGTaskExecutor(provider core.ILMProvider, streamMode bool) *DAGTaskExec
 
 func (d *DAGTaskExecutor) SetWorkerHooks(hooks core.AgentEventHooks) {
 	d.workerHooks = hooks
+}
+
+// SetHumanToolFactory injects the factory used to build each worker's local
+// ask_human tool. When nil, workers run with no ask_human tool.
+func (d *DAGTaskExecutor) SetHumanToolFactory(f infra.HumanToolFactory) {
+	d.humanToolFactory = f
 }
 
 // SetProvider replaces the LLM provider used for subsequently spawned workers.
@@ -188,6 +195,7 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 				worker.SetHooks(d.workerHooks)
 				worker.SetStepTracer(d.stepTracer)
 				worker.SetPauseGate(d.PauseGate)
+				worker.SetHumanToolFactory(d.humanToolFactory)
 				worker.SetOnHITL(func(agent *infra.ReactAgent, reason, prompt string) {
 					d.hitlMu.Lock()
 					d.hitlAgents[task.ID] = agent

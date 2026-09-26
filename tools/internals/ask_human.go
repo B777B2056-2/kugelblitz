@@ -14,6 +14,14 @@ type AskHumanTool struct {
 	Gate core.HumanGate
 }
 
+// NewAskHumanTool returns the ask_human tool bound to the given HumanGate
+// (typically a ReactAgent that implements WaitForHuman). It satisfies
+// infra.HumanToolFactory so the composition root can inject it without
+// coupling the infra layer to this concrete implementation.
+func NewAskHumanTool(gate core.HumanGate) tools.Tool {
+	return &AskHumanTool{Gate: gate}
+}
+
 func (t *AskHumanTool) Definition() core.ToolDefinition {
 	return core.ToolDefinition{
 		Name: "ask_human",

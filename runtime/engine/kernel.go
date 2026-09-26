@@ -12,6 +12,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/dag"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/fsm"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
+	"github.com/B777B2056-2/kugelblitz/tools/internals"
 	"go.opentelemetry.io/otel"
 )
 
@@ -40,11 +41,13 @@ func NewKernel(
 	if cfg.Model.EnableThinking {
 		mainReact.SetThinking(true, cfg.Model.ReasoningEffort)
 	}
+	mainReact.SetHumanToolFactory(internals.NewAskHumanTool)
 	mainReact.EnableHumanInTheLoop()
 
 	tracer := otel.Tracer("kugelblitz")
 	compressor := memory.NewCompressor(cfg.Model.Provider, tracer)
 	dagExec := dag.NewDAGTaskExecutor(cfg.Model.Provider, cfg.Model.StreamMode)
+	dagExec.SetHumanToolFactory(internals.NewAskHumanTool)
 	reviewer := infra.NewReviewer(cfg.Model.Provider, tracer)
 
 	machine := fsm.NewMachine(fsm.Dependencies{

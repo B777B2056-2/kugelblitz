@@ -9,6 +9,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/tools/internals"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -416,6 +417,7 @@ func (h *testEventHandler) OnError(err error)               { h.errors = append(
 
 func TestEnableHumanInTheLoop_SetsUpLocalTool(t *testing.T) {
 	agent := NewReactAgent(nil, false)
+	agent.SetHumanToolFactory(internals.NewAskHumanTool)
 	agent.EnableHumanInTheLoop()
 
 	require.NotNil(t, agent.humanLoop)
@@ -426,8 +428,10 @@ func TestEnableHumanInTheLoop_SetsUpLocalTool(t *testing.T) {
 
 func TestEnableHumanInTheLoop_Idempotent(t *testing.T) {
 	agent := NewReactAgent(nil, false)
+	agent.SetHumanToolFactory(internals.NewAskHumanTool)
 	agent.EnableHumanInTheLoop()
 	first := agent.humanLoop
+	agent.SetHumanToolFactory(internals.NewAskHumanTool)
 	agent.EnableHumanInTheLoop()
 	assert.Same(t, first, agent.humanLoop, "second call should be no-op")
 }
@@ -437,6 +441,7 @@ func TestVisibleTools_IncludesLocalToolAfterEnable(t *testing.T) {
 	core.RegisterTool(core.ToolDefinition{Name: "global_tool", Description: "A global tool"}, nil)
 
 	agent := NewReactAgent(nil, false)
+	agent.SetHumanToolFactory(internals.NewAskHumanTool)
 	agent.EnableHumanInTheLoop()
 
 	defs := agent.visibleTools()
@@ -462,6 +467,7 @@ func TestCallTool_LocalToolOverridesGlobal(t *testing.T) {
 	)
 
 	agent := NewReactAgent(nil, false)
+	agent.SetHumanToolFactory(internals.NewAskHumanTool)
 	agent.EnableHumanInTheLoop()
 
 	_, hasLocal := agent.humanLoop.localTools["ask_human"]
@@ -470,6 +476,7 @@ func TestCallTool_LocalToolOverridesGlobal(t *testing.T) {
 
 func TestWaitForHuman_FiresCallback(t *testing.T) {
 	agent := NewReactAgent(nil, false)
+	agent.SetHumanToolFactory(internals.NewAskHumanTool)
 	agent.EnableHumanInTheLoop()
 
 	var cbReason, cbPrompt string
@@ -500,6 +507,7 @@ func TestWaitForHuman_FiresCallback(t *testing.T) {
 
 func TestResumeWithHumanResponse_UnblocksWaitForHuman(t *testing.T) {
 	agent := NewReactAgent(nil, false)
+	agent.SetHumanToolFactory(internals.NewAskHumanTool)
 	agent.EnableHumanInTheLoop()
 
 	var wg sync.WaitGroup
@@ -533,6 +541,7 @@ func TestResumeWithHumanResponse_ErrorWhenNotEnabled(t *testing.T) {
 
 func TestResumeWithHumanResponse_ErrorWhenNotWaiting(t *testing.T) {
 	agent := NewReactAgent(nil, false)
+	agent.SetHumanToolFactory(internals.NewAskHumanTool)
 	agent.EnableHumanInTheLoop()
 
 	err := agent.ResumeWithHumanResponse(context.Background(), "response")
@@ -542,6 +551,7 @@ func TestResumeWithHumanResponse_ErrorWhenNotWaiting(t *testing.T) {
 
 func TestWaitForHuman_ContextCanceled(t *testing.T) {
 	agent := NewReactAgent(nil, false)
+	agent.SetHumanToolFactory(internals.NewAskHumanTool)
 	agent.EnableHumanInTheLoop()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -572,6 +582,7 @@ func TestWaitForHuman_ErrorWhenNotEnabled(t *testing.T) {
 
 func TestWaitForHuman_OnWaitForHumanActionCanBeNil(t *testing.T) {
 	agent := NewReactAgent(nil, false)
+	agent.SetHumanToolFactory(internals.NewAskHumanTool)
 	agent.EnableHumanInTheLoop()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -625,6 +636,7 @@ func TestReactAgent_Execute_MultipleSequentialAskHuman(t *testing.T) {
 	}
 
 	agent := NewReactAgent(mockProv, false)
+	agent.SetHumanToolFactory(internals.NewAskHumanTool)
 	agent.EnableHumanInTheLoop()
 
 	var waitReasons []string
@@ -704,6 +716,7 @@ func TestReactAgent_OnToolCallEndFiresForAskHuman(t *testing.T) {
 	}
 
 	agent := NewReactAgent(mockProv, false)
+	agent.SetHumanToolFactory(internals.NewAskHumanTool)
 	agent.EnableHumanInTheLoop()
 
 	var toolCallEndResults []core.ToolCallResult
@@ -779,6 +792,7 @@ func TestReactAgent_ParallelToolsWithAskHuman(t *testing.T) {
 	}
 
 	agent := NewReactAgent(mockProv, false)
+	agent.SetHumanToolFactory(internals.NewAskHumanTool)
 	agent.EnableHumanInTheLoop()
 	agent.WithTools("side_effect", "ask_human")
 
@@ -821,6 +835,7 @@ func TestHumanLoopWaiting_ReturnsTrueWhileWaiting(t *testing.T) {
 	agent := NewReactAgent(nil, false)
 	assert.False(t, agent.HumanLoopWaiting())
 
+	agent.SetHumanToolFactory(internals.NewAskHumanTool)
 	agent.EnableHumanInTheLoop()
 	assert.False(t, agent.HumanLoopWaiting())
 
@@ -847,6 +862,7 @@ func TestReactAgent_WithTools_FiltersLocalTool(t *testing.T) {
 	core.RegisterTool(core.ToolDefinition{Name: "tool_a", Description: "A"}, nil)
 
 	agent := NewReactAgent(nil, false)
+	agent.SetHumanToolFactory(internals.NewAskHumanTool)
 	agent.EnableHumanInTheLoop()
 	agent.WithTools("tool_a")
 
@@ -884,6 +900,7 @@ func TestReactAgent_Execute_WithAskHumanIntegration(t *testing.T) {
 	}
 
 	agent := NewReactAgent(mockProv, false)
+	agent.SetHumanToolFactory(internals.NewAskHumanTool)
 	agent.EnableHumanInTheLoop()
 
 	var onWaitCalled bool

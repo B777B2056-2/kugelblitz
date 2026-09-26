@@ -9,12 +9,17 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/observability"
-	"github.com/B777B2056-2/kugelblitz/tools/internals"
+	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
 // OnToolResult is called after each tool execution in the ReAct loop.
 // step = current loop iteration count. Return false to abort the loop.
 type OnToolResult func(results []core.ToolCallResult, step int) bool
+
+// HumanToolFactory builds the local ask_human tool for a specific agent gate.
+// Injected by the composition root so infra stays decoupled from the concrete
+// tool implementation in tools/internals.
+type HumanToolFactory func(gate core.HumanGate) tools.Tool
 
 // humanLoopState groups all human-in-the-loop state into a single struct.
 // It is nil when HITL is not enabled.
@@ -42,6 +47,7 @@ type ReactAgent struct {
 	OnToolResult    OnToolResult              // per-tool-execution callback
 	stepTracer      *observability.StepTracer // per-step trace instrumentation
 	humanLoop       *humanLoopState
+	humanToolFactory HumanToolFactory // builds the local ask_human tool; nil = omit
 	pauseGate       *PauseGate // shared gate; nil=no pausing; WaitIfPaused blocks tool calls
 }
 
@@ -99,6 +105,10 @@ func (a *ReactAgent) WithPauseGate(g *PauseGate) *ReactAgent {
 }
 
 func (a *ReactAgent) SetOnToolResult(fn OnToolResult) { a.OnToolResult = fn }
+
+// SetHumanToolFactory injects the factory used to build the local ask_human
+// tool when EnableHumanInTheLoop is called. When nil, ask_human is omitted.
+func (a *ReactAgent) SetHumanToolFactory(f HumanToolFactory) { a.humanToolFactory = f }
 
 // SetMaxSteps caps the number of ReAct loop iterations. 0 (default) = unlimited.
 func (a *ReactAgent) SetMaxSteps(n int) *ReactAgent { a.maxSteps = n; return a }
@@ -303,6 +313,8 @@ func (a *ReactAgent) Interrupt(ctx context.Context) error {
 
 // EnableHumanInTheLoop activates human-in-the-loop support by registering the
 // ask_human tool locally on this agent. Must be called before Execute.
+// The ask_human tool is only registered when a HumanToolFactory has been set
+// via SetHumanToolFactory (done by the composition root).
 func (a *ReactAgent) EnableHumanInTheLoop() *ReactAgent {
 	if a.humanLoop != nil {
 		return a // already enabled
@@ -318,7 +330,10 @@ func (a *ReactAgent) EnableHumanInTheLoop() *ReactAgent {
 }
 
 func (a *ReactAgent) registerLocalAskHuman() {
-	askTool := &internals.AskHumanTool{Gate: a}
+	if a.humanToolFactory == nil {
+		return
+	}
+	askTool := a.humanToolFactory(a)
 	def := askTool.Definition()
 	a.humanLoop.localDefs[def.Name] = def
 	a.humanLoop.localTools[def.Name] = askTool.Execute
