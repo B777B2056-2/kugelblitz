@@ -93,11 +93,19 @@ func (t *ShellExec) Execute(ctx context.Context, detail core.ToolCallDetail) cor
 
 	exitCode := 0
 	if err != nil {
+		// Check the context first: on timeout/cancel, CommandContext kills the
+		// process and Run returns an *exec.ExitError, so a timeout would
+		// otherwise be misreported as a non-zero exit (T1).
+		if ctx.Err() != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				return tools.ErrorResult(detail.ID, "shell_exec",
+					fmt.Errorf("command timed out after %v", timeout))
+			}
+			return tools.ErrorResult(detail.ID, "shell_exec",
+				fmt.Errorf("command cancelled: %v", ctx.Err()))
+		}
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
-		} else if ctx.Err() != nil {
-			return tools.ErrorResult(detail.ID, "shell_exec",
-				fmt.Errorf("command timed out after %v", timeout))
 		} else {
 			return tools.ErrorResult(detail.ID, "shell_exec", err)
 		}
@@ -114,8 +122,9 @@ func (t *ShellExec) Execute(ctx context.Context, detail core.ToolCallDetail) cor
 }
 
 func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + fmt.Sprintf("\n... (truncated, %d total chars)", len(s))
+	return string(runes[:maxLen]) + fmt.Sprintf("\n... (truncated, %d total chars)", len(runes))
 }
