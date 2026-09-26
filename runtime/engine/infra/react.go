@@ -42,7 +42,7 @@ type ReactAgent struct {
 	OnToolResult    OnToolResult              // per-tool-execution callback
 	stepTracer      *observability.StepTracer // per-step trace instrumentation
 	humanLoop       *humanLoopState
-	pauseGate       *sync.RWMutex // shared gate; nil=no pausing; RLock blocks tool calls
+	pauseGate       *PauseGate // shared gate; nil=no pausing; WaitIfPaused blocks tool calls
 }
 
 func NewReactAgent(provider core.ILMProvider, streamMode bool) *ReactAgent {
@@ -91,7 +91,7 @@ func (a *ReactAgent) RegisterEventHooks(hooks core.AgentEventHooks) {
 	a.EventHooks = hooks
 }
 
-func (a *ReactAgent) WithPauseGate(g *sync.RWMutex) *ReactAgent {
+func (a *ReactAgent) WithPauseGate(g *PauseGate) *ReactAgent {
 	a.pauseGate = g
 	return a
 }
@@ -368,20 +368,18 @@ func (a *ReactAgent) HumanLoopWaiting() bool {
 
 // callTool resolves a tool call: local tools first, then the global registry.
 //
-// Before executing, it checks the shared DAG pause gate (sync.RWMutex).
-// When another worker enters HITL, the DAG executor write-locks this mutex
-// (PauseMu.Lock). RLock blocks until the write-lock is released, so every
-// tool call becomes a synchronization checkpoint:
+// Before executing, it checks the shared DAG pause gate. When another worker
+// enters HITL, the gate is paused and WaitIfPaused blocks until Resume, so
+// every tool call becomes a synchronization checkpoint:
 //
-//	Normal:  write-lock NOT held → RLock passes instantly → RUnlock → proceed
-//	Paused:  write-lock IS held  → RLock blocks until Resume() → proceed
+//	Normal: gate not paused → WaitIfPaused returns instantly → proceed
+//	Paused: gate paused    → WaitIfPaused blocks until Resume → proceed
 //
-// We don't need to hold the read lock during tool execution — a single
-// RLock/RUnlock round-trip is enough to detect whether the DAG is paused.
+// We don't need to hold the gate during tool execution — a single check is
+// enough to detect whether the DAG is currently paused.
 func (a *ReactAgent) callTool(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
 	if a.pauseGate != nil {
-		a.pauseGate.RLock()
-		a.pauseGate.RUnlock() //nolint:staticcheck // DAG pause checkpoint, see doc above
+		a.pauseGate.WaitIfPaused()
 	}
 	if a.humanLoop != nil {
 		if fn, ok := a.humanLoop.localTools[detail.ToolName]; ok {

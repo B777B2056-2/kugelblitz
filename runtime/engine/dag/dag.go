@@ -23,7 +23,7 @@ type DAGTaskExecutor struct {
 	cancel              context.CancelFunc
 	workerHooks         core.AgentEventHooks         // set by Planner.RegisterEventHooks
 	workerAgentIdentity constants.AgentIdentity      // set by Kernel
-	PauseMu             sync.RWMutex                 // shared pause gate for all workers
+	PauseGate           *infra.PauseGate             // shared pause gate for all workers
 	hitlAgents          map[string]*infra.ReactAgent // taskID → waiting worker (HITL)
 	hitlMu              sync.Mutex                    // protects hitlAgents
 	stepTracer          *observability.StepTracer    // per-step instrumentation
@@ -35,6 +35,7 @@ func NewDAGTaskExecutor(provider core.ILMProvider, streamMode bool) *DAGTaskExec
 		provider:            provider,
 		streamMode:          streamMode,
 		workerAgentIdentity: constants.AgentWorker,
+		PauseGate:           infra.NewPauseGate(),
 		hitlAgents:          make(map[string]*infra.ReactAgent),
 	}
 }
@@ -103,10 +104,10 @@ type BatchResult struct {
 
 // Pause blocks all worker tool calls until Resume is called. Used when a
 // worker enters HITL — other workers must wait for the human response.
-func (d *DAGTaskExecutor) Pause() { d.PauseMu.Lock() }
+func (d *DAGTaskExecutor) Pause() { d.PauseGate.Pause() }
 
 // Resume unblocks all worker tool calls previously paused by Pause.
-func (d *DAGTaskExecutor) Resume() { d.PauseMu.Unlock() }
+func (d *DAGTaskExecutor) Resume() { d.PauseGate.Resume() }
 
 // ExecuteBatch finds all pending tasks whose parents are done, marks them doing,
 // and spawns them concurrently. It repeats batch-by-batch until the DAG reaches
@@ -176,7 +177,7 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 				worker := infra.NewWorkerAgent(d.provider, d.streamMode)
 				worker.SetHooks(d.workerHooks)
 				worker.SetStepTracer(d.stepTracer)
-				worker.SetPauseGate(&d.PauseMu)
+				worker.SetPauseGate(d.PauseGate)
 				worker.SetOnHITL(func(agent *infra.ReactAgent, reason, prompt string) {
 					d.hitlMu.Lock()
 					d.hitlAgents[task.ID] = agent

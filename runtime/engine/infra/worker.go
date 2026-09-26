@@ -36,7 +36,7 @@ type WorkerAgent struct {
 	streamMode bool
 	maxSteps   int                                            // safety limit on ReAct loop iterations
 	hooks      core.AgentEventHooks                           // set by DAG executor; relayed to worker's ReactAgent
-	pauseGate  *sync.RWMutex                                  // shared DAG pause gate; nil = no pausing
+	pauseGate  *PauseGate                                     // shared DAG pause gate; nil = no pausing
 	onHITL     func(agent *ReactAgent, reason, prompt string) // fire on worker HITL
 	stepTracer *observability.StepTracer                      // per-step OTel instrumentation (shared from DAG)
 }
@@ -54,7 +54,7 @@ func NewWorkerAgent(provider core.ILMProvider, streamMode bool) *WorkerAgent {
 func (w *WorkerAgent) SetHooks(hooks core.AgentEventHooks) { w.hooks = hooks }
 
 // SetPauseGate sets the shared DAG pause gate.
-func (w *WorkerAgent) SetPauseGate(g *sync.RWMutex) { w.pauseGate = g }
+func (w *WorkerAgent) SetPauseGate(g *PauseGate) { w.pauseGate = g }
 
 // SetProvider replaces the LLM provider used for subsequent task execution.
 func (w *WorkerAgent) SetProvider(p core.ILMProvider) { w.provider = p }
