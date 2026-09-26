@@ -64,7 +64,9 @@ func (a *ReactAgent) WithTools(names ...string) *ReactAgent {
 	if len(names) == 0 {
 		a.toolNames = nil
 	} else {
-		a.toolNames = append(a.toolNames, names...)
+		// Replace (not accumulate) the tool set so repeated calls do not leak
+		// earlier selections into later ones (B16).
+		a.toolNames = append([]string(nil), names...)
 	}
 	return a
 }

@@ -360,9 +360,9 @@ func TestReactAgent_WithTools_EmptyResetsToAll(t *testing.T) {
 
 func TestReactAgent_WithTools_ChainedCalls(t *testing.T) {
 	agent := NewReactAgent(nil, false)
+	// WithTools replaces the prior set instead of accumulating (B16).
 	agent.WithTools("a", "b").WithTools("c")
-	assert.Len(t, agent.toolNames, 3)
-	assert.Equal(t, []string{"a", "b", "c"}, agent.toolNames)
+	assert.Equal(t, []string{"c"}, agent.toolNames)
 }
 
 func TestReactAgent_DefaultSeesAllTools(t *testing.T) {
