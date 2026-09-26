@@ -25,6 +25,7 @@ type DAGTaskExecutor struct {
 	workerAgentIdentity constants.AgentIdentity      // set by Kernel
 	PauseMu             sync.RWMutex                 // shared pause gate for all workers
 	hitlAgents          map[string]*infra.ReactAgent // taskID → waiting worker (HITL)
+	hitlMu              sync.Mutex                    // protects hitlAgents
 	stepTracer          *observability.StepTracer    // per-step instrumentation
 }
 
@@ -54,6 +55,8 @@ func (d *DAGTaskExecutor) SetStepTracer(st *observability.StepTracer) {
 
 // AnyWorkerInHumanLoopWaiting returns true if any worker is waiting for human input.
 func (d *DAGTaskExecutor) AnyWorkerInHumanLoopWaiting() bool {
+	d.hitlMu.Lock()
+	defer d.hitlMu.Unlock()
 	for _, gate := range d.hitlAgents {
 		if gate.HumanLoopWaiting() {
 			return true
@@ -64,16 +67,23 @@ func (d *DAGTaskExecutor) AnyWorkerInHumanLoopWaiting() bool {
 
 // ResumeAnyWorkerWithHumanResponse delivers a human response to the first waiting worker.
 func (d *DAGTaskExecutor) ResumeAnyWorkerWithHumanResponse(ctx context.Context, response string) error {
+	d.hitlMu.Lock()
+	var target *infra.ReactAgent
 	for id, gate := range d.hitlAgents {
 		if gate.HumanLoopWaiting() {
-			defer func() {
-				delete(d.hitlAgents, id)
-				d.Resume()
-			}()
-			return gate.ResumeWithHumanResponse(ctx, response)
+			target = gate
+			delete(d.hitlAgents, id)
+			break
 		}
 	}
-	return fmt.Errorf("no worker waiting for human input")
+	d.hitlMu.Unlock()
+
+	if target == nil {
+		return fmt.Errorf("no worker waiting for human input")
+	}
+	err := target.ResumeWithHumanResponse(ctx, response)
+	d.Resume()
+	return err
 }
 
 // Cancel stops all pending worker tasks. Already-running workers complete normally.
@@ -162,7 +172,9 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 				worker.SetStepTracer(d.stepTracer)
 				worker.SetPauseGate(&d.PauseMu)
 				worker.SetOnHITL(func(agent *infra.ReactAgent, reason, prompt string) {
+					d.hitlMu.Lock()
 					d.hitlAgents[task.ID] = agent
+					d.hitlMu.Unlock()
 					d.Pause()
 				})
 				output, usage, err := worker.ExecuteTask(gctx, task.Goal, task.Action)
