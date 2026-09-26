@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // registry returns the global singleton.
@@ -64,6 +65,24 @@ func TestToolRegistry_ListDefinitions_HasEntries(t *testing.T) {
 	}
 	assert.True(t, names["tool1"])
 	assert.True(t, names["tool2"])
+}
+
+// TestToolRegistry_ListDefinitions_Sorted guards B19: definitions are returned
+// in deterministic name order, not Go map iteration order.
+func TestToolRegistry_ListDefinitions_Sorted(t *testing.T) {
+	tr := &ToolRegistry{
+		tools: map[string]registryEntry{
+			"zeta":  {def: ToolDefinition{Name: "zeta"}},
+			"alpha": {def: ToolDefinition{Name: "alpha"}},
+			"mid":   {def: ToolDefinition{Name: "mid"}},
+		},
+	}
+
+	defs := tr.ListDefinitions()
+	require.Len(t, defs, 3)
+	assert.Equal(t, "alpha", defs[0].Name)
+	assert.Equal(t, "mid", defs[1].Name)
+	assert.Equal(t, "zeta", defs[2].Name)
 }
 
 func TestToolRegistry_RegisterOverwrites(t *testing.T) {

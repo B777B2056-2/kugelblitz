@@ -65,6 +65,45 @@ func TestReviewer_Review_ProviderError(t *testing.T) {
 	assert.Contains(t, result.Reason, "reviewer error")
 }
 
+// ---- B14: a reviewer_report call missing or mis-typing the drift field must
+// fail closed (Drift=false) with an explicit reason, not fail open.
+
+func TestReviewer_Review_MissingDriftField(t *testing.T) {
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			msg := core.NewAssistantMessage(core.ToolCallContent{
+				Details: []core.ToolCallDetail{{
+					ID: "tc-1", ToolName: "reviewer_report",
+					Args: map[string]any{"reason": "no drift field present"},
+				}},
+			})
+			return &msg, nil
+		},
+	}
+	reviewer := NewReviewer(provider, otel.Tracer("test"))
+	result := reviewer.Review(context.Background(), "goal", "plan", "trigger")
+	assert.False(t, result.Drift)
+	assert.Contains(t, result.Reason, "drift field missing")
+}
+
+func TestReviewer_Review_NonBoolDriftField(t *testing.T) {
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+			msg := core.NewAssistantMessage(core.ToolCallContent{
+				Details: []core.ToolCallDetail{{
+					ID: "tc-1", ToolName: "reviewer_report",
+					Args: map[string]any{"drift": "yes", "reason": "drift is a string"},
+				}},
+			})
+			return &msg, nil
+		},
+	}
+	reviewer := NewReviewer(provider, otel.Tracer("test"))
+	result := reviewer.Review(context.Background(), "goal", "plan", "trigger")
+	assert.False(t, result.Drift)
+	assert.Contains(t, result.Reason, "drift field missing")
+}
+
 func TestReviewer_Review_PlainTextFallback(t *testing.T) {
 	provider := &MockProvider{
 		GenerateFn: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
