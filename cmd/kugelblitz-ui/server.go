@@ -9,7 +9,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/core"
 )
 
-//go:embed static/*
+//go:embed static
 var staticFiles embed.FS
 
 // Server is the HTTP server for the Kugelblitz Web UI.

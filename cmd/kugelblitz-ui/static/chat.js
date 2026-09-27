@@ -118,10 +118,10 @@ function renderStoredMessage(m) {
             appendMessage('user', '👤', 'You', uHtml);
             break;
         case 'assistant':
-            appendMessage('assistant', '🤖', 'Agent', `<div class="content">${marked.parse(m.content || '')}</div>`);
+            appendMessage('assistant', '🤖', 'Agent', `<div class="content">${md(m.content || '')}</div>`);
             break;
         case 'think':
-            appendMessage('thinking', '💭', '思考过程', `<div class="think-body">${marked.parse(m.content || '')}</div>`);
+            appendMessage('thinking', '💭', '思考过程', `<div class="think-body">${md(m.content || '')}</div>`);
             break;
         case 'tool_call':
             appendMessage('tool_call', '🔧', m.tool_name || 'tool', `<pre>${escapeHtml(JSON.stringify(m.tool_args, null, 2))}</pre>`);
@@ -299,7 +299,7 @@ function onThink(data) {
         const el = document.getElementById(state.thinkingId);
         if (el) {
             el.dataset.raw = (el.dataset.raw||'') + data.text;
-            el.querySelector('.think-body').innerHTML = marked.parse(el.dataset.raw);
+            el.querySelector('.think-body').innerHTML = md(el.dataset.raw);
         }
     }
 }
@@ -310,7 +310,7 @@ function createThinkBlock(text) {
     div.innerHTML = `<div class="think-header" onclick="toggleThink(this)">
         <span class="icon">💭</span><span class="label">思考中…</span>
         <span class="think-arrow">▸</span>
-    </div><div class="think-body collapsed">${marked.parse(text)}</div>`;
+    </div><div class="think-body collapsed">${md(text)}</div>`;
     messagesEl.appendChild(div); scrollDown(); updateWelcome(); return id;
 }
 
@@ -344,7 +344,7 @@ function onReply(data) {
         const el = document.getElementById(state.replyId);
         if (el) {
             el.dataset.raw = (el.dataset.raw||'') + data.text;
-            el.querySelector('.content').innerHTML = marked.parse(el.dataset.raw);
+            el.querySelector('.content').innerHTML = md(el.dataset.raw);
         }
     }
 }
@@ -352,7 +352,7 @@ function onReply(data) {
 function createReplyBlock(text) {
     const id = 'msg-' + Date.now(), div = document.createElement('div');
     div.className = 'message assistant'; div.id = id; div.dataset.raw = text;
-    div.innerHTML = `<div class="header"><span class="icon">🤖</span><span class="label">Agent</span></div><div class="content">${marked.parse(text)}</div>`;
+    div.innerHTML = `<div class="header"><span class="icon">🤖</span><span class="label">Agent</span></div><div class="content">${md(text)}</div>`;
     messagesEl.appendChild(div); scrollDown(); updateWelcome(); return id;
 }
 
@@ -457,11 +457,11 @@ function onTaskUpdated(data) {
 
 // ── Plan Rollback ──
 function onPlanRollback(data) {
-    const version = data.target_version || '?';
+    const version = escapeHtml(String(data.target_version || '?'));
     const name = escapeHtml(data.plan_name || '');
     const div = document.createElement('div');
-    div.className = 'message system';
-    div.innerHTML = `<div class="content" style="background:var(--yellow-bg, #fff8e1);border-left:3px solid var(--yellow, #f9a825);padding:10px 14px;border-radius:4px;">
+    div.className = 'message system rollback';
+    div.innerHTML = `<div class="content">
         <strong>⚠️ 计划已自动回滚至版本 ${version}</strong><br>
         审查发现执行可能偏离目标 <em>${name}</em>，已恢复到上一版本。Agent 将在下一轮回复中确认是否继续。
     </div>`;
@@ -478,9 +478,9 @@ function onHitl(data) {
         if (!d) { console.error('hitl-dialog missing'); return; }
 
         var el = document.getElementById('hitl-reason');
-        if (el) el.innerHTML = data.reason ? marked.parse('**原因：** '+data.reason) : '';
+        if (el) el.innerHTML = data.reason ? md('**原因：** '+data.reason) : '';
         el = document.getElementById('hitl-question');
-        if (el) el.innerHTML = marked.parse(data.question||'需要您的输入');
+        if (el) el.innerHTML = md(data.question||'需要您的输入');
 
         var btns = document.getElementById('hitl-buttons');
         if (!btns) { console.error('hitl-buttons missing'); return; }
@@ -633,6 +633,15 @@ function formatTokens(n) {
 }
 
 function escapeHtml(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+// md renders markdown safely: marked parses, DOMPurify sanitizes, so LLM output
+// can never inject raw HTML/scripts. Falls back to escaped plain text.
+function md(src) {
+    src = String(src == null ? '' : src);
+    if (typeof marked === 'undefined') return '<p>' + escapeHtml(src) + '</p>';
+    const raw = md(src);
+    return (typeof DOMPurify !== 'undefined') ? DOMPurify.sanitize(raw) : escapeHtml(src);
+}
 
 function showToast(msg, type) {
     const t=document.createElement('div');
