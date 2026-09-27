@@ -284,16 +284,38 @@ When confidence gap is narrow, the conflict is queued for human review via
 MEMORY.md at startup (`RebuildIfStale`) and async after every write (`Rebuild`).
 See `memory/longterm/index.go`.
 
-**Dreaming** (background consolidation): a `DreamScheduler` runs on a background
-goroutine, polling every 30 minutes. It only triggers a dream cycle when the
-agent has been **idle** (no `Execute` calls for 5 minutes) and the **cooldown**
-has elapsed (6 hours since last dream). The cycle reads existing memories,
-scores them by value, consolidates high-value items, and extracts cross-cutting
-insights. Results are written to `DREAMS.md`. Three phases:
+**Dreaming** (background consolidation): like human sleep, memory is consolidated
+in the background while the agent is otherwise idle. A scheduler polls every 30
+minutes and runs a cycle only when two conditions both hold: the agent has been
+**idle** (no requests for 5 minutes) and the **cooldown** has elapsed (6 hours
+since the last dream). The whole feature is gated by `auto_dream_enabled`
+(default on); when disabled, the scheduler is never created.
 
-1. **Light Sleep** — collect all `MemoryItem`s, enrich with graph degree
-2. **Deep Sleep** — LLM scores each item (1–10); high scores get confidence bump
-3. **REM** — LLM extracts patterns and themes from top items → `insights` section
+Each cycle reads the current long-term memories and processes them in three
+phases, at a cost of at most **two LLM calls**:
+
+1. **Light Sleep — collection & enrichment** *(no LLM call)*. Every memory item
+   is gathered as a candidate and tagged with its **graph degree**: how many
+   relationships its key participates in as an entity in the knowledge graph.
+   This gives later scoring a signal for how central each memory is. If no graph
+   is mounted, every degree is simply 0.
+
+2. **Deep Sleep — scoring & consolidation** *(one LLM call)*. The LLM rates each
+   item on a 1–10 value scale, guided by recency, update frequency, and graph
+   connectivity. The score drives a threshold rule:
+   - **7–10 (high value)** → *consolidate*: confidence is raised and the version
+     bumped, making the item stickier against future forgetting.
+   - **4–6 (moderate)** → kept unchanged.
+   - **1–3 (low value: one-time, outdated, or already well-known)** → *forget*:
+     the item is removed.
+
+3. **REM — reflection** *(one LLM call, only if any item scored 8+)*. The
+   top-value items are distilled into cross-cutting **insights** — new,
+   higher-level memory entries — plus a one-sentence summary of what the agent
+   is currently focused on.
+
+The outcome is written to `DREAMS.md` as a human-readable diary: how many items
+were examined, consolidated, and forgotten, plus the insights and summary.
 
 See `memory/longterm/dream/`.
 

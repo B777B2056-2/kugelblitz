@@ -120,6 +120,37 @@ func TestDreamer_DeepSleep_ScoresAndFilters(t *testing.T) {
 	assert.Greater(t, f.Version, 1, "high-score item should be consolidated")
 }
 
+func TestDreamer_Run_DeprecatesLowScore(t *testing.T) {
+	ltm, d := setupDreamer(t)
+
+	d.caller.SetProvider(&dreamProvider{
+		responses: []string{
+			// Deep sleep: debug_nil_pointer scored 2 → low value, must be removed.
+			`{"scores":[
+				{"section":"user_preferences","key":"language","score":9,"reason":""},
+				{"section":"project_facts","key":"deploy","score":8,"reason":""},
+				{"section":"episodic","key":"debug_nil_pointer","score":2,"reason":"one-time"},
+				{"section":"lessons","key":"tdd_workflow","score":9,"reason":""}
+			]}`,
+			`{"insights":[{"section":"insights","key":"p","value":"Go"}],"summary":"Go."}`,
+		},
+	})
+
+	report, err := d.Run(context.Background())
+	require.NoError(t, err)
+
+	// Low-score item must be deprecated (removed from LTM).
+	_, ok := ltm.Get("episodic", "debug_nil_pointer")
+	assert.False(t, ok, "low-score item must be removed")
+
+	// High-score items must be retained.
+	_, ok = ltm.Get("lessons", "tdd_workflow")
+	assert.True(t, ok, "high-score item must survive")
+
+	assert.Equal(t, 1, report.Deprecated)
+	assert.Equal(t, 1, report.ScoredLow)
+}
+
 func TestDreamer_REM_ExtractsInsights(t *testing.T) {
 	_, d := setupDreamer(t)
 

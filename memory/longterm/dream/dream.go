@@ -206,6 +206,7 @@ func (d *Dreamer) Run(ctx context.Context) (*DreamReport, error) {
 				}
 				if s.Score <= 3 {
 					report.ScoredLow++
+					report.Deprecated++
 				}
 			}
 			return nil
@@ -308,7 +309,7 @@ func (d *Dreamer) deepSleep(ctx context.Context, candidates []dreamCandidate) ([
 				scored = append(scored, deepSleepResult{
 					Item: c.Item, Score: s.Score, Reason: s.Reason, GraphDegree: c.GraphDegree,
 				})
-				// Consolidate: bump confidence on high-score items
+				// Consolidate: bump confidence on high-score items.
 				if s.Score >= 7 {
 					existing, _ := d.ltm.Get(s.Section, s.Key)
 					existing.Confidence += 0.05
@@ -317,6 +318,11 @@ func (d *Dreamer) deepSleep(ctx context.Context, candidates []dreamCandidate) ([
 					}
 					existing.Version++
 					_, _, _ = d.ltm.Store(s.Section, s.Key, existing.Value)
+				} else if s.Score <= 3 {
+					// Deprecate: drop low-value items (one-time/outdated/well-known).
+					if err := d.ltm.Remove(s.Section, s.Key); err != nil {
+						core.Warn("dream: deprecate item", "section", s.Section, "key", s.Key, "err", err)
+					}
 				}
 				break
 			}
