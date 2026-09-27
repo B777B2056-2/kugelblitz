@@ -13,11 +13,11 @@ import (
 
 // Session represents an ACP conversation session.
 type Session struct {
-	ID        string         `json:"id"`
-	Cwd       string         `json:"cwd"`
+	ID        string              `json:"id"`
+	Cwd       string              `json:"cwd"`
 	Messages  []coretypes.Message `json:"messages"`
-	CreatedAt time.Time      `json:"created_at"`
-	Agent     core.IAgent    `json:"-"`
+	CreatedAt time.Time           `json:"created_at"`
+	Agent     core.IAgent         `json:"-"`
 
 	// cancelMu guards cancelFn, which is written by SetCancelFunc during an
 	// active prompt and read by Cancel from another goroutine (A3).

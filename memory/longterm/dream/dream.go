@@ -88,6 +88,7 @@ type DreamScheduler struct {
 	lastActivity  time.Time
 	mu            sync.Mutex
 	stopCh        chan struct{}
+	wg            sync.WaitGroup
 }
 
 // NewDreamScheduler creates a scheduler with default intervals
@@ -117,12 +118,18 @@ func (ds *DreamScheduler) NotifyActivity() {
 
 // Start begins the background polling loop. Call once; runs until Stop().
 func (ds *DreamScheduler) Start() {
-	go ds.loop()
+	ds.wg.Add(1)
+	go func() {
+		defer ds.wg.Done()
+		ds.loop()
+	}()
 }
 
-// Stop signals the background loop to exit.
+// Stop signals the background loop to exit and waits for it to finish, so that
+// any in-flight dream cycle (and its writes) completes before Stop returns.
 func (ds *DreamScheduler) Stop() {
 	close(ds.stopCh)
+	ds.wg.Wait()
 }
 
 func (ds *DreamScheduler) loop() {
