@@ -256,6 +256,25 @@ func TestLongTermMemory_Facts(t *testing.T) {
 	assert.Len(t, all, 2)
 }
 
+func TestLongTermMemory_SourceRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	ltm, err := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(dir)))
+	require.NoError(t, err)
+
+	items := []memorytypes.MemoryItem{
+		{Section: "prefs", Key: "lang", Value: "Go", Source: "user prefers Go for backend", Confidence: 1.0},
+	}
+	require.NoError(t, ltm.BulkStore(items))
+
+	// Reload from disk into a fresh instance — source must survive the markdown round-trip.
+	ltm2, err := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(dir)))
+	require.NoError(t, err)
+
+	f, ok := ltm2.Get("prefs", "lang")
+	require.True(t, ok)
+	assert.Equal(t, "user prefers Go for backend", f.Source)
+}
+
 func TestLongTermMemory_ListSections(t *testing.T) {
 	ltm := newTestLTM(t)
 	_, _, _ = ltm.Store("prefs", "lang", "Go")

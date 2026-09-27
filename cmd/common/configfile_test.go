@@ -210,7 +210,7 @@ func TestApplyRaw_AutoDream_ZeroKeepsDefault(t *testing.T) {
 	cfg := config.DefaultConfig()
 	applyRaw(raw, &cfg)
 
-	assert.True(t, cfg.AutoDream.Enabled, "enabled must keep its default (true)")
+	assert.False(t, cfg.AutoDream.Enabled, "enabled must keep its default (false, opt-in)")
 	assert.Equal(t, 1800, cfg.AutoDream.CheckIntervalSec, "0 must keep the default")
 }
 

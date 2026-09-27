@@ -148,12 +148,12 @@ Below are NEW messages that continue the conversation. Produce a single CONSOLID
 --- End of messages ---
 Provide the consolidated summary (under 500 words):`
 
-const memoryScoreTmpl = `You are a memory scoring system. Rate each memory item from 1-10:
+const memoryScoreTmpl = `You are a memory scoring system. Rate each memory item from 1-10 by its INTRINSIC value only:
 - 1-3: low value (one-time event, outdated, already well-known)
 - 4-6: moderate (useful but not critical)
 - 7-10: high value (recurring theme, important preference, actionable insight)
 
-Consider: recency (high confidence = recent), frequency (high version = updated often), graph connections (high degree = well-connected entity).
+Rate only the intrinsic/qualitative value. Do NOT consider recency, update frequency, or graph connectivity — those are computed separately by the system.
 
 Output ONLY valid JSON:
 {"scores": [{"section":"...","key":"...","score":N,"reason":"brief justification"}]}

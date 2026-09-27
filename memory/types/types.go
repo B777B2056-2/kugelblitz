@@ -18,6 +18,7 @@ type MemoryItem struct {
 	Section    string
 	Key        string
 	Value      string
+	Source     string    // provenance evidence (extractor source_evidence), may be empty
 	Version    int       // starts at 1
 	Confidence float64   // 0.0–1.0, decays over time
 	UpdatedAt  time.Time // last update timestamp

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ type MarkdownEntry struct {
 	Section    string
 	Key        string
 	Value      string
+	Source     string // provenance evidence (extractor source_evidence), may be empty
 	Version    int
 	Confidence float64
 	UpdatedAt  time.Time
@@ -96,17 +98,19 @@ func parseMarkdown(data []byte) ([]MarkdownEntry, error) {
 			version := 1
 			confidence := 1.0
 			updatedAt := time.Now()
+			source := ""
 
 			if metaIdx := strings.LastIndex(restValue, "`v"); metaIdx > 0 {
 				meta := restValue[metaIdx:]
 				value = strings.TrimSpace(restValue[:metaIdx])
-				parseMarkdownMeta(meta, &version, &confidence, &updatedAt)
+				parseMarkdownMeta(meta, &version, &confidence, &updatedAt, &source)
 			}
 
 			entries = append(entries, MarkdownEntry{
 				Section:    currentSection,
 				Key:        key,
 				Value:      value,
+				Source:     source,
 				Version:    version,
 				Confidence: confidence,
 				UpdatedAt:  updatedAt,
@@ -143,6 +147,9 @@ func formatMarkdown(entries []MarkdownEntry) []byte {
 		fmt.Fprintf(&sb, "## %s\n", g.title)
 		for _, e := range g.entries {
 			meta := fmt.Sprintf("`v%d c%.2f %s`", e.Version, e.Confidence, e.UpdatedAt.Format("2006-01-02"))
+			if e.Source != "" {
+				meta = fmt.Sprintf("`v%d c%.2f %s src=%s`", e.Version, e.Confidence, e.UpdatedAt.Format("2006-01-02"), url.QueryEscape(e.Source))
+			}
 			fmt.Fprintf(&sb, "- %s: %s  %s\n", e.Key, e.Value, meta)
 		}
 		sb.WriteString("\n")
@@ -150,10 +157,15 @@ func formatMarkdown(entries []MarkdownEntry) []byte {
 	return []byte(sb.String())
 }
 
-func parseMarkdownMeta(meta string, version *int, confidence *float64, updatedAt *time.Time) {
+func parseMarkdownMeta(meta string, version *int, confidence *float64, updatedAt *time.Time, source *string) {
 	meta = strings.Trim(meta, "`")
 	parts := strings.Fields(meta)
 	for _, p := range parts {
+		if v, ok := strings.CutPrefix(p, "src="); ok {
+			if s, err := url.QueryUnescape(v); err == nil {
+				*source = s
+			}
+		}
 		if strings.HasPrefix(p, "v") {
 			if v, err := strconv.Atoi(p[1:]); err == nil {
 				*version = v

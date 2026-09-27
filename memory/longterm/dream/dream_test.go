@@ -94,7 +94,7 @@ func TestDreamer_DeepSleep_ScoresAndFilters(t *testing.T) {
 	})
 
 	candidates, _ := d.lightSleep(context.Background())
-	scored, err := d.deepSleep(context.Background(), candidates)
+	scored, _, err := d.deepSleep(context.Background(), candidates, nil)
 	require.NoError(t, err)
 	assert.Len(t, scored, 4)
 
@@ -125,14 +125,15 @@ func TestDreamer_Run_DeprecatesLowScore(t *testing.T) {
 
 	d.caller.SetProvider(&dreamProvider{
 		responses: []string{
-			// Deep sleep: debug_nil_pointer scored 2 → low value, must be removed.
+			// REM runs first: reflect insights.
+			`{"insights":[{"section":"insights","key":"p","value":"Go"}],"summary":"Go."}`,
+			// Deep sleep runs second: debug_nil_pointer scored 2 → low value, must be removed.
 			`{"scores":[
 				{"section":"user_preferences","key":"language","score":9,"reason":""},
 				{"section":"project_facts","key":"deploy","score":8,"reason":""},
 				{"section":"episodic","key":"debug_nil_pointer","score":2,"reason":"one-time"},
 				{"section":"lessons","key":"tdd_workflow","score":9,"reason":""}
 			]}`,
-			`{"insights":[{"section":"insights","key":"p","value":"Go"}],"summary":"Go."}`,
 		},
 	})
 
@@ -156,14 +157,6 @@ func TestDreamer_REM_ExtractsInsights(t *testing.T) {
 
 	d.caller.SetProvider(&dreamProvider{
 		responses: []string{
-			// Deep sleep response
-			`{"scores":[
-				{"section":"user_preferences","key":"language","score":9,"reason":""},
-				{"section":"project_facts","key":"deploy","score":7,"reason":""},
-				{"section":"episodic","key":"debug_nil_pointer","score":2,"reason":""},
-				{"section":"lessons","key":"tdd_workflow","score":9,"reason":""}
-			]}`,
-			// REM response
 			`{"insights":[
 				{"section":"insights","key":"go_agent_dev","value":"User is building a Go-based agent framework with TDD workflow"},
 				{"section":"insights","key":"deploy_prod","value":"Project is deployed to production"}
@@ -172,12 +165,11 @@ func TestDreamer_REM_ExtractsInsights(t *testing.T) {
 	})
 
 	candidates, _ := d.lightSleep(context.Background())
-	scored, _ := d.deepSleep(context.Background(), candidates)
-	var highForREM []memorytypes.MemoryItem
-	for _, s := range scored {
-		highForREM = append(highForREM, s.Item)
+	var items []memorytypes.MemoryItem
+	for _, c := range candidates {
+		items = append(items, c.Item)
 	}
-	insights, _, err := d.rem(context.Background(), highForREM)
+	insights, _, err := d.rem(context.Background(), items)
 	require.NoError(t, err)
 	assert.Len(t, insights, 2)
 	assert.Equal(t, "insights", insights[0].Section)
@@ -187,18 +179,18 @@ func TestDreamer_REM_ExtractsInsights(t *testing.T) {
 func TestDreamer_Run_FullCycle(t *testing.T) {
 	_, d := setupDreamer(t)
 
-	// 4 items → needs 4 scores + 1 REM = 2 LLM calls total
+	// 4 items → needs 1 REM + 4 scores = 2 LLM calls total
 	d.caller.SetProvider(&dreamProvider{
 		responses: []string{
+			`{"insights":[
+				{"section":"insights","key":"pattern","value":"Go agent framework with TDD"}
+			],"summary":"Go-focused development."}`,
 			`{"scores":[
 				{"section":"user_preferences","key":"language","score":9,"reason":""},
 				{"section":"project_facts","key":"deploy","score":8,"reason":""},
 				{"section":"episodic","key":"debug_nil_pointer","score":2,"reason":""},
 				{"section":"lessons","key":"tdd_workflow","score":9,"reason":""}
 			]}`,
-			`{"insights":[
-				{"section":"insights","key":"pattern","value":"Go agent framework with TDD"}
-			],"summary":"Go-focused development."}`,
 		},
 	})
 
@@ -210,6 +202,33 @@ func TestDreamer_Run_FullCycle(t *testing.T) {
 	assert.Greater(t, report.Consolidated, 0)
 	assert.Len(t, report.Insights, 1)
 	assert.Contains(t, report.Summary, "Go")
+}
+
+func TestDreamer_Run_PromotesInsights(t *testing.T) {
+	ltm, d := setupDreamer(t)
+
+	d.caller.SetProvider(&dreamProvider{
+		responses: []string{
+			`{"insights":[
+				{"section":"insights","key":"go_agent_dev","value":"User builds a Go agent framework with TDD"}
+			],"summary":"Go dev."}`,
+			`{"scores":[
+				{"section":"user_preferences","key":"language","score":9,"reason":""},
+				{"section":"project_facts","key":"deploy","score":8,"reason":""},
+				{"section":"episodic","key":"debug_nil_pointer","score":2,"reason":""},
+				{"section":"lessons","key":"tdd_workflow","score":9,"reason":""}
+			]}`,
+		},
+	})
+
+	report, err := d.Run(context.Background())
+	require.NoError(t, err)
+
+	// The REM insight must be promoted back into LTM by Deep Sleep.
+	ins, ok := ltm.Get("insights", "go_agent_dev")
+	assert.True(t, ok, "REM insight should be promoted into LTM")
+	assert.Contains(t, ins.Value, "Go agent framework")
+	assert.Equal(t, 1, report.Promoted)
 }
 
 func TestDreamReport_ToMarkdown(t *testing.T) {

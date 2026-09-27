@@ -63,6 +63,7 @@ func (cr *ConflictResolver) resolveOne(c memorytypes.MemoryItemCandidate) Resolv
 				Section:    c.Section,
 				Key:        c.Key,
 				Value:      c.Value,
+				Source:     c.SourceEvidence,
 				Version:    1,
 				Confidence: clampConfidence(c.SuggestedConfidence),
 				UpdatedAt:  now,
@@ -74,6 +75,9 @@ func (cr *ConflictResolver) resolveOne(c memorytypes.MemoryItemCandidate) Resolv
 	if cr.ltm.isSemanticMatch(existing.Value, c.Value) {
 		existing.Confidence = math.Min(1.0, existing.Confidence+0.1)
 		existing.Value = c.Value
+		if c.SourceEvidence != "" {
+			existing.Source = c.SourceEvidence
+		}
 		existing.Version++
 		existing.UpdatedAt = time.Now()
 		return ResolveResult{
@@ -97,6 +101,7 @@ func (cr *ConflictResolver) resolveOne(c memorytypes.MemoryItemCandidate) Resolv
 				Section:    c.Section,
 				Key:        c.Key,
 				Value:      c.Value,
+				Source:     c.SourceEvidence,
 				Version:    existing.Version + 1,
 				Confidence: newConf,
 				UpdatedAt:  now,

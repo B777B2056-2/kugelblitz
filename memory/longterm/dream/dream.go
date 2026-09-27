@@ -24,6 +24,7 @@ type DreamReport struct {
 	ScoredHigh   int // items scored >= 7
 	ScoredLow    int // items scored <= 3
 	Deprecated   int // items removed (below confidence floor)
+	Promoted     int // REM insights promoted back into long-term memory
 	Insights     []memorytypes.MemoryItem
 	Summary      string
 	LLMCalls     int
@@ -34,8 +35,8 @@ type DreamReport struct {
 func (r *DreamReport) ToMarkdown() string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "# Dream Report — %s\n\n", r.Timestamp.Format("2006-01-02 15:04"))
-	fmt.Fprintf(&sb, "> Candidates: %d | Consolidated: %d | High-score: %d | Low-score: %d | Deprecated: %d\n",
-		r.Candidates, r.Consolidated, r.ScoredHigh, r.ScoredLow, r.Deprecated)
+	fmt.Fprintf(&sb, "> Candidates: %d | Consolidated: %d | High-score: %d | Low-score: %d | Deprecated: %d | Promoted: %d\n",
+		r.Candidates, r.Consolidated, r.ScoredHigh, r.ScoredLow, r.Deprecated, r.Promoted)
 	fmt.Fprintf(&sb, "> LLM calls: %d | Duration: %v\n\n", r.LLMCalls, r.Duration.Round(time.Millisecond))
 
 	if r.Summary != "" {
@@ -169,14 +170,16 @@ func (ds *DreamScheduler) maybeDream() {
 }
 
 // Run executes the full dream cycle as an ordered set of steps:
-// Light Sleep → Deep Sleep → REM.
+// Light Sleep → REM → Deep Sleep. Light and REM are read-only signal gatherers;
+// Deep Sleep is the sole writer (consolidates, deprecates, and promotes REM
+// insights back into long-term memory).
 func (d *Dreamer) Run(ctx context.Context) (*DreamReport, error) {
 	start := time.Now()
 	report := &DreamReport{Timestamp: start}
 
 	var (
 		candidates []dreamCandidate
-		scored     []deepSleepResult
+		insights   []memorytypes.MemoryItem
 	)
 
 	steps := pipeline.New(
@@ -189,43 +192,42 @@ func (d *Dreamer) Run(ctx context.Context) (*DreamReport, error) {
 			report.Candidates = len(cs)
 			return nil
 		}},
+		pipeline.Step{Name: "rem", Run: func(ctx context.Context) error {
+			if len(candidates) == 0 {
+				return nil
+			}
+			items := make([]memorytypes.MemoryItem, len(candidates))
+			for i, c := range candidates {
+				items[i] = c.Item
+			}
+			ins, summary, err := d.rem(ctx, items)
+			report.LLMCalls++
+			if err == nil {
+				insights = ins
+				report.Insights = ins
+				report.Summary = summary
+			}
+			return nil
+		}},
 		pipeline.Step{Name: "deep_sleep", Run: func(ctx context.Context) error {
 			if len(candidates) == 0 {
 				return nil // nothing to consolidate
 			}
-			sc, err := d.deepSleep(ctx, candidates)
+			scored, promoted, err := d.deepSleep(ctx, candidates, insights)
 			report.LLMCalls++
 			if err != nil {
 				return err
 			}
-			scored = sc
+			report.Promoted = promoted
 			for _, s := range scored {
-				if s.Score >= 7 {
+				if s.FinalScore >= promoteThreshold {
 					report.ScoredHigh++
 					report.Consolidated++
 				}
-				if s.Score <= 3 {
+				if s.FinalScore <= deprecateThreshold {
 					report.ScoredLow++
 					report.Deprecated++
 				}
-			}
-			return nil
-		}},
-		pipeline.Step{Name: "rem", Run: func(ctx context.Context) error {
-			var highItems []memorytypes.MemoryItem
-			for _, s := range scored {
-				if s.Score >= 8 {
-					highItems = append(highItems, s.Item)
-				}
-			}
-			if len(highItems) == 0 {
-				return nil
-			}
-			insights, summary, err := d.rem(ctx, highItems)
-			report.LLMCalls++
-			if err == nil {
-				report.Insights = insights
-				report.Summary = summary
 			}
 			return nil
 		}},
@@ -267,13 +269,16 @@ type deepSleepScore struct {
 
 type deepSleepResult struct {
 	Item        memorytypes.MemoryItem
-	Score       int
+	Score       int     // LLM qualitative score (1-10), one signal among four
+	FinalScore  float64 // hybrid 0..1 score driving consolidate/deprecate
 	Reason      string
 	GraphDegree int
 }
 
-// deepSleep sends candidates to the LLM for scoring and consolidates high scores.
-func (d *Dreamer) deepSleep(ctx context.Context, candidates []dreamCandidate) ([]deepSleepResult, error) {
+// deepSleep sends candidates to the LLM for scoring, consolidates high scores,
+// deprecates low scores, and promotes REM insights back into long-term memory.
+// It is the sole writer among the dream phases.
+func (d *Dreamer) deepSleep(ctx context.Context, candidates []dreamCandidate, insights []memorytypes.MemoryItem) ([]deepSleepResult, int, error) {
 	// Build scoring prompt
 	var itemsDesc strings.Builder
 	for i, c := range candidates {
@@ -286,7 +291,7 @@ func (d *Dreamer) deepSleep(ctx context.Context, candidates []dreamCandidate) ([
 		Items: itemsDesc.String(),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("deep sleep: render: %w", err)
+		return nil, 0, fmt.Errorf("deep sleep: render: %w", err)
 	}
 
 	var result struct {
@@ -298,7 +303,7 @@ func (d *Dreamer) deepSleep(ctx context.Context, candidates []dreamCandidate) ([
 		Target:   &result,
 		SpanName: "dream.deep_sleep",
 	}); err != nil {
-		return nil, fmt.Errorf("deep sleep: %w", err)
+		return nil, 0, fmt.Errorf("deep sleep: %w", err)
 	}
 
 	// Build results and consolidate high scores
@@ -306,11 +311,12 @@ func (d *Dreamer) deepSleep(ctx context.Context, candidates []dreamCandidate) ([
 	for _, s := range result.Scores {
 		for _, c := range candidates {
 			if c.Item.Section == s.Section && c.Item.Key == s.Key {
+				final := scoreCandidate(c.Item.Confidence, c.Item.Version, c.GraphDegree, s.Score)
 				scored = append(scored, deepSleepResult{
-					Item: c.Item, Score: s.Score, Reason: s.Reason, GraphDegree: c.GraphDegree,
+					Item: c.Item, Score: s.Score, FinalScore: final, Reason: s.Reason, GraphDegree: c.GraphDegree,
 				})
-				// Consolidate: bump confidence on high-score items.
-				if s.Score >= 7 {
+				// Consolidate: bump confidence on high-value items.
+				if final >= promoteThreshold {
 					existing, _ := d.ltm.Get(s.Section, s.Key)
 					existing.Confidence += 0.05
 					if existing.Confidence > 1.0 {
@@ -318,7 +324,7 @@ func (d *Dreamer) deepSleep(ctx context.Context, candidates []dreamCandidate) ([
 					}
 					existing.Version++
 					_, _, _ = d.ltm.Store(s.Section, s.Key, existing.Value)
-				} else if s.Score <= 3 {
+				} else if final <= deprecateThreshold {
 					// Deprecate: drop low-value items (one-time/outdated/well-known).
 					if err := d.ltm.Remove(s.Section, s.Key); err != nil {
 						core.Warn("dream: deprecate item", "section", s.Section, "key", s.Key, "err", err)
@@ -328,7 +334,21 @@ func (d *Dreamer) deepSleep(ctx context.Context, candidates []dreamCandidate) ([
 			}
 		}
 	}
-	return scored, nil
+
+	// Promote REM insights into long-term memory (Deep Sleep is the sole writer).
+	promoted := 0
+	for _, ins := range insights {
+		if ins.Section == "" || ins.Key == "" {
+			continue
+		}
+		if _, _, err := d.ltm.Store(ins.Section, ins.Key, ins.Value); err != nil {
+			core.Warn("dream: promote insight", "section", ins.Section, "key", ins.Key, "err", err)
+			continue
+		}
+		promoted++
+	}
+
+	return scored, promoted, nil
 }
 
 // rem extracts cross-cutting insights from high-value items.

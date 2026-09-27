@@ -22,6 +22,18 @@ func TestConflictResolver_NoConflict_NewFact(t *testing.T) {
 	assert.Equal(t, 1, stored[0].Version)
 }
 
+func TestConflictResolver_CarriesSourceEvidence(t *testing.T) {
+	ltm := &LongTermMemory{index: make(map[string]int)}
+	cr := NewConflictResolver(ltm, 0.15)
+
+	candidates := []memorytypes.MemoryItemCandidate{
+		{Section: "prefs", Key: "lang", Value: "Go", SourceEvidence: "user said 'I prefer Go'", SuggestedConfidence: 0.9},
+	}
+	stored := cr.Resolve(candidates)
+	require.Len(t, stored, 1)
+	assert.Equal(t, "user said 'I prefer Go'", stored[0].Source)
+}
+
 func TestConflictResolver_SemanticMatch_NoConflict(t *testing.T) {
 	ltm := newTestLTM(t)
 	_, _, _ = ltm.Store("prefs", "lang", "Go")
