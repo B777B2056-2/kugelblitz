@@ -240,6 +240,50 @@ func TestParseStreamChunk_EmptyChoices(t *testing.T) {
 	assert.Nil(t, result)
 }
 
+// TestParseStreamChunk_UsageOnlyChunk guards the include_usage terminal chunk:
+// streaming APIs (DeepSeek/OpenAI) emit a final chunk with usage but no choices.
+// It must still surface a message carrying Usage so token tracking works.
+func TestParseStreamChunk_UsageOnlyChunk(t *testing.T) {
+	c := newConverter()
+	raw := openai.ChatCompletionChunk{
+		Usage: openai.CompletionUsage{
+			TotalTokens:      70,
+			PromptTokens:     31,
+			CompletionTokens: 39,
+		},
+	}
+	result, err := c.ParseStreamChunk(context.Background(), "p1", raw)
+	require.NoError(t, err)
+	require.NotNil(t, result, "usage-only chunk must yield a message carrying usage")
+	require.NotNil(t, result.Usage)
+	assert.Equal(t, int64(70), result.Usage.TotalTokens)
+	assert.Equal(t, int64(31), result.Usage.InputTokens)
+	assert.Equal(t, int64(39), result.Usage.OutputTokens)
+}
+
+// TestParseStreamChunk_UsageWithEmptyContentChunk guards DeepSeek's include_usage
+// terminal chunk: it has a choice with empty content and finish_reason, and the
+// usage attached to the same chunk. Usage must survive despite empty content.
+func TestParseStreamChunk_UsageWithEmptyContentChunk(t *testing.T) {
+	c := newConverter()
+	raw := openai.ChatCompletionChunk{
+		Choices: []openai.ChatCompletionChunkChoice{
+			{FinishReason: "stop", Delta: openai.ChatCompletionChunkChoiceDelta{Content: ""}},
+		},
+		Usage: openai.CompletionUsage{
+			TotalTokens:      77,
+			PromptTokens:     31,
+			CompletionTokens: 46,
+		},
+	}
+	result, err := c.ParseStreamChunk(context.Background(), "p1", raw)
+	require.NoError(t, err)
+	require.NotNil(t, result, "terminal chunk with empty content must still surface usage")
+	require.NotNil(t, result.Usage)
+	assert.Equal(t, int64(77), result.Usage.TotalTokens)
+	assert.Equal(t, "stop", result.FinishReason)
+}
+
 func TestParseStreamChunk_WithFinishReason(t *testing.T) {
 	c := newConverter()
 	raw := openai.ChatCompletionChunk{

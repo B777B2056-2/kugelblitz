@@ -436,20 +436,21 @@ func (c *Converter) ParseResponse(ctx context.Context, parentID string, raw open
 
 func (c *Converter) ParseStreamChunk(ctx context.Context, parentID string, raw openai.ChatCompletionChunk) (*coretypes.Message, error) {
 	if len(raw.Choices) == 0 {
+		// include_usage terminal chunk: usage arrives with no choices. Surface
+		// it so token tracking still receives usage.
+		if u := usageFromRaw(raw.Usage); u != nil {
+			msg := coretypes.NewAssistantMessage(nil)
+			msg.Usage = u
+			return &msg, nil
+		}
 		return nil, nil
 	}
 
 	reasoningDelta := parseReasoningFromChunkRaw(raw.RawJSON())
 	msg := coretypes.NewAssistantMessage(nil)
 
-	if raw.Usage.TotalTokens > 0 {
-		msg.Usage = &coretypes.Usage{
-			TotalTokens:     raw.Usage.TotalTokens,
-			InputTokens:     raw.Usage.PromptTokens,
-			CachedTokens:    raw.Usage.PromptTokensDetails.CachedTokens,
-			ReasoningTokens: raw.Usage.CompletionTokensDetails.ReasoningTokens,
-			OutputTokens:    raw.Usage.CompletionTokens,
-		}
+	if u := usageFromRaw(raw.Usage); u != nil {
+		msg.Usage = u
 	}
 	if raw.Choices[0].FinishReason != "" {
 		msg.FinishReason = raw.Choices[0].FinishReason
@@ -483,10 +484,31 @@ func (c *Converter) ParseStreamChunk(ctx context.Context, parentID string, raw o
 		}
 		msg.Content = coretypes.ToolCallContent{Details: details}
 	default:
+		// A terminal chunk may carry usage and/or finish_reason with empty
+		// content (e.g. DeepSeek's include_usage final chunk). Surface it so
+		// token tracking still receives usage.
+		if msg.Usage != nil || msg.FinishReason != "" {
+			return &msg, nil
+		}
 		return nil, nil
 	}
 
 	return &msg, nil
+}
+
+// usageFromRaw converts an OpenAI completion usage to the core usage value,
+// returning nil when the source carries no token counts (e.g. an empty chunk).
+func usageFromRaw(u openai.CompletionUsage) *coretypes.Usage {
+	if u.TotalTokens <= 0 {
+		return nil
+	}
+	return &coretypes.Usage{
+		TotalTokens:     u.TotalTokens,
+		InputTokens:     u.PromptTokens,
+		CachedTokens:    u.PromptTokensDetails.CachedTokens,
+		ReasoningTokens: u.CompletionTokensDetails.ReasoningTokens,
+		OutputTokens:    u.CompletionTokens,
+	}
 }
 
 // --- Raw JSON reasoning_content extraction ---
