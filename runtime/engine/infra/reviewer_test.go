@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/llm"
 
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel"
@@ -22,7 +23,7 @@ func TestReviewer_Review_NoDrift(t *testing.T) {
 			return &msg, nil
 		},
 	}
-	reviewer := NewReviewer(provider, otel.Tracer("test"))
+	reviewer := NewReviewer(llm.NewCaller(provider, otel.Tracer("test")))
 	result := reviewer.Review(context.Background(), "deploy", "plan v5", "step")
 
 	assert.False(t, result.Drift)
@@ -45,7 +46,7 @@ func TestReviewer_Review_Drift(t *testing.T) {
 			return &msg, nil
 		},
 	}
-	reviewer := NewReviewer(provider, otel.Tracer("test"))
+	reviewer := NewReviewer(llm.NewCaller(provider, otel.Tracer("test")))
 	result := reviewer.Review(context.Background(), "deploy", "plan v5, 8 tasks", "step")
 
 	assert.True(t, result.Drift)
@@ -59,7 +60,7 @@ func TestReviewer_Review_ProviderError(t *testing.T) {
 			return nil, assert.AnError
 		},
 	}
-	reviewer := NewReviewer(provider, otel.Tracer("test"))
+	reviewer := NewReviewer(llm.NewCaller(provider, otel.Tracer("test")))
 	result := reviewer.Review(context.Background(), "goal", "plan", "trigger")
 	assert.False(t, result.Drift)
 	assert.Contains(t, result.Reason, "reviewer error")
@@ -80,7 +81,7 @@ func TestReviewer_Review_MissingDriftField(t *testing.T) {
 			return &msg, nil
 		},
 	}
-	reviewer := NewReviewer(provider, otel.Tracer("test"))
+	reviewer := NewReviewer(llm.NewCaller(provider, otel.Tracer("test")))
 	result := reviewer.Review(context.Background(), "goal", "plan", "trigger")
 	assert.False(t, result.Drift)
 	assert.Contains(t, result.Reason, "drift field missing")
@@ -98,7 +99,7 @@ func TestReviewer_Review_NonBoolDriftField(t *testing.T) {
 			return &msg, nil
 		},
 	}
-	reviewer := NewReviewer(provider, otel.Tracer("test"))
+	reviewer := NewReviewer(llm.NewCaller(provider, otel.Tracer("test")))
 	result := reviewer.Review(context.Background(), "goal", "plan", "trigger")
 	assert.False(t, result.Drift)
 	assert.Contains(t, result.Reason, "drift field missing")
@@ -111,7 +112,7 @@ func TestReviewer_Review_PlainTextFallback(t *testing.T) {
 			return &msg, nil
 		},
 	}
-	reviewer := NewReviewer(provider, otel.Tracer("test"))
+	reviewer := NewReviewer(llm.NewCaller(provider, otel.Tracer("test")))
 	result := reviewer.Review(context.Background(), "goal", "plan", "trigger")
 	assert.False(t, result.Drift)
 	assert.Contains(t, result.Reason, "no reviewer_report call")

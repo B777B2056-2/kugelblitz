@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,9 +25,7 @@ func TestConflictResolver_NoConflict_NewFact(t *testing.T) {
 func TestConflictResolver_SemanticMatch_NoConflict(t *testing.T) {
 	ltm := newTestLTM(t)
 	_, _, _ = ltm.Store("prefs", "lang", "Go")
-	oldJudge := semanticJudge
-	semanticJudge = func(old, new string) bool { return true }
-	defer func() { semanticJudge = oldJudge }()
+	ltm.judge = func(old, new string) bool { return true }
 
 	cr := NewConflictResolver(ltm, 0.15)
 	candidates := []MemoryItemCandidate{
@@ -39,7 +38,7 @@ func TestConflictResolver_SemanticMatch_NoConflict(t *testing.T) {
 
 func TestConflictResolver_ClearWinner_NewWins(t *testing.T) {
 	ltm := &LongTermMemory{index: make(map[string]int)}
-	ltm.items = append(ltm.items, MemoryItem{
+	ltm.items = append(ltm.items, memorytypes.MemoryItem{
 		Section: "prefs", Key: "lang", Value: "Python",
 		Version: 1, Confidence: 0.3, UpdatedAt: ltmTimeNow(),
 	})
@@ -56,7 +55,7 @@ func TestConflictResolver_ClearWinner_NewWins(t *testing.T) {
 
 func TestConflictResolver_ClearWinner_OldWins(t *testing.T) {
 	ltm := &LongTermMemory{index: make(map[string]int)}
-	ltm.items = append(ltm.items, MemoryItem{
+	ltm.items = append(ltm.items, memorytypes.MemoryItem{
 		Section: "prefs", Key: "lang", Value: "Python",
 		Version: 1, Confidence: 0.95, UpdatedAt: ltmTimeNow(),
 	})
@@ -73,7 +72,7 @@ func TestConflictResolver_ClearWinner_OldWins(t *testing.T) {
 
 func TestConflictResolver_NarrowGap_KeepsExisting(t *testing.T) {
 	ltm := &LongTermMemory{index: make(map[string]int)}
-	ltm.items = append(ltm.items, MemoryItem{
+	ltm.items = append(ltm.items, memorytypes.MemoryItem{
 		Section: "prefs", Key: "lang", Value: "Python",
 		Version: 1, Confidence: 0.6, UpdatedAt: ltmTimeNow(),
 	})
@@ -104,7 +103,7 @@ func TestConflictResolver_MultipleCandidates(t *testing.T) {
 
 func TestConflictResolver_SameConfidence_KeepsExisting(t *testing.T) {
 	ltm := &LongTermMemory{index: make(map[string]int)}
-	ltm.items = append(ltm.items, MemoryItem{
+	ltm.items = append(ltm.items, memorytypes.MemoryItem{
 		Section: "prefs", Key: "lang", Value: "Python",
 		Version: 1, Confidence: 0.8, UpdatedAt: ltmTimeNow(),
 	})

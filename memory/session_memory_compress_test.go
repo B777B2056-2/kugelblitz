@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/llm"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 )
@@ -30,7 +31,7 @@ func TestSessionMemory_Compress_PreservesMessagesAppendedDuringSummarize(t *test
 			return &msg, nil
 		},
 	}
-	c := NewCompressor(mp, otel.Tracer("test"))
+	c := NewCompressor(llm.NewCaller(mp, otel.Tracer("test")))
 
 	done := make(chan error, 1)
 	go func() {

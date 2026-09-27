@@ -8,6 +8,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/llm"
 	"github.com/B777B2056-2/kugelblitz/memory"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/observability"
@@ -50,12 +51,12 @@ func NewKernel(
 	mainReact.EnableHumanInTheLoop()
 
 	tracer := otel.Tracer("kugelblitz")
-	compressor := memory.NewCompressor(cfg.Model.Provider, tracer)
+	compressor := memory.NewCompressor(llm.NewCaller(cfg.Model.Provider, tracer))
 	dagExec := dag.NewDAGTaskExecutor(cfg.Model.Provider, cfg.Model.StreamMode,
 		func(p coretypes.ILMProvider, s bool) worker.Worker { return infra.NewWorkerAgent(p, s) },
 		infra.NewPauseGate())
 	dagExec.SetHumanToolFactory(internals.NewAskHumanTool)
-	reviewer := infra.NewReviewer(cfg.Model.Provider, tracer)
+	reviewer := infra.NewReviewer(llm.NewCaller(cfg.Model.Provider, tracer))
 
 	machine := fsm.NewMachine(fsm.Dependencies{
 		React:      mainReact,

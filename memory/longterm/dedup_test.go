@@ -3,6 +3,7 @@ package longterm
 import (
 	"testing"
 
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/stretchr/testify/assert"
 )
@@ -16,7 +17,7 @@ func newTestLTMDedup(t *testing.T) *LongTermMemory {
 func TestDeduplicator_DedupFacts_NoDuplicate(t *testing.T) {
 	ltm := newTestLTMDedup(t)
 	dedup := NewDeduplicator(ltm)
-	items := []MemoryItem{
+	items := []memorytypes.MemoryItem{
 		{Section: "prefs", Key: "lang", Value: "Go"},
 		{Section: "prefs", Key: "editor", Value: "VSCode"},
 	}
@@ -29,7 +30,7 @@ func TestDeduplicator_DedupFacts_ExistingDuplicate(t *testing.T) {
 	ltm := newTestLTMDedup(t)
 	_, _, _ = ltm.Store("prefs", "lang", "Go")
 	dedup := NewDeduplicator(ltm)
-	result := dedup.DedupItems([]MemoryItem{{Section: "prefs", Key: "lang", Value: "Go"}})
+	result := dedup.DedupItems([]memorytypes.MemoryItem{{Section: "prefs", Key: "lang", Value: "Go"}})
 	assert.Empty(t, result.Accepted)
 	assert.Equal(t, 1, result.Rejected)
 }
@@ -37,7 +38,7 @@ func TestDeduplicator_DedupFacts_ExistingDuplicate(t *testing.T) {
 func TestDeduplicator_DedupFacts_BatchDuplicate(t *testing.T) {
 	ltm := newTestLTMDedup(t)
 	dedup := NewDeduplicator(ltm)
-	items := []MemoryItem{
+	items := []memorytypes.MemoryItem{
 		{Section: "prefs", Key: "lang", Value: "Go"},
 		{Section: "prefs", Key: "lang", Value: "Golang"},
 	}

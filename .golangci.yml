@@ -49,6 +49,7 @@ linters:
           files:
             - "**/core/**"
             - "**/constants/**"
+            - "**/llm/**"
             - "**/memory/**"
             - "**/persist/**"
             - "**/prompts/**"

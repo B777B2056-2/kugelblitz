@@ -7,6 +7,7 @@ import (
 	"time"
 
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/llm"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,21 +18,16 @@ import (
 // cycle produces a non-empty report that gets persisted as DREAMS.md.
 func newSchedulerTestDreamer(t *testing.T) (*LongTermMemory, *Dreamer) {
 	t.Helper()
-	ltm, err := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
-	require.NoError(t, err)
 	graph := NewGraphStore(nil, "")
-	ltm.SetGraph(graph)
+	ltm, err := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())), WithGraph(graph))
+	require.NoError(t, err)
 	_, _, _ = ltm.Store("s", "k", "v")
-	d := &Dreamer{
-		ltm:   ltm,
-		graph: graph,
-		provider: &dreamProvider{
-			responses: []string{
-				`{"scores":[{"section":"s","key":"k","score":9,"reason":"x"}]}`,
-				`{"insights":[{"section":"insights","key":"i","value":"v"}],"summary":"s"}`,
-			},
+	d := NewDreamer(llm.NewCaller(&dreamProvider{
+		responses: []string{
+			`{"scores":[{"section":"s","key":"k","score":9,"reason":"x"}]}`,
+			`{"insights":[{"section":"insights","key":"i","value":"v"}],"summary":"s"}`,
 		},
-	}
+	}, nil), ltm, graph)
 	return ltm, d
 }
 
@@ -90,7 +86,7 @@ func TestDreamScheduler_DreamsWhenIdleAndCooldownElapsed(t *testing.T) {
 func TestDreamScheduler_NoOpWhenNoCandidates(t *testing.T) {
 	ltm, err := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
 	require.NoError(t, err)
-	d := &Dreamer{ltm: ltm, provider: &dreamProvider{}}
+	d := NewDreamer(llm.NewCaller(&dreamProvider{}, nil), ltm, nil)
 	ds := NewDreamSchedulerWithIntervals(d, time.Hour, 6*time.Hour, 5*time.Minute)
 	ds.lastActivity = time.Now().Add(-time.Hour)
 	ds.lastDreamed = time.Time{}
@@ -103,7 +99,7 @@ func TestDreamScheduler_NoOpWhenNoCandidates(t *testing.T) {
 func TestDreamScheduler_AutoDream_Fires(t *testing.T) {
 	ltm, d := newSchedulerTestDreamer(t)
 	var calls atomic.Int32
-	d.provider = &flagProvider{calls: &calls}
+	d.caller.SetProvider(&flagProvider{calls: &calls})
 	ds := NewDreamSchedulerWithIntervals(d, 5*time.Millisecond, 0, 0)
 	ds.Start()
 	defer ds.Stop()

@@ -4,19 +4,9 @@ import (
 	"context"
 	"time"
 
-	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/llm"
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 )
-
-// PipelineResult aggregates metrics from a write pipeline run.
-type PipelineResult struct {
-	ItemsExtracted  int // Raw fact candidates from LLM
-	ItemsStored     int // All persisted to MEMORY.md
-	ItemsConflicts  int // Conflicts detected during resolution
-	ItemsRejected   int // All rejected by dedup
-	NeedsHuman      int // Conflicts deferred for human review
-	Duration        time.Duration
-	ExtractionUsage *coretypes.Usage
-}
 
 // WritePipeline orchestrates the 4-stage memory write process:
 //  1. Extract – LLM extracts all memories as FactCandidates
@@ -24,7 +14,6 @@ type PipelineResult struct {
 //  3. Dedup   – semantic dedup against existing items and batch peers
 //  4. Store   – write to MEMORY.md, then trigger ChromaDB index rebuild
 type WritePipeline struct {
-	provider  coretypes.ILMProvider
 	extractor *Extractor
 	resolver  *ConflictResolver
 	dedup     *Deduplicator
@@ -34,14 +23,13 @@ type WritePipeline struct {
 
 // NewWritePipeline creates a configured pipeline.
 func NewWritePipeline(
-	provider coretypes.ILMProvider,
+	caller *llm.Caller,
 	ltm *LongTermMemory,
 	indexMgr *IndexManager,
 	confidenceGap float64,
 ) *WritePipeline {
 	return &WritePipeline{
-		provider:  provider,
-		extractor: NewExtractor(provider),
+		extractor: NewExtractor(caller),
 		resolver:  NewConflictResolver(ltm, confidenceGap),
 		dedup:     NewDeduplicator(ltm),
 		ltm:       ltm,
@@ -51,9 +39,9 @@ func NewWritePipeline(
 
 // Run executes the full pipeline synchronously. After storing to MEMORY.md,
 // it asynchronously triggers a ChromaDB index rebuild.
-func (p *WritePipeline) Run(ctx context.Context, ec *ExtractionContext) (*PipelineResult, error) {
+func (p *WritePipeline) Run(ctx context.Context, ec *ExtractionContext) (*memorytypes.PipelineResult, error) {
 	start := time.Now()
-	result := &PipelineResult{}
+	result := &memorytypes.PipelineResult{}
 
 	// Stage 1: Extract
 	fullResult, usage, err := p.extractor.ExtractFull(ctx, ec)
@@ -102,15 +90,8 @@ func (p *WritePipeline) Run(ctx context.Context, ec *ExtractionContext) (*Pipeli
 	return result, nil
 }
 
-// ExtractionInput carries session data needed by ExtractFromSession.
-type ExtractionInput struct {
-	Conversation   []coretypes.Message
-	SessionSummary string
-	Goal           string
-}
-
 // ExtractFromSession builds an ExtractionContext from session data and runs the pipeline.
-func (p *WritePipeline) ExtractFromSession(ctx context.Context, input ExtractionInput) (*PipelineResult, error) {
+func (p *WritePipeline) ExtractFromSession(ctx context.Context, input memorytypes.ExtractionInput) (*memorytypes.PipelineResult, error) {
 	if p.ltm == nil {
 		return nil, nil
 	}

@@ -2,7 +2,6 @@ package longterm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -10,7 +9,8 @@ import (
 	"sync"
 
 	"github.com/B777B2056-2/kugelblitz/core"
-	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/llm"
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 	"github.com/B777B2056-2/kugelblitz/prompts"
 )
 
@@ -22,7 +22,7 @@ type DreamReport struct {
 	ScoredHigh   int // items scored >= 7
 	ScoredLow    int // items scored <= 3
 	Deprecated   int // items removed (below confidence floor)
-	Insights     []MemoryItem
+	Insights     []memorytypes.MemoryItem
 	Summary      string
 	LLMCalls     int
 	Duration     time.Duration
@@ -55,29 +55,22 @@ func (r *DreamReport) ToMarkdown() string {
 
 // dreamCandidate is an item under consideration during light sleep.
 type dreamCandidate struct {
-	Item        MemoryItem
+	Item        memorytypes.MemoryItem
 	GraphDegree int // number of relationships in the entity graph
 }
 
 // Dreamer runs background memory consolidation cycles.
 type Dreamer struct {
-	ltm      *LongTermMemory
-	graph    *GraphStore
-	indexMgr *IndexManager
-	provider coretypes.ILMProvider
+	caller *llm.Caller
+	ltm    *LongTermMemory
+	graph  *GraphStore
 }
 
-// SetIndexManager attaches an index manager for search-log awareness.
-func (d *Dreamer) SetIndexManager(im *IndexManager) { d.indexMgr = im }
-
-// SetProvider sets the LLM provider for dreaming.
-func (d *Dreamer) SetProvider(p coretypes.ILMProvider) { d.provider = p }
-
-// SetLTM sets the long-term memory store.
-func (d *Dreamer) SetLTM(ltm *LongTermMemory) { d.ltm = ltm }
-
-// SetGraph sets the entity-relationship graph store.
-func (d *Dreamer) SetGraph(g *GraphStore) { d.graph = g }
+// NewDreamer constructs a Dreamer with all dependencies injected. caller
+// provides the LLM for deep-sleep scoring and REM insight extraction.
+func NewDreamer(caller *llm.Caller, ltm *LongTermMemory, graph *GraphStore) *Dreamer {
+	return &Dreamer{caller: caller, ltm: ltm, graph: graph}
+}
 
 // ---- Scheduler ----
 
@@ -167,7 +160,7 @@ func (ds *DreamScheduler) maybeDream() {
 	// Persist dream report (background goroutine has no caller to propagate to,
 	// so a write failure is logged rather than surfaced).
 	if ds.dreamer.ltm != nil {
-		if err := ds.dreamer.ltm.mdStore.Store(context.Background(), "DREAMS.md", []byte(report.ToMarkdown())); err != nil {
+		if err := ds.dreamer.ltm.StoreMarkdown(context.Background(), "DREAMS.md", []byte(report.ToMarkdown())); err != nil {
 			core.Warn("dream: persist report", "err", err)
 		}
 	}
@@ -206,7 +199,7 @@ func (d *Dreamer) Run(ctx context.Context) (*DreamReport, error) {
 	}
 
 	// Phase 3: REM — pattern extraction from high-value items
-	var highItems []MemoryItem
+	var highItems []memorytypes.MemoryItem
 	for _, s := range scored {
 		if s.Score >= 8 {
 			highItems = append(highItems, s.Item)
@@ -253,7 +246,7 @@ type deepSleepScore struct {
 }
 
 type deepSleepResult struct {
-	Item        MemoryItem
+	Item        memorytypes.MemoryItem
 	Score       int
 	Reason      string
 	GraphDegree int
@@ -269,26 +262,23 @@ func (d *Dreamer) deepSleep(ctx context.Context, candidates []dreamCandidate) ([
 			c.Item.Confidence, c.Item.Version, c.GraphDegree)
 	}
 
-	prompt := prompts.BuildMemoryScorePrompt(itemsDesc.String())
-
-	msg := coretypes.NewUserMessage(coretypes.TextContent{Text: prompt})
-	resp, err := d.provider.Generate(ctx, coretypes.GenerateParams{
-		Messages: []coretypes.Message{msg}, Stream: false,
+	prompt, err := prompts.DefaultFactory.Render(prompts.TypeMemoryScore, prompts.MemoryScoreParams{
+		Items: itemsDesc.String(),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("deep sleep: %w", err)
-	}
-
-	text := ""
-	if tc, ok := resp.Content.(coretypes.TextContent); ok {
-		text = tc.Text
+		return nil, fmt.Errorf("deep sleep: render: %w", err)
 	}
 
 	var result struct {
 		Scores []deepSleepScore `json:"scores"`
 	}
-	if err := parseJSON(text, &result); err != nil {
-		return nil, fmt.Errorf("deep sleep parse: %w", err)
+	if _, err := d.caller.Call(ctx, llm.Request{
+		Prompt:   prompt,
+		Mode:     llm.ModeJSON,
+		Target:   &result,
+		SpanName: "dream.deep_sleep",
+	}); err != nil {
+		return nil, fmt.Errorf("deep sleep: %w", err)
 	}
 
 	// Build results and consolidate high scores
@@ -317,26 +307,18 @@ func (d *Dreamer) deepSleep(ctx context.Context, candidates []dreamCandidate) ([
 }
 
 // rem extracts cross-cutting insights from high-value items.
-func (d *Dreamer) rem(ctx context.Context, highItems []MemoryItem) ([]MemoryItem, string, error) {
+func (d *Dreamer) rem(ctx context.Context, highItems []memorytypes.MemoryItem) ([]memorytypes.MemoryItem, string, error) {
 	var itemsDesc strings.Builder
 	for i, item := range highItems {
 		fmt.Fprintf(&itemsDesc, "%d. [%s] %s: %s (c%.2f)\n",
 			i+1, item.Section, item.Key, truncate(item.Value, 200), item.Confidence)
 	}
 
-	prompt := prompts.BuildMemoryReflectionPrompt(itemsDesc.String())
-
-	msg := coretypes.NewUserMessage(coretypes.TextContent{Text: prompt})
-	resp, err := d.provider.Generate(ctx, coretypes.GenerateParams{
-		Messages: []coretypes.Message{msg}, Stream: false,
+	prompt, err := prompts.DefaultFactory.Render(prompts.TypeMemoryReflect, prompts.MemoryReflectParams{
+		Items: itemsDesc.String(),
 	})
 	if err != nil {
-		return nil, "", fmt.Errorf("rem: %w", err)
-	}
-
-	text := ""
-	if tc, ok := resp.Content.(coretypes.TextContent); ok {
-		text = tc.Text
+		return nil, "", fmt.Errorf("rem: render: %w", err)
 	}
 
 	var result struct {
@@ -347,13 +329,18 @@ func (d *Dreamer) rem(ctx context.Context, highItems []MemoryItem) ([]MemoryItem
 		} `json:"insights"`
 		Summary string `json:"summary"`
 	}
-	if err := parseJSON(text, &result); err != nil {
-		return nil, "", fmt.Errorf("rem parse: %w", err)
+	if _, err := d.caller.Call(ctx, llm.Request{
+		Prompt:   prompt,
+		Mode:     llm.ModeJSON,
+		Target:   &result,
+		SpanName: "dream.rem",
+	}); err != nil {
+		return nil, "", fmt.Errorf("rem: %w", err)
 	}
 
-	var insights []MemoryItem
+	var insights []memorytypes.MemoryItem
 	for _, ins := range result.Insights {
-		insights = append(insights, MemoryItem{
+		insights = append(insights, memorytypes.MemoryItem{
 			Section:    ins.Section,
 			Key:        ins.Key,
 			Value:      ins.Value,
@@ -362,14 +349,4 @@ func (d *Dreamer) rem(ctx context.Context, highItems []MemoryItem) ([]MemoryItem
 	}
 
 	return insights, result.Summary, nil
-}
-
-// parseJSON extracts the first JSON object from text and unmarshals into dst.
-func parseJSON(text string, dst any) error {
-	start := strings.Index(text, "{")
-	end := strings.LastIndex(text, "}")
-	if start < 0 || end <= start {
-		return fmt.Errorf("no JSON object found")
-	}
-	return json.Unmarshal([]byte(text[start:end+1]), dst)
 }

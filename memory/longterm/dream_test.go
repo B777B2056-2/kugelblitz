@@ -6,6 +6,8 @@ import (
 	"time"
 
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/llm"
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,9 +34,8 @@ func (m *dreamProvider) Generate(ctx context.Context, params coretypes.GenerateP
 func setupDreamer(t *testing.T) (*LongTermMemory, *Dreamer) {
 	t.Helper()
 
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
 	graph := NewGraphStore(nil, "")
-	ltm.SetGraph(graph)
+	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())), WithGraph(graph))
 
 	// Populate some memories
 	_, _, _ = ltm.Store("user_preferences", "language", "Go")
@@ -49,11 +50,7 @@ func setupDreamer(t *testing.T) (*LongTermMemory, *Dreamer) {
 	graph.AddRelationship(RelCandidate{From: "Go", To: "kugelblitz", Type: "implements", Weight: 1.0})
 	graph.AddRelationship(RelCandidate{From: "kugelblitz", To: "plan_mode.go", Type: "contains", Weight: 1.0})
 
-	return ltm, &Dreamer{
-		ltm:      ltm,
-		graph:    graph,
-		provider: &dreamProvider{},
-	}
+	return ltm, NewDreamer(llm.NewCaller(&dreamProvider{}, nil), ltm, graph)
 }
 
 func TestDreamer_LightSleep_CollectsCandidates(t *testing.T) {
@@ -84,7 +81,7 @@ func TestDreamer_DeepSleep_ScoresAndFilters(t *testing.T) {
 	ltm2, d := setupDreamer(t)
 
 	// Provider returns JSON scores for each candidate
-	d.provider = &dreamProvider{
+	d.caller.SetProvider(&dreamProvider{
 		responses: []string{
 			`{"scores":[
 				{"section":"user_preferences","key":"language","score":9,"reason":"frequently used"},
@@ -93,7 +90,7 @@ func TestDreamer_DeepSleep_ScoresAndFilters(t *testing.T) {
 				{"section":"lessons","key":"tdd_workflow","score":9,"reason":"recurring theme"}
 			]}`,
 		},
-	}
+	})
 
 	candidates, _ := d.lightSleep(context.Background())
 	scored, err := d.deepSleep(context.Background(), candidates)
@@ -125,7 +122,7 @@ func TestDreamer_DeepSleep_ScoresAndFilters(t *testing.T) {
 func TestDreamer_REM_ExtractsInsights(t *testing.T) {
 	_, d := setupDreamer(t)
 
-	d.provider = &dreamProvider{
+	d.caller.SetProvider(&dreamProvider{
 		responses: []string{
 			// Deep sleep response
 			`{"scores":[
@@ -140,11 +137,11 @@ func TestDreamer_REM_ExtractsInsights(t *testing.T) {
 				{"section":"insights","key":"deploy_prod","value":"Project is deployed to production"}
 			],"summary":"User is focused on Go agent development with strong emphasis on testing and production readiness."}`,
 		},
-	}
+	})
 
 	candidates, _ := d.lightSleep(context.Background())
 	scored, _ := d.deepSleep(context.Background(), candidates)
-	var highForREM []MemoryItem
+	var highForREM []memorytypes.MemoryItem
 	for _, s := range scored {
 		highForREM = append(highForREM, s.Item)
 	}
@@ -159,7 +156,7 @@ func TestDreamer_Run_FullCycle(t *testing.T) {
 	_, d := setupDreamer(t)
 
 	// 4 items → needs 4 scores + 1 REM = 2 LLM calls total
-	d.provider = &dreamProvider{
+	d.caller.SetProvider(&dreamProvider{
 		responses: []string{
 			`{"scores":[
 				{"section":"user_preferences","key":"language","score":9,"reason":""},
@@ -171,7 +168,7 @@ func TestDreamer_Run_FullCycle(t *testing.T) {
 				{"section":"insights","key":"pattern","value":"Go agent framework with TDD"}
 			],"summary":"Go-focused development."}`,
 		},
-	}
+	})
 
 	report, err := d.Run(context.Background())
 	require.NoError(t, err)
@@ -191,7 +188,7 @@ func TestDreamReport_ToMarkdown(t *testing.T) {
 		ScoredHigh:   2,
 		ScoredLow:    1,
 		Deprecated:   1,
-		Insights: []MemoryItem{
+		Insights: []memorytypes.MemoryItem{
 			{Section: "insights", Key: "pattern", Value: "Go agent framework with TDD"},
 		},
 		Summary:  "Focused on Go agent development.",
@@ -208,10 +205,7 @@ func TestDreamReport_ToMarkdown(t *testing.T) {
 
 func TestDreamer_EmptyMemories_NoOp(t *testing.T) {
 	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
-	d := &Dreamer{
-		ltm:      ltm,
-		provider: &dreamProvider{},
-	}
+	d := NewDreamer(llm.NewCaller(&dreamProvider{}, nil), ltm, nil)
 
 	report, err := d.Run(context.Background())
 	require.NoError(t, err)

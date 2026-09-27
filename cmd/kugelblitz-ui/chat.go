@@ -12,8 +12,10 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/llm"
 	"github.com/B777B2056-2/kugelblitz/memory"
 	"github.com/B777B2056-2/kugelblitz/runtime"
+	"go.opentelemetry.io/otel"
 )
 
 // handleChat processes a chat request via SSE streaming.
@@ -79,7 +81,14 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				audioProv = appCfg.Multimodal.AudioModel.Provider
 			}
 		}
-		describer := memory.NewMediaDescriber(imageProv, audioProv)
+		var imageCaller, audioCaller *llm.Caller
+		if imageProv != nil {
+			imageCaller = llm.NewCaller(imageProv, otel.Tracer("kugelblitz"))
+		}
+		if audioProv != nil {
+			audioCaller = llm.NewCaller(audioProv, otel.Tracer("kugelblitz"))
+		}
+		describer := memory.NewMediaDescriber(imageCaller, audioCaller)
 
 		for _, m := range req.Media {
 			mediaType := constants.MultiModalTypeImage

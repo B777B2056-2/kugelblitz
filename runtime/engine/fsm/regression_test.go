@@ -71,7 +71,7 @@ func TestShouldReview_UsesTaskFailsNotStepCount(t *testing.T) {
 	ctx := &Context{
 		StepCount: 100, // a large step count must not trigger a review
 		Deps: Dependencies{
-			Reviewer: infra.NewReviewer(nil, nil),
+			Reviewer: infra.NewReviewer(nil),
 			Config:   MachineConfig{ReviewInterval: 2},
 		},
 	}
@@ -89,7 +89,7 @@ func TestShouldReview_UsesTaskFailsNotStepCount(t *testing.T) {
 func TestShouldReview_MaxFailuresBeforeReview(t *testing.T) {
 	ctx := &Context{
 		Deps: Dependencies{
-			Reviewer: infra.NewReviewer(nil, nil),
+			Reviewer: infra.NewReviewer(nil),
 			Config:   MachineConfig{MaxFailuresBeforeReview: 3},
 		},
 	}

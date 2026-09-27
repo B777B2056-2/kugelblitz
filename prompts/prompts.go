@@ -18,6 +18,10 @@ const (
 	TypeSemanticJudge             // dynamic → SemanticJudgeParams
 	TypePlanConfirm               // dynamic → PlanConfirmParams
 	TypePlanStatus                // dynamic → PlanStatusParams
+	TypeSummarize                 // dynamic → SummarizeParams
+	TypeMemoryScore               // dynamic → MemoryScoreParams
+	TypeMemoryReflect             // dynamic → MemoryReflectParams
+	TypeExtract                   // dynamic → ExtractParams
 )
 
 // Factory produces prompt strings from typed templates.
@@ -41,6 +45,10 @@ func NewFactory() *Factory {
 	f.mustRegister(TypeSemanticJudge, semanticJudgeTmpl)
 	f.mustRegister(TypePlanConfirm, planConfirmTmpl)
 	f.mustRegister(TypePlanStatus, planStatusTmpl)
+	f.mustRegister(TypeSummarize, summarizeTmpl)
+	f.mustRegister(TypeMemoryScore, memoryScoreTmpl)
+	f.mustRegister(TypeMemoryReflect, memoryReflectTmpl)
+	f.mustRegister(TypeExtract, extractTmpl)
 	return f
 }
 
@@ -86,6 +94,14 @@ func (pt Type) String() string {
 		return "CompressTool"
 	case TypeSemanticJudge:
 		return "SemanticJudge"
+	case TypeSummarize:
+		return "Summarize"
+	case TypeMemoryScore:
+		return "MemoryScore"
+	case TypeMemoryReflect:
+		return "MemoryReflect"
+	case TypeExtract:
+		return "Extract"
 	default:
 		return "Unknown"
 	}

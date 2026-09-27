@@ -118,7 +118,7 @@ func (s *SessionMemory) Compress(ctx context.Context, c Summarizer, keepLastN, m
 // CompressToolResult compresses oversized string fields in a tool result via the LLM.
 // Fields exceeding maxChars are summarized in-place. Error fields are never compressed.
 func (s *SessionMemory) CompressToolResult(
-	ctx context.Context, c *Compressor, maxChars int, result *coretypes.ToolCallResult,
+	ctx context.Context, c FieldSummarizer, maxChars int, result *coretypes.ToolCallResult,
 ) {
 	if maxChars <= 0 {
 		return

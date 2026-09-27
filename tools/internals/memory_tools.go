@@ -7,12 +7,40 @@ import (
 	"github.com/B777B2056-2/kugelblitz/core"
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory/longterm"
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
+// MemoryStoreBackend is the consumer-side view of long-term memory storage
+// required by the memory tools. *longterm.LongTermMemory satisfies it.
+// Graph() returns the concrete *longterm.GraphStore for the memory_search
+// needGraph query; keeping that one concrete type is an accepted coupling.
+type MemoryStoreBackend interface {
+	Store(section, key, value string) (memorytypes.MemoryItem, *memorytypes.MemoryItem, error)
+	GetSection(section string) []memorytypes.MemoryItem
+	Remove(section, key string) error
+	ListSections() map[string]int
+	Stats() (int, int, float64)
+	SearchWithMode(query string, mode persist.SearchMode) []memorytypes.MemoryItem
+	Graph() *longterm.GraphStore
+}
+
+// MemoryIndex is the consumer-side view of the vector index used by
+// memory_search and memory_stats. *longterm.IndexManager satisfies it.
+type MemoryIndex interface {
+	Search(ctx context.Context, query string, mode persist.SearchMode, limit int) []memorytypes.MemoryItem
+	IsAvailable() bool
+}
+
+// MemoryExtractor is the consumer-side view of the write pipeline used by
+// memory_extract. *longterm.WritePipeline satisfies it.
+type MemoryExtractor interface {
+	ExtractFromSession(ctx context.Context, input memorytypes.ExtractionInput) (*memorytypes.PipelineResult, error)
+}
+
 // RegisterMemoryTools registers all memory-related tools.
-func RegisterMemoryTools(ltm *longterm.LongTermMemory, indexMgr *longterm.IndexManager, pipeline *longterm.WritePipeline) {
+func RegisterMemoryTools(ltm MemoryStoreBackend, indexMgr MemoryIndex, pipeline MemoryExtractor) {
 	t := []tools.Tool{
 		&MemoryStore{ltm: ltm},
 		&MemorySearch{ltm: ltm, indexMgr: indexMgr},
@@ -37,7 +65,7 @@ func RegisterMemoryTools(ltm *longterm.LongTermMemory, indexMgr *longterm.IndexM
 var registeredMemoryExtract *MemoryExtract
 
 // BindMemoryExtractInput binds the extraction input source to the registered MemoryExtract tool.
-func BindMemoryExtractInput(fn func() longterm.ExtractionInput) {
+func BindMemoryExtractInput(fn func() memorytypes.ExtractionInput) {
 	if registeredMemoryExtract != nil {
 		registeredMemoryExtract.inputFn = fn
 	}
@@ -45,7 +73,7 @@ func BindMemoryExtractInput(fn func() longterm.ExtractionInput) {
 
 // ---- MemoryStore ----
 
-type MemoryStore struct{ ltm *longterm.LongTermMemory }
+type MemoryStore struct{ ltm MemoryStoreBackend }
 
 func (t *MemoryStore) Definition() coretypes.ToolDefinition {
 	return coretypes.ToolDefinition{
@@ -116,8 +144,8 @@ func (t *MemoryStore) Execute(ctx context.Context, detail coretypes.ToolCallDeta
 // ---- MemorySearch ----
 
 type MemorySearch struct {
-	ltm      *longterm.LongTermMemory
-	indexMgr *longterm.IndexManager
+	ltm      MemoryStoreBackend
+	indexMgr MemoryIndex
 }
 
 func (t *MemorySearch) Definition() coretypes.ToolDefinition {
@@ -168,7 +196,7 @@ func (t *MemorySearch) Execute(ctx context.Context, detail coretypes.ToolCallDet
 		mode = persist.SearchHybrid
 	}
 
-	var items []longterm.MemoryItem
+	var items []memorytypes.MemoryItem
 	if t.indexMgr != nil {
 		items = t.indexMgr.Search(ctx, query, mode, 10)
 	} else {
@@ -218,7 +246,7 @@ func (t *MemorySearch) Execute(ctx context.Context, detail coretypes.ToolCallDet
 
 // ---- MemoryGetSection ----
 
-type MemoryGetSection struct{ ltm *longterm.LongTermMemory }
+type MemoryGetSection struct{ ltm MemoryStoreBackend }
 
 func (t *MemoryGetSection) Definition() coretypes.ToolDefinition {
 	return coretypes.ToolDefinition{
@@ -263,7 +291,7 @@ func (t *MemoryGetSection) Execute(ctx context.Context, detail coretypes.ToolCal
 
 // ---- MemoryRemove ----
 
-type MemoryRemove struct{ ltm *longterm.LongTermMemory }
+type MemoryRemove struct{ ltm MemoryStoreBackend }
 
 func (t *MemoryRemove) Definition() coretypes.ToolDefinition {
 	return coretypes.ToolDefinition{
@@ -303,7 +331,7 @@ func (t *MemoryRemove) Execute(ctx context.Context, detail coretypes.ToolCallDet
 
 // ---- MemoryListSections ----
 
-type MemoryListSections struct{ ltm *longterm.LongTermMemory }
+type MemoryListSections struct{ ltm MemoryStoreBackend }
 
 func (t *MemoryListSections) Definition() coretypes.ToolDefinition {
 	return coretypes.ToolDefinition{
@@ -334,8 +362,8 @@ func (t *MemoryListSections) Execute(ctx context.Context, detail coretypes.ToolC
 // ---- MemoryStats ----
 
 type MemoryStats struct {
-	ltm      *longterm.LongTermMemory
-	indexMgr *longterm.IndexManager
+	ltm      MemoryStoreBackend
+	indexMgr MemoryIndex
 }
 
 func (t *MemoryStats) Definition() coretypes.ToolDefinition {
@@ -366,8 +394,8 @@ func (t *MemoryStats) Execute(ctx context.Context, detail coretypes.ToolCallDeta
 // ---- MemoryExtract ----
 
 type MemoryExtract struct {
-	pipeline *longterm.WritePipeline
-	inputFn  func() longterm.ExtractionInput
+	pipeline MemoryExtractor
+	inputFn  func() memorytypes.ExtractionInput
 }
 
 func (t *MemoryExtract) Definition() coretypes.ToolDefinition {

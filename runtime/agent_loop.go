@@ -3,15 +3,16 @@ package runtime
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/B777B2056-2/kugelblitz/config"
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/llm"
 	"github.com/B777B2056-2/kugelblitz/memory"
 	"github.com/B777B2056-2/kugelblitz/memory/longterm"
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/B777B2056-2/kugelblitz/prompts"
@@ -84,8 +85,6 @@ func NewAgentLoop(cfg config.Config, opts ...AgentLoopOption) (*AgentLoop, error
 	// MCP (idempotent — only connects once per process)
 	mcp.Init(context.Background(), cfg.MCP)
 
-	initSemanticJudge(cfg.Model.Provider)
-
 	// Session memory: opts may have set it (WithExistingSession/ID), else create.
 	if al.sessionMem == nil {
 		al.sessionMem = memory.GetSessionMemoryManager().CreateSessionMemory(utils.GenerateSessionID())
@@ -100,29 +99,29 @@ func NewAgentLoop(cfg config.Config, opts ...AgentLoopOption) (*AgentLoop, error
 
 func initLTM(provider coretypes.ILMProvider, al *AgentLoop) error {
 	mgr := persist.GetManager()
-	ltm, err := longterm.NewLongTermMemory(mgr.Markdown())
+	caller := llm.NewCaller(provider, otel.Tracer("kugelblitz"))
+
+	graphStore := longterm.NewGraphStore(mgr.JSONL(), "memory/longterm/memory_graph.jsonl")
+	_ = graphStore.Load(context.Background())
+
+	ltm, err := longterm.NewLongTermMemory(mgr.Markdown(),
+		longterm.WithGraph(graphStore),
+		longterm.WithSemanticJudge(newSemanticJudge(caller)),
+	)
 	if err != nil {
 		return fmt.Errorf("init long-term memory: %w", err)
 	}
 	al.ltm = ltm
 	al.indexMgr = longterm.NewIndexManager(mgr.Vector(), ltm)
-	al.writePipeline = longterm.NewWritePipeline(provider, ltm, al.indexMgr, 0.15)
+	al.writePipeline = longterm.NewWritePipeline(caller, ltm, al.indexMgr, 0.15)
 	internals.RegisterMemoryTools(ltm, al.indexMgr, al.writePipeline)
 	internals.RegisterContextCompressTool()
-
-	graphStore := longterm.NewGraphStore(mgr.JSONL(), "memory/longterm/memory_graph.jsonl")
-	_ = graphStore.Load(context.Background())
-	ltm.SetGraph(graphStore)
 
 	if !al.cfg.AutoDream.Enabled {
 		return nil
 	}
-	dreamer := &longterm.Dreamer{}
-	dreamer.SetProvider(provider)
-	dreamer.SetLTM(ltm)
-	dreamer.SetGraph(graphStore)
-	dreamer.SetIndexManager(al.indexMgr)
-	al.dreamScheduler = longterm.NewDreamSchedulerWithIntervals(dreamer,
+	al.dreamScheduler = longterm.NewDreamSchedulerWithIntervals(
+		longterm.NewDreamer(caller, ltm, graphStore),
 		dreamInterval(al.cfg.AutoDream.CheckIntervalSec, 30*time.Minute),
 		dreamInterval(al.cfg.AutoDream.CooldownSec, 6*time.Hour),
 		dreamInterval(al.cfg.AutoDream.IdleThresholdSec, 5*time.Minute),
@@ -130,6 +129,28 @@ func initLTM(provider coretypes.ILMProvider, al *AgentLoop) error {
 	// Not Start()ed here: Start() is deferred to Run(), so the scheduler only
 	// runs while the AgentLoop lifecycle is active (see Run).
 	return nil
+}
+
+// newSemanticJudge builds the LLM-backed semantic-equivalence judge injected
+// into long-term memory for Store's conflict resolution.
+func newSemanticJudge(caller *llm.Caller) func(oldVal, newVal string) bool {
+	return func(oldVal, newVal string) bool {
+		text, err := prompts.DefaultFactory.Render(prompts.TypeSemanticJudge, prompts.SemanticJudgeParams{
+			OldVal: oldVal, NewVal: newVal,
+		})
+		if err != nil {
+			return false
+		}
+		res, err := caller.Call(context.Background(), llm.Request{
+			Prompt:   text,
+			Mode:     llm.ModeBool,
+			SpanName: "semantic.judge",
+		})
+		if err != nil {
+			return false
+		}
+		return res.Bool
+	}
 }
 
 // dreamInterval converts a config interval in seconds to a time.Duration,
@@ -151,28 +172,6 @@ func initSkills() {
 		}
 	}
 	internals.RegisterSkillTool(skillList, activeSkill)
-}
-
-func initSemanticJudge(provider coretypes.ILMProvider) {
-	longterm.SetSemanticJudge(func(oldVal, newVal string) bool {
-		text, err := prompts.DefaultFactory.Render(prompts.TypeSemanticJudge, prompts.SemanticJudgeParams{
-			OldVal: oldVal, NewVal: newVal,
-		})
-		if err != nil {
-			return false
-		}
-		msg := coretypes.NewUserMessage(coretypes.TextContent{Text: text})
-		resp, err := provider.Generate(context.Background(), coretypes.GenerateParams{
-			Messages: []coretypes.Message{msg}, Stream: false,
-		})
-		if err != nil {
-			return false
-		}
-		if tc, ok := resp.Content.(coretypes.TextContent); ok {
-			return strings.Contains(strings.ToUpper(tc.Text), "YES")
-		}
-		return false
-	})
 }
 
 // ---- Public API ----
@@ -287,8 +286,8 @@ func (a *AgentLoop) execute(ctx context.Context, input coretypes.AgentInput) (me
 	a.planner.RegisterEventHooks(a.rewriteEventHooks(a.eventHooks))
 
 	// wire memory_extract input
-	internals.BindMemoryExtractInput(func() longterm.ExtractionInput {
-		return longterm.ExtractionInput{
+	internals.BindMemoryExtractInput(func() memorytypes.ExtractionInput {
+		return memorytypes.ExtractionInput{
 			Conversation:   a.sessionMem.GetHistoryMessages(),
 			SessionSummary: a.sessionMem.Summary(),
 			Goal:           a.input.Text,
@@ -366,7 +365,7 @@ func (a *AgentLoop) rewriteEventHooks(userHooks core.AgentEventHooks) core.Agent
 // extractMemories runs the LTM write pipeline before session memory is
 // compressed, so facts in soon-to-be-summarized messages are preserved.
 func (a *AgentLoop) extractMemories() {
-	input := longterm.ExtractionInput{
+	input := memorytypes.ExtractionInput{
 		Conversation:   a.sessionMem.GetHistoryMessages(),
 		SessionSummary: a.sessionMem.Summary(),
 		Goal:           a.input.Text,

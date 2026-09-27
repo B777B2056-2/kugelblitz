@@ -3,6 +3,8 @@ package longterm
 import (
 	"math"
 	"time"
+
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 )
 
 // ConflictDecision encodes the result of a conflict resolution.
@@ -31,14 +33,14 @@ func NewConflictResolver(ltm *LongTermMemory, confidenceGap float64) *ConflictRe
 type ResolveResult struct {
 	Candidate MemoryItemCandidate
 	Decision  ConflictDecision
-	Winner    MemoryItem // The winning fact
-	OldFact   *MemoryItem
+	Winner    memorytypes.MemoryItem // The winning fact
+	OldFact   *memorytypes.MemoryItem
 }
 
 // Resolve processes a batch of fact candidates against existing LTM items.
 // When confidence gap is narrow, the existing fact is kept.
-func (cr *ConflictResolver) Resolve(candidates []MemoryItemCandidate) []MemoryItem {
-	var stored []MemoryItem
+func (cr *ConflictResolver) Resolve(candidates []MemoryItemCandidate) []memorytypes.MemoryItem {
+	var stored []memorytypes.MemoryItem
 	for _, c := range candidates {
 		result := cr.resolveOne(c)
 		switch result.Decision {
@@ -57,7 +59,7 @@ func (cr *ConflictResolver) resolveOne(c MemoryItemCandidate) ResolveResult {
 		return ResolveResult{
 			Candidate: c,
 			Decision:  ConflictAcceptNew,
-			Winner: MemoryItem{
+			Winner: memorytypes.MemoryItem{
 				Section:    c.Section,
 				Key:        c.Key,
 				Value:      c.Value,
@@ -91,7 +93,7 @@ func (cr *ConflictResolver) resolveOne(c MemoryItemCandidate) ResolveResult {
 		return ResolveResult{
 			Candidate: c,
 			Decision:  ConflictAcceptNew,
-			Winner: MemoryItem{
+			Winner: memorytypes.MemoryItem{
 				Section:    c.Section,
 				Key:        c.Key,
 				Value:      c.Value,

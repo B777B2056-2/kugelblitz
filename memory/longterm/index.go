@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 	"github.com/B777B2056-2/kugelblitz/persist"
 )
 
@@ -58,11 +59,11 @@ func (im *IndexManager) RebuildIfStale(ctx context.Context) error {
 
 // Search queries the ChromaDB index. Falls back to MEMORY.md string search
 // if ChromaDB is not available.
-func (im *IndexManager) Search(ctx context.Context, query string, mode persist.SearchMode, limit int) []MemoryItem {
+func (im *IndexManager) Search(ctx context.Context, query string, mode persist.SearchMode, limit int) []memorytypes.MemoryItem {
 	if im.IsAvailable() {
 		results, err := im.store.Search(ctx, query, mode, limit)
 		if err == nil && len(results) > 0 {
-			items := make([]MemoryItem, 0, len(results))
+			items := make([]memorytypes.MemoryItem, 0, len(results))
 			for _, r := range results {
 				section, _ := r.Metadata["section"].(string)
 				key, _ := r.Metadata["key"].(string)
@@ -83,8 +84,8 @@ func (im *IndexManager) Search(ctx context.Context, query string, mode persist.S
 	return im.ltm.SearchWithMode(query, mode)
 }
 
-// itemToVectorEntry converts a MemoryItem to a ChromaDB vector entry.
-func itemToVectorEntry(f MemoryItem) persist.VectorEntry {
+// itemToVectorEntry converts a memorytypes.MemoryItem to a ChromaDB vector entry.
+func itemToVectorEntry(f memorytypes.MemoryItem) persist.VectorEntry {
 	return persist.VectorEntry{
 		DocID:    fmt.Sprintf("mem:%s:%s", f.Section, f.Key),
 		Document: fmt.Sprintf("[%s] %s: %s", f.Section, f.Key, f.Value),

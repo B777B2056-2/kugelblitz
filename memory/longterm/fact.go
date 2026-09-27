@@ -18,21 +18,9 @@ import (
 	"sync"
 	"time"
 
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 	"github.com/B777B2056-2/kugelblitz/persist"
 )
-
-// MemoryItem is a single versioned entry in long-term memory.
-// Confidence decays exponentially over time; new items start at 1.0.
-// When a conflict occurs (same section+key, different value),
-// the version with higher confidence wins.
-type MemoryItem struct {
-	Section    string
-	Key        string
-	Value      string
-	Version    int       // starts at 1
-	Confidence float64   // 0.0–1.0, decays over time
-	UpdatedAt  time.Time // last update timestamp
-}
 
 // confidenceDecayPerDay is the daily decay factor.
 // confidence *= 0.95^(days_since_update)
@@ -42,21 +30,40 @@ const confidenceDecayPerDay = 0.95
 // pure declarative items (user preferences, project items, lessons learned).
 // For non-fact memories (episodic, patterns), use EpisodicMemory backed by ChromaDB.
 type LongTermMemory struct {
-	items []MemoryItem
+	items []memorytypes.MemoryItem
 	index map[string]int // key → slice index for O(1) lookup by section+key
 	mu    sync.RWMutex
 
 	mdStore *persist.MarkdownPersist
 	path    string // filesystem path to MEMORY.md
 	graph   *GraphStore
+	judge   func(oldValue, newValue string) bool // LLM semantic-equivalence (optional)
+}
+
+// Option configures a LongTermMemory at construction.
+type Option func(*LongTermMemory)
+
+// WithSemanticJudge injects an LLM-based semantic-equivalence judge, used by
+// Store's conflict resolution when string comparison is inconclusive. A nil
+// judge (the default) disables the LLM path and falls back to string matching.
+func WithSemanticJudge(fn func(oldValue, newValue string) bool) Option {
+	return func(ltm *LongTermMemory) { ltm.judge = fn }
+}
+
+// WithGraph attaches a GraphStore for entity-relationship extraction.
+func WithGraph(g *GraphStore) Option {
+	return func(ltm *LongTermMemory) { ltm.graph = g }
 }
 
 // NewLongTermMemory loads items from MEMORY.md via the given MarkdownPersist.
-func NewLongTermMemory(mdStore *persist.MarkdownPersist) (*LongTermMemory, error) {
+func NewLongTermMemory(mdStore *persist.MarkdownPersist, opts ...Option) (*LongTermMemory, error) {
 	ltm := &LongTermMemory{
 		mdStore: mdStore,
 		path:    "MEMORY.md",
 		index:   make(map[string]int),
+	}
+	for _, opt := range opts {
+		opt(ltm)
 	}
 	if err := ltm.load(); err != nil {
 		return nil, err
@@ -67,8 +74,11 @@ func NewLongTermMemory(mdStore *persist.MarkdownPersist) (*LongTermMemory, error
 // Graph returns the associated GraphStore (may be nil).
 func (ltm *LongTermMemory) Graph() *GraphStore { return ltm.graph }
 
-// SetGraph attaches a GraphStore for entity-relationship extraction.
-func (ltm *LongTermMemory) SetGraph(g *GraphStore) { ltm.graph = g }
+// StoreMarkdown writes a markdown document (e.g. DREAMS.md) through the
+// underlying MarkdownPersist, keeping mdStore encapsulated from callers.
+func (ltm *LongTermMemory) StoreMarkdown(ctx context.Context, path string, data []byte) error {
+	return ltm.mdStore.Store(ctx, path, data)
+}
 
 // indexKey builds the normalized index key for O(1) lookup.
 func (ltm *LongTermMemory) indexKey(section, key string) string {
@@ -88,7 +98,7 @@ func (ltm *LongTermMemory) rebuildIndex() {
 
 // Store upserts a fact with confidence-based conflict resolution.
 // Returns the winning fact and whether a conflict existed.
-func (ltm *LongTermMemory) Store(section, key, value string) (winner MemoryItem, conflict *MemoryItem, _ error) {
+func (ltm *LongTermMemory) Store(section, key, value string) (winner memorytypes.MemoryItem, conflict *memorytypes.MemoryItem, _ error) {
 	ltm.mu.Lock()
 	defer ltm.mu.Unlock()
 	now := time.Now()
@@ -97,7 +107,7 @@ func (ltm *LongTermMemory) Store(section, key, value string) (winner MemoryItem,
 	idxKey := ltm.indexKey(section, key)
 	curIdx, exists := ltm.index[idxKey]
 
-	newFact := MemoryItem{Section: section, Key: key, Value: value, Version: 1, Confidence: 1.0, UpdatedAt: now}
+	newFact := memorytypes.MemoryItem{Section: section, Key: key, Value: value, Version: 1, Confidence: 1.0, UpdatedAt: now}
 
 	if !exists {
 		ltm.index[idxKey] = len(ltm.items)
@@ -132,12 +142,12 @@ func (ltm *LongTermMemory) Store(section, key, value string) (winner MemoryItem,
 
 	default:
 		c := existing
-		return c, &MemoryItem{Section: section, Key: key, Value: value, Version: c.Version + 1, Confidence: 1.0}, nil
+		return c, &memorytypes.MemoryItem{Section: section, Key: key, Value: value, Version: c.Version + 1, Confidence: 1.0}, nil
 	}
 }
 
 // BulkStore atomically writes multiple items to MEMORY.md.
-func (ltm *LongTermMemory) BulkStore(items []MemoryItem) error {
+func (ltm *LongTermMemory) BulkStore(items []memorytypes.MemoryItem) error {
 	ltm.mu.Lock()
 	defer ltm.mu.Unlock()
 
@@ -159,14 +169,14 @@ func (ltm *LongTermMemory) BulkStore(items []MemoryItem) error {
 }
 
 // Get returns the current value for a key (with decayed confidence).
-func (ltm *LongTermMemory) Get(section, key string) (MemoryItem, bool) {
+func (ltm *LongTermMemory) Get(section, key string) (memorytypes.MemoryItem, bool) {
 	ltm.mu.RLock()
 	defer ltm.mu.RUnlock()
 
 	if idx, ok := ltm.index[ltm.indexKey(section, key)]; ok {
 		return ltm.decayConfidence(ltm.items[idx]), true
 	}
-	return MemoryItem{}, false
+	return memorytypes.MemoryItem{}, false
 }
 
 // Remove permanently deletes a fact.
@@ -193,11 +203,11 @@ func (ltm *LongTermMemory) Remove(section, key string) error {
 }
 
 // GetSection returns all items in a section with decayed confidence.
-func (ltm *LongTermMemory) GetSection(section string) []MemoryItem {
+func (ltm *LongTermMemory) GetSection(section string) []memorytypes.MemoryItem {
 	ltm.mu.RLock()
 	defer ltm.mu.RUnlock()
 
-	var result []MemoryItem
+	var result []memorytypes.MemoryItem
 	section = ltm.normalize(section)
 	for _, f := range ltm.items {
 		if ltm.normalize(f.Section) == section {
@@ -209,11 +219,11 @@ func (ltm *LongTermMemory) GetSection(section string) []MemoryItem {
 
 // All returns a copy of all items without confidence decay.
 // Decay is computed lazily on Get/GetSection to avoid O(n) math.Pow on every call.
-func (ltm *LongTermMemory) All() []MemoryItem {
+func (ltm *LongTermMemory) All() []memorytypes.MemoryItem {
 	ltm.mu.RLock()
 	defer ltm.mu.RUnlock()
 
-	result := make([]MemoryItem, len(ltm.items))
+	result := make([]memorytypes.MemoryItem, len(ltm.items))
 	copy(result, ltm.items)
 	return result
 }
@@ -250,18 +260,18 @@ func (ltm *LongTermMemory) Stats() (total int, sections int, avgConfidence float
 }
 
 // Search queries items by keyword.
-func (ltm *LongTermMemory) Search(query string) []MemoryItem {
+func (ltm *LongTermMemory) Search(query string) []memorytypes.MemoryItem {
 	return ltm.SearchWithMode(query, persist.SearchBM25)
 }
 
 // SearchWithMode queries items. BM25 and Hybrid do string matching;
 // Semantic mode is handled by EpisodicMemory (ChromaDB).
-func (ltm *LongTermMemory) SearchWithMode(query string, mode persist.SearchMode) []MemoryItem {
+func (ltm *LongTermMemory) SearchWithMode(query string, mode persist.SearchMode) []memorytypes.MemoryItem {
 	ltm.mu.RLock()
 	defer ltm.mu.RUnlock()
 
 	q := strings.ToLower(query)
-	var results []MemoryItem
+	var results []memorytypes.MemoryItem
 	for _, f := range ltm.items {
 		if strings.Contains(strings.ToLower(f.Section), q) ||
 			strings.Contains(strings.ToLower(f.Key), q) ||
@@ -274,7 +284,7 @@ func (ltm *LongTermMemory) SearchWithMode(query string, mode persist.SearchMode)
 
 // ---- Confidence decay ----
 
-func (ltm *LongTermMemory) decayConfidence(f MemoryItem) MemoryItem {
+func (ltm *LongTermMemory) decayConfidence(f memorytypes.MemoryItem) memorytypes.MemoryItem {
 	if f.Confidence <= 0 {
 		return f
 	}
@@ -311,7 +321,7 @@ func (ltm *LongTermMemory) write() error {
 	return ltm.mdStore.WriteAll(context.Background(), ltm.path, entries)
 }
 
-func itemToMarkdown(f MemoryItem) persist.MarkdownEntry {
+func itemToMarkdown(f memorytypes.MemoryItem) persist.MarkdownEntry {
 	return persist.MarkdownEntry{
 		Section:    f.Section,
 		Key:        f.Key,
@@ -322,8 +332,8 @@ func itemToMarkdown(f MemoryItem) persist.MarkdownEntry {
 	}
 }
 
-func markdownToItem(e persist.MarkdownEntry) MemoryItem {
-	return MemoryItem{
+func markdownToItem(e persist.MarkdownEntry) memorytypes.MemoryItem {
+	return memorytypes.MemoryItem{
 		Section:    e.Section,
 		Key:        e.Key,
 		Value:      e.Value,
@@ -331,20 +341,6 @@ func markdownToItem(e persist.MarkdownEntry) MemoryItem {
 		Confidence: e.Confidence,
 		UpdatedAt:  e.UpdatedAt,
 	}
-}
-
-// semanticJudge is set externally via SetSemanticJudge for LLM-based comparison.
-var semanticJudge func(oldValue, newValue string) bool
-
-// SetSemanticJudge configures LLM-based semantic comparison.
-func SetSemanticJudge(fn func(oldValue, newValue string) bool) {
-	semanticJudge = fn
-}
-
-// ResetSemanticJudge clears the externally-set semantic judge so isSemanticMatch
-// falls back to pure string comparison. Intended for tests.
-func ResetSemanticJudge() {
-	semanticJudge = nil
 }
 
 // isSemanticMatch returns true if two values are semantically equivalent.
@@ -359,8 +355,8 @@ func (ltm *LongTermMemory) isSemanticMatch(a, b string) bool {
 	if strings.Contains(la, lb) || strings.Contains(lb, la) {
 		return true
 	}
-	if semanticJudge != nil {
-		return semanticJudge(la, lb)
+	if ltm.judge != nil {
+		return ltm.judge(la, lb)
 	}
 	return false
 }

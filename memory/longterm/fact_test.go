@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,7 +47,7 @@ func TestLongTermMemory_StoreConflictNewWins(t *testing.T) {
 	ltm := newTestLTM(t)
 
 	// Store an old fact with low confidence (set UpdatedAt far in the past)
-	ltm.items = append(ltm.items, MemoryItem{
+	ltm.items = append(ltm.items, memorytypes.MemoryItem{
 		Section: "prefs", Key: "lang", Value: "Python",
 		Version: 1, Confidence: 0.2, UpdatedAt: time.Now().Add(-30 * 24 * time.Hour),
 	})
@@ -65,7 +66,7 @@ func TestLongTermMemory_StoreConflictOldWins(t *testing.T) {
 
 	// Old fact — UpdatedAt is set in the future so decayConfidence returns
 	// the original 1.0 regardless of platform clock resolution.
-	ltm.items = append(ltm.items, MemoryItem{
+	ltm.items = append(ltm.items, memorytypes.MemoryItem{
 		Section: "prefs", Key: "lang", Value: "Python",
 		Version: 1, Confidence: 1.0, UpdatedAt: time.Now().Add(time.Hour),
 	})
@@ -80,7 +81,7 @@ func TestLongTermMemory_StoreConflictOldWins(t *testing.T) {
 
 func TestLongTermMemory_ConfidenceDecay(t *testing.T) {
 	ltm := &LongTermMemory{}
-	f := MemoryItem{Confidence: 1.0, UpdatedAt: time.Now().Add(-10 * 24 * time.Hour)}
+	f := memorytypes.MemoryItem{Confidence: 1.0, UpdatedAt: time.Now().Add(-10 * 24 * time.Hour)}
 	d := ltm.decayConfidence(f)
 	assert.Less(t, d.Confidence, 1.0)
 	assert.GreaterOrEqual(t, d.Confidence, 0.1)
@@ -89,7 +90,7 @@ func TestLongTermMemory_ConfidenceDecay(t *testing.T) {
 func TestLongTermMemory_GetReturnsDecayed(t *testing.T) {
 	ltm := newTestLTM(t)
 
-	ltm.items = append(ltm.items, MemoryItem{
+	ltm.items = append(ltm.items, memorytypes.MemoryItem{
 		Section: "prefs", Key: "lang", Value: "Go",
 		Version: 1, Confidence: 1.0, UpdatedAt: time.Now().Add(-10 * 24 * time.Hour),
 	})
@@ -175,22 +176,12 @@ func TestLongTermMemory_SemanticMatchSubstring(t *testing.T) {
 }
 
 func TestLongTermMemory_SemanticMatchLLMJudge(t *testing.T) {
-	oldJudge := semanticJudge
-	defer func() { semanticJudge = oldJudge }()
-
-	semanticJudge = func(old, new string) bool { return old == "python" && new == "py" }
-
-	ltm := &LongTermMemory{}
+	ltm := &LongTermMemory{judge: func(old, new string) bool { return old == "python" && new == "py" }}
 	assert.True(t, ltm.isSemanticMatch("python", "py"))
 }
 
 func TestLongTermMemory_SemanticMatchLLMNoMatch(t *testing.T) {
-	oldJudge := semanticJudge
-	defer func() { semanticJudge = oldJudge }()
-
-	semanticJudge = func(old, new string) bool { return false }
-
-	ltm := &LongTermMemory{}
+	ltm := &LongTermMemory{judge: func(old, new string) bool { return false }}
 	assert.False(t, ltm.isSemanticMatch("Go", "Python"))
 }
 
@@ -201,10 +192,7 @@ func TestLongTermMemory_SemanticMatchNoJudge(t *testing.T) {
 
 func TestLongTermMemory_StoreSemanticMatch(t *testing.T) {
 	ltm := newTestLTM(t)
-
-	oldJudge := semanticJudge
-	semanticJudge = func(old, new string) bool { return true } // always match
-	defer func() { semanticJudge = oldJudge }()
+	ltm.judge = func(old, new string) bool { return true } // always match
 
 	_, _, _ = ltm.Store("prefs", "lang", "Go")
 	// Same semantic meaning — should bump confidence (capped at 1.0)
@@ -218,11 +206,7 @@ func TestLongTermMemory_StoreSemanticMatch(t *testing.T) {
 func TestLongTermMemory_StoreSemanticMismatch(t *testing.T) {
 	ltm := newTestLTM(t)
 
-	oldJudge := semanticJudge
-	semanticJudge = func(old, new string) bool { return false }
-	defer func() { semanticJudge = oldJudge }()
-
-	ltm.items = append(ltm.items, MemoryItem{
+	ltm.items = append(ltm.items, memorytypes.MemoryItem{
 		Section: "prefs", Key: "lang", Value: "Python",
 		Version: 1, Confidence: 1.0, UpdatedAt: time.Now(),
 	})
@@ -246,7 +230,7 @@ func TestLongTermMemory_StoreReturnsMetadata(t *testing.T) {
 func TestLongTermMemory_BulkStore(t *testing.T) {
 	ltm := newTestLTM(t)
 
-	items := []MemoryItem{
+	items := []memorytypes.MemoryItem{
 		{Section: "prefs", Key: "lang", Value: "Go", Confidence: 1.0},
 		{Section: "prefs", Key: "editor", Value: "VSCode", Confidence: 1.0},
 		{Section: "items", Key: "deploy", Value: "prod", Confidence: 0.9},
@@ -317,9 +301,9 @@ func TestLongTermMemory_ConcurrentStoreAndGet(t *testing.T) {
 func TestLongTermMemory_ConcurrentBulkAndRemove(t *testing.T) {
 	ltm := newTestLTM(t)
 
-	items := make([]MemoryItem, 10)
+	items := make([]memorytypes.MemoryItem, 10)
 	for i := 0; i < 10; i++ {
-		items[i] = MemoryItem{Section: "s", Key: fmt.Sprintf("k%d", i), Value: fmt.Sprintf("v%d", i)}
+		items[i] = memorytypes.MemoryItem{Section: "s", Key: fmt.Sprintf("k%d", i), Value: fmt.Sprintf("v%d", i)}
 	}
 
 	// BulkStore
@@ -374,10 +358,12 @@ func TestLongTermMemory_ConcurrentSameKeyStore(t *testing.T) {
 	assert.Equal(t, len(ltm.items), len(ltm.index))
 }
 
-func TestResetSemanticJudge_Isolates(t *testing.T) {
-	SetSemanticJudge(func(oldValue, newValue string) bool { return true })
-	assert.NotNil(t, semanticJudge)
-
-	ResetSemanticJudge()
-	assert.Nil(t, semanticJudge)
+func TestWithSemanticJudge_InjectsJudge(t *testing.T) {
+	ltm, err := NewLongTermMemory(
+		persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())),
+		WithSemanticJudge(func(old, new string) bool { return true }),
+	)
+	require.NoError(t, err)
+	assert.NotNil(t, ltm.judge)
+	assert.True(t, ltm.isSemanticMatch("python", "py"))
 }

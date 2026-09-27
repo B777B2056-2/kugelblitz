@@ -7,16 +7,19 @@ import (
 	"strings"
 
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/llm"
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
+	"github.com/B777B2056-2/kugelblitz/prompts"
 )
 
 // ExtractionContext bundles all information the LLM needs for fact extraction.
 type ExtractionContext struct {
-	SessionID       string              // Current session identifier
-	UserMessage     string              // Original user goal/request
-	Conversation    []coretypes.Message // Full conversation including tool calls and results
-	SessionSummary  string              // Current session summary (from SessionMemory)
-	ExistingItems   []MemoryItem        // Existing LTM items for dedup/conflict awareness
-	CheckpointGoals []string            // Active plan goals from checkpoints
+	SessionID       string                   // Current session identifier
+	UserMessage     string                   // Original user goal/request
+	Conversation    []coretypes.Message      // Full conversation including tool calls and results
+	SessionSummary  string                   // Current session summary (from SessionMemory)
+	ExistingItems   []memorytypes.MemoryItem // Existing LTM items for dedup/conflict awareness
+	CheckpointGoals []string                 // Active plan goals from checkpoints
 }
 
 // MemoryItemCandidate is a raw fact produced by the LLM before conflict resolution.
@@ -28,14 +31,14 @@ type MemoryItemCandidate struct {
 	SuggestedConfidence float64 `json:"suggested_confidence"`
 }
 
-// Extractor uses an LLM provider to extract long-term memories from conversations.
+// Extractor uses a unified LLM caller to extract long-term memories from conversations.
 type Extractor struct {
-	provider coretypes.ILMProvider
+	caller *llm.Caller
 }
 
-// NewExtractor creates an Extractor with the given LLM provider.
-func NewExtractor(provider coretypes.ILMProvider) *Extractor {
-	return &Extractor{provider: provider}
+// NewExtractor creates an Extractor with the given LLM caller.
+func NewExtractor(caller *llm.Caller) *Extractor {
+	return &Extractor{caller: caller}
 }
 
 // Extract runs the LLM extraction and returns fact candidates.
@@ -44,90 +47,48 @@ func NewExtractor(provider coretypes.ILMProvider) *Extractor {
 func (e *Extractor) Extract(ctx context.Context, ec *ExtractionContext) ([]MemoryItemCandidate, *coretypes.Usage, error) {
 	prompt := e.buildPrompt(ec)
 
-	msg := coretypes.NewUserMessage(coretypes.TextContent{Text: prompt})
-	resp, err := e.provider.Generate(ctx, coretypes.GenerateParams{
-		Messages: []coretypes.Message{msg},
-		Stream:   false,
+	res, err := e.caller.Call(ctx, llm.Request{
+		Prompt:   prompt,
+		Mode:     llm.ModeText,
+		SpanName: "extract",
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("extract: %w", err)
+		return nil, res.Usage, fmt.Errorf("extract: %w", err)
 	}
 
-	usage := resp.Usage
-	text := ""
-	if tc, ok := resp.Content.(coretypes.TextContent); ok {
-		text = tc.Text
-	}
-
-	candidates, err := e.parseResponse(text)
+	candidates, err := e.parseResponse(res.Text)
 	if err != nil {
-		return nil, usage, fmt.Errorf("extract parse: %w", err)
+		return nil, res.Usage, fmt.Errorf("extract parse: %w", err)
 	}
-	return candidates, usage, nil
+	return candidates, res.Usage, nil
 }
 
 // buildPrompt builds the LLM extraction prompt.
 func (e *Extractor) buildPrompt(ec *ExtractionContext) string {
-	var sb strings.Builder
-
-	sb.WriteString(`You are a memory extraction system. From the conversation, extract long-term memories AND entity relationships.
-
-Output ONLY valid JSON:
-{
-  "items": [
-    {"section":"...","key":"...","value":"...","source_evidence":"...","suggested_confidence":0.9}
-  ],
-  "entities": [
-    {"name":"EntityName","type":"language|file|concept|person|project|bug|tool","labels":["tag1","tag2"]}
-  ],
-  "relationships": [
-    {"from":"EntityName","to":"OtherEntity","type":"uses|depends_on|mentions|causes|contains|implements","weight":1.0}
-  ]
+	return prompts.DefaultFactory.MustRender(prompts.TypeExtract, prompts.ExtractParams{
+		SessionSummary:  ec.SessionSummary,
+		ExistingItems:   e.formatExistingItems(ec.ExistingItems),
+		CheckpointGoals: e.formatCheckpointGoals(ec.CheckpointGoals),
+		UserMessage:     ec.UserMessage,
+		Conversation:    e.summarizeConversation(ec.Conversation),
+	})
 }
 
-Sections for items: user_preferences, project_facts, episodic, lessons, patterns
-Entity types: language, file, concept, person, project, bug, tool
-Relationship weight: 1.0 = explicitly stated; < 1.0 = inferred
-
-Rules:
-- Be concise. Only include things clearly stated. Do not fabricate.
-- key = short label; value = detailed content
-`)
-
-	// Session context
-	if ec.SessionSummary != "" {
-		sb.WriteString("\n## Session Context (summary)\n")
-		sb.WriteString(ec.SessionSummary)
-		sb.WriteString("\n")
+// formatExistingItems renders existing memories for dedup awareness.
+func (e *Extractor) formatExistingItems(items []memorytypes.MemoryItem) string {
+	var sb strings.Builder
+	for _, f := range items {
+		fmt.Fprintf(&sb, "- [%s] %s: %s (c%.2f)\n", f.Section, f.Key, f.Value, f.Confidence)
 	}
+	return sb.String()
+}
 
-	// Existing items for dedup awareness
-	if len(ec.ExistingItems) > 0 {
-		sb.WriteString("\n## Existing Memories (avoid duplicates)\n")
-		for _, f := range ec.ExistingItems {
-			fmt.Fprintf(&sb, "- [%s] %s: %s (c%.2f)\n", f.Section, f.Key, f.Value, f.Confidence)
-		}
+// formatCheckpointGoals renders active plan goals as a bullet list.
+func (e *Extractor) formatCheckpointGoals(goals []string) string {
+	var sb strings.Builder
+	for _, g := range goals {
+		fmt.Fprintf(&sb, "- %s\n", g)
 	}
-
-	// Active plan goals
-	if len(ec.CheckpointGoals) > 0 {
-		sb.WriteString("\n## Active Plan Goals\n")
-		for _, g := range ec.CheckpointGoals {
-			fmt.Fprintf(&sb, "- %s\n", g)
-		}
-	}
-
-	// User message
-	if ec.UserMessage != "" {
-		sb.WriteString("\n## User Request\n")
-		sb.WriteString(ec.UserMessage)
-		sb.WriteString("\n")
-	}
-
-	// Full conversation with tool summaries
-	sb.WriteString("\n## Conversation\n")
-	sb.WriteString(e.summarizeConversation(ec.Conversation))
-
 	return sb.String()
 }
 
@@ -223,29 +184,25 @@ type ExtractionFullResult struct {
 // ExtractFull runs the LLM extraction and returns the full result including entities and relationships.
 func (e *Extractor) ExtractFull(ctx context.Context, ec *ExtractionContext) (*ExtractionFullResult, *coretypes.Usage, error) {
 	prompt := e.buildPrompt(ec)
-	msg := coretypes.NewUserMessage(coretypes.TextContent{Text: prompt})
-	resp, err := e.provider.Generate(ctx, coretypes.GenerateParams{
-		Messages: []coretypes.Message{msg},
-		Stream:   false,
+	res, err := e.caller.Call(ctx, llm.Request{
+		Prompt:   prompt,
+		Mode:     llm.ModeText,
+		SpanName: "extract",
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("extract: %w", err)
+		return nil, res.Usage, fmt.Errorf("extract: %w", err)
 	}
-	usage := resp.Usage
-	text := ""
-	if tc, ok := resp.Content.(coretypes.TextContent); ok {
-		text = tc.Text
-	}
+	text := res.Text
 	result, err := e.parseFullResponse(text)
 	if err != nil {
 		// Fallback: try parsing as items-only array
 		candidates, err2 := e.parseResponse(text)
 		if err2 != nil {
-			return nil, usage, fmt.Errorf("extract parse: %w", err)
+			return nil, res.Usage, fmt.Errorf("extract parse: %w", err)
 		}
-		return &ExtractionFullResult{Items: candidates}, usage, nil
+		return &ExtractionFullResult{Items: candidates}, res.Usage, nil
 	}
-	return result, usage, nil
+	return result, res.Usage, nil
 }
 
 func (e *Extractor) parseFullResponse(text string) (*ExtractionFullResult, error) {

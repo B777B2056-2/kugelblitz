@@ -5,71 +5,12 @@ import (
 	"testing"
 
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
-	"github.com/B777B2056-2/kugelblitz/prompts"
+	"github.com/B777B2056-2/kugelblitz/llm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 )
-
-func TestBuildSummarizePrompt_NoExistingSummary(t *testing.T) {
-	msgs := []coretypes.Message{
-		coretypes.NewUserMessage(coretypes.TextContent{Text: "hello"}),
-		coretypes.NewAssistantMessage(coretypes.TextContent{Text: "world"}),
-	}
-	prompt := prompts.BuildSummarizePrompt(msgs, "")
-	assert.Contains(t, prompt, "Summarize the following conversation")
-	assert.Contains(t, prompt, "hello")
-	assert.Contains(t, prompt, "world")
-	assert.NotContains(t, prompt, "EXISTING SUMMARY")
-	assert.NotContains(t, prompt, "previous summary")
-}
-
-func TestBuildSummarizePrompt_WithExistingSummary(t *testing.T) {
-	msgs := []coretypes.Message{
-		coretypes.NewUserMessage(coretypes.TextContent{Text: "new info"}),
-	}
-	existing := "User likes Go programming."
-	prompt := prompts.BuildSummarizePrompt(msgs, existing)
-	assert.Contains(t, prompt, "EXISTING SUMMARY")
-	assert.Contains(t, prompt, existing)
-	assert.Contains(t, prompt, "CONSOLIDATED")
-	assert.Contains(t, prompt, "PREFER the new information")
-	assert.Contains(t, prompt, "new info")
-}
-
-func TestBuildSummarizePrompt_ToolCalls(t *testing.T) {
-	msgs := []coretypes.Message{
-		{
-			Role: "assistant",
-			Content: coretypes.ToolCallContent{
-				Details: []coretypes.ToolCallDetail{
-					{ID: "t1", ToolName: "search"},
-					{ID: "t2", ToolName: "calculate"},
-				},
-			},
-		},
-	}
-	prompt := prompts.BuildSummarizePrompt(msgs, "")
-	assert.Contains(t, prompt, "[tool calls: search, calculate]")
-}
-
-func TestBuildSummarizePrompt_ToolResults(t *testing.T) {
-	msgs := []coretypes.Message{
-		{
-			Role: "tool",
-			Content: coretypes.ToolResultContent{
-				Results: []coretypes.ToolCallResult{
-					{ToolCallID: "t1"},
-					{ToolCallID: "t2"},
-					{ToolCallID: "t3"},
-				},
-			},
-		},
-	}
-	prompt := prompts.BuildSummarizePrompt(msgs, "")
-	assert.Contains(t, prompt, "[tool results: 3]")
-}
 
 func TestTruncate_Short(t *testing.T) {
 	assert.Equal(t, "hi", truncate("hi", 500))
@@ -104,7 +45,7 @@ func TestCompressor_Summarize_ReturnsUsage(t *testing.T) {
 			}, nil
 		},
 	}
-	c := NewCompressor(mp, otel.Tracer("test"))
+	c := NewCompressor(llm.NewCaller(mp, otel.Tracer("test")))
 	summary, gotUsage, err := c.Summarize(context.Background(), []coretypes.Message{
 		coretypes.NewUserMessage(coretypes.TextContent{Text: "hello"}),
 	}, "")
@@ -122,7 +63,7 @@ func TestCompressor_Summarize_NilUsageWhenError(t *testing.T) {
 			return nil, assert.AnError
 		},
 	}
-	c := NewCompressor(mp, otel.Tracer("test"))
+	c := NewCompressor(llm.NewCaller(mp, otel.Tracer("test")))
 	_, gotUsage, err := c.Summarize(context.Background(), []coretypes.Message{
 		coretypes.NewUserMessage(coretypes.TextContent{Text: "hello"}),
 	}, "")

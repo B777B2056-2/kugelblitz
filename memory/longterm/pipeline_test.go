@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/B777B2056-2/kugelblitz/llm"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,7 +21,7 @@ func TestWritePipeline_Run_ExtractsAndStoresFacts(t *testing.T) {
 	provider := &mockExtractProvider{
 		response: `[{"section":"prefs","key":"lang","value":"Go","source_evidence":"user said","suggested_confidence":0.9}]`,
 	}
-	pipeline := NewWritePipeline(provider, ltm, nil, 0.15)
+	pipeline := NewWritePipeline(llm.NewCaller(provider, nil), ltm, nil, 0.15)
 	result, err := pipeline.Run(context.Background(), &ExtractionContext{UserMessage: "I use Go"})
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.ItemsExtracted)
@@ -36,7 +37,7 @@ func TestWritePipeline_Run_ConflictCreatesPending(t *testing.T) {
 	provider := &mockExtractProvider{
 		response: `[{"section":"prefs","key":"lang","value":"Go","source_evidence":"","suggested_confidence":0.95}]`,
 	}
-	pipeline := NewWritePipeline(provider, ltm, nil, 0.15)
+	pipeline := NewWritePipeline(llm.NewCaller(provider, nil), ltm, nil, 0.15)
 	result, err := pipeline.Run(context.Background(), &ExtractionContext{UserMessage: "Switch to Go"})
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, result.ItemsStored, 0)
@@ -45,7 +46,7 @@ func TestWritePipeline_Run_ConflictCreatesPending(t *testing.T) {
 func TestWritePipeline_Run_EmptyConversation(t *testing.T) {
 	ltm := newTestLTMPipeline(t)
 	provider := &mockExtractProvider{response: `[]`}
-	pipeline := NewWritePipeline(provider, ltm, nil, 0.15)
+	pipeline := NewWritePipeline(llm.NewCaller(provider, nil), ltm, nil, 0.15)
 	result, err := pipeline.Run(context.Background(), &ExtractionContext{})
 	require.NoError(t, err)
 	assert.Equal(t, 0, result.ItemsStored)

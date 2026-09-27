@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/llm"
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,8 +21,12 @@ func (m *mockExtractProvider) Generate(ctx context.Context, params coretypes.Gen
 	}, nil
 }
 
+func newTestExtractor(p coretypes.ILMProvider) *Extractor {
+	return NewExtractor(llm.NewCaller(p, nil))
+}
+
 func TestBuildPrompt_IncludesToolCalls(t *testing.T) {
-	ext := NewExtractor(&mockExtractProvider{})
+	ext := newTestExtractor(&mockExtractProvider{})
 	ec := &ExtractionContext{
 		UserMessage: "Fix the bug",
 		Conversation: []coretypes.Message{
@@ -45,22 +51,22 @@ func TestBuildPrompt_IncludesToolCalls(t *testing.T) {
 }
 
 func TestBuildPrompt_IncludesExistingFacts(t *testing.T) {
-	ext := NewExtractor(&mockExtractProvider{})
+	ext := newTestExtractor(&mockExtractProvider{})
 	ec := &ExtractionContext{
-		ExistingItems: []MemoryItem{{Section: "prefs", Key: "lang", Value: "Go", Confidence: 0.95}},
+		ExistingItems: []memorytypes.MemoryItem{{Section: "prefs", Key: "lang", Value: "Go", Confidence: 0.95}},
 	}
 	assert.Contains(t, ext.buildPrompt(ec), "Existing Memories")
 	assert.Contains(t, ext.buildPrompt(ec), "Go")
 }
 
 func TestBuildPrompt_IncludesSessionSummary(t *testing.T) {
-	ext := NewExtractor(&mockExtractProvider{})
+	ext := newTestExtractor(&mockExtractProvider{})
 	prompt := ext.buildPrompt(&ExtractionContext{SessionSummary: "user prefers Go"})
 	assert.Contains(t, prompt, "user prefers Go")
 }
 
 func TestParseResponse_ValidJSON(t *testing.T) {
-	ext := NewExtractor(&mockExtractProvider{})
+	ext := newTestExtractor(&mockExtractProvider{})
 	candidates, err := ext.parseResponse(`[{"section":"prefs","key":"lang","value":"Go"},{"section":"episodic","key":"debug","value":"found nil pointer"}]`)
 	require.NoError(t, err)
 	assert.Len(t, candidates, 2)
@@ -69,20 +75,20 @@ func TestParseResponse_ValidJSON(t *testing.T) {
 }
 
 func TestParseResponse_JSONWithExtraText(t *testing.T) {
-	ext := NewExtractor(&mockExtractProvider{})
+	ext := newTestExtractor(&mockExtractProvider{})
 	candidates, err := ext.parseResponse("Here:\n```json\n[{\"section\":\"prefs\",\"key\":\"lang\",\"value\":\"Go\"}]\n```")
 	require.NoError(t, err)
 	assert.Len(t, candidates, 1)
 }
 
 func TestParseResponse_MalformedJSON(t *testing.T) {
-	ext := NewExtractor(&mockExtractProvider{})
+	ext := newTestExtractor(&mockExtractProvider{})
 	_, err := ext.parseResponse("no json here")
 	assert.Error(t, err)
 }
 
 func TestExtract_Integration(t *testing.T) {
-	ext := NewExtractor(&mockExtractProvider{response: `[{"section":"prefs","key":"lang","value":"Go","source_evidence":"user said","suggested_confidence":0.9}]`})
+	ext := newTestExtractor(&mockExtractProvider{response: `[{"section":"prefs","key":"lang","value":"Go","source_evidence":"user said","suggested_confidence":0.9}]`})
 	candidates, usage, err := ext.Extract(context.Background(), &ExtractionContext{UserMessage: "I want Go"})
 	require.NoError(t, err)
 	assert.Len(t, candidates, 1)
@@ -91,7 +97,7 @@ func TestExtract_Integration(t *testing.T) {
 }
 
 func TestCompactArgs_LongValues(t *testing.T) {
-	ext := NewExtractor(&mockExtractProvider{})
+	ext := newTestExtractor(&mockExtractProvider{})
 	longStr := strings.Repeat("x", 200)
 	result := ext.compactArgs(map[string]any{"content": longStr})
 	assert.Less(t, len(result), 150)
