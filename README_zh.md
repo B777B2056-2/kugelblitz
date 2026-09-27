@@ -273,16 +273,32 @@ Kugelblitz 提供三层记忆架构：**会话记忆**（短期，对话历史�
 **ChromaDB 索引**：文档以 `mem:{section}:{key}` 为 ID，启动时全量重建
 （`RebuildIfStale`），每次写入后异步重建（`Rebuild`）。实现见 `memory/longterm/index.go`。
 
-**Auto Dreaming（后台记忆巩固）**：`DreamScheduler` 后台 goroutine 每 30 分钟轮询一次。
-仅在 Agent **空闲**（5 分钟内无 `Execute` 调用）且**冷却期**已过（距上次 dream 超 6 小时）
-时才触发 dream 周期。读取已有记忆进行评分，巩固高价值条目，提取跨域洞察写入 `DREAMS.md`。
-三阶段：
+**Auto Dreaming（后台记忆巩固）**：记忆像人类睡眠一样，在 Agent 空闲时于后台被巩固。
+调度器每 30 分钟轮询一次，只有同时满足两个条件才触发一轮：Agent 已**空闲**
+（5 分钟内无请求）且**冷却期**已过（距上次 dream 超 6 小时）。整个功能由
+`auto_dream_enabled` 开关控制，**默认关闭（opt-in）**——需在 `kugelblitz.yaml` 显式设
+`auto_dream_enabled: true` 才启用；关闭时不创建调度器。
 
-1. **浅睡（Light Sleep）** — 采集所有 MemoryItem，用图谱度富化
-2. **深睡（Deep Sleep）** — LLM 逐条评分（1-10）；高分 → 置信度提升
-3. **REM** — LLM 从高分条目中提炼跨域模式 → `insights` section
+每轮读取当前长期记忆，按三个阶段处理，最多只花**两次 LLM 调用**。前两个阶段只读、
+不写；**深睡是唯一写入者**：
 
-实现见 `memory/longterm/dream.go`。
+1. **浅睡（Light Sleep）— 采集与富化** *（不调 LLM）*。把所有记忆条目作为候选收集起来，
+   并给每条打上**图谱度**：它的键名在知识图谱中作为实体参与了多少条关系。这为后续评分
+   提供「这条记忆有多核心」的信号。若未挂载图谱，则每条度数均为 0。
+
+2. **REM — 反思** *（一次 LLM 调用）*。把所有候选蒸馏成跨领域的**洞察**——新的、更高层
+   的记忆条目，外加一句关于 Agent 当前关注点的小结。
+
+3. **深睡（Deep Sleep）— 打分与写入** *（一次 LLM 调用）*。给每条记忆合成一个 0–1 的
+   **混合价值分**，由四路信号加权而成：LLM 的内在价值评分（权重 0.50，占主导——它是当前
+   最可靠的相关性代理）、图谱连通度（0.20）、更新频率（0.15）、新近度（0.15）。
+   分数驱动阈值规则：高分 → *巩固*（提升置信度、递增版本）；低分 → *遗忘*（删除）；
+   同时把 REM 阶段产出的洞察**晋升**回长期记忆。中间档保持不变。
+
+结果以人类可读的日记形式写入 `DREAMS.md`：检查了多少条、巩固了多少、遗忘了多少、
+晋升了多少洞察，以及洞察与小结。
+
+实现见 `memory/longterm/dream/`。
 
 **实体关系图谱**：提取管道同时产出实体和关系（`EntityCandidate` / `RelCandidate`），
 存入本地内存图（`memory/longterm/graph.go`）并以 JSONL 持久化。自动生成 Mermaid 可视化
@@ -775,18 +791,25 @@ kugelblitz/
 ├── core/              # 接口定义：ILMProvider, Observer, Span, Message, Tool, IAgent
 ├── config/            # 配置结构体（Model, Runtime, Compress, Drift）
 ├── constants/         # 枚举：PlanState, RoleType, MultiModalType
+├── llm/               # 统一单次 LLM 调用器（Caller + 输出形态枚举）
 ├── runtime/           # Agent 运行时
 │   ├── agent_loop.go  #   AgentLoop — 主入口
 │   └── engine/
 │       ├── kernel.go  #   Kernel — 公共 API 门面
 │       ├── fsm/       #   状态机（State + Action + Machine）
 │       ├── dag/       #   DAG 任务执行器（拓扑批次并发）
-│       └── infra/     #   基础设施（ReactAgent, Reviewer, WorkerAgent）
+│       ├── infra/     #   基础设施（ReactAgent, Reviewer, WorkerAgent）
+│       ├── types/     #   引擎值类型（BatchResult, ReviewResult）
+│       └── worker/    #   Worker 执行契约（DAG ↔ infra 解耦）
 ├── memory/
 │   ├── session_memory.go  # SessionMemory — 对话历史 + 自动压缩
 │   ├── compressor.go      # LLM 上下文压缩
 │   ├── working/           # 工作记忆（Plan + Task + Checkpoint）
+│   ├── types/             # 记忆值类型（MemoryItem, PipelineResult 等）
+│   ├── pipeline/          # 记忆写流水线（有序步骤原语）
 │   └── longterm/          # 长期记忆（MEMORY.md + ChromaDB + Graph + Dream）
+│       ├── dream/         #   Dream 子系统（反思 → DREAMS.md）
+│       └── write/         #   长期记忆写流水线（Extract → Store）
 ├── prompts/           # 系统提示词模板
 ├── observability/     # OTel Span 层级 + OTel SDK, PlannerInstrument
 ├── tools/

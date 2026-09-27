@@ -5,14 +5,15 @@ import (
 	"fmt"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 )
 
 // Tool is the abstract interface for all tools.
 // Implement Definition() to describe the tool to the LLM,
 // and Execute() to perform the actual work.
 type Tool interface {
-	Definition() core.ToolDefinition
-	Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult
+	Definition() coretypes.ToolDefinition
+	Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult
 }
 
 // Register registers a tool with the global ToolRegistry.
@@ -28,8 +29,8 @@ func RegisterAll(tools ...Tool) {
 }
 
 // ErrorResult is a helper to create an error ToolCallResult.
-func ErrorResult(toolCallID, toolName string, err error) core.ToolCallResult {
-	return core.ToolCallResult{
+func ErrorResult(toolCallID, toolName string, err error) coretypes.ToolCallResult {
+	return coretypes.ToolCallResult{
 		ToolCallID: toolCallID,
 		ToolName:   toolName,
 		Outputs: map[string]any{
@@ -39,8 +40,8 @@ func ErrorResult(toolCallID, toolName string, err error) core.ToolCallResult {
 }
 
 // SuccessResult is a helper to create a success ToolCallResult with outputs.
-func SuccessResult(toolCallID, toolName string, outputs map[string]any) core.ToolCallResult {
-	return core.ToolCallResult{
+func SuccessResult(toolCallID, toolName string, outputs map[string]any) coretypes.ToolCallResult {
+	return coretypes.ToolCallResult{
 		ToolCallID: toolCallID,
 		ToolName:   toolName,
 		Outputs:    outputs,
@@ -48,12 +49,12 @@ func SuccessResult(toolCallID, toolName string, outputs map[string]any) core.Too
 }
 
 // OkResult is a convenience helper that returns {"ok": true}.
-func OkResult(toolCallID, toolName string) core.ToolCallResult {
+func OkResult(toolCallID, toolName string) coretypes.ToolCallResult {
 	return SuccessResult(toolCallID, toolName, map[string]any{"ok": true})
 }
 
 // Arg extracts a string argument from the tool call, or returns an error.
-func Arg(detail core.ToolCallDetail, key string) (string, error) {
+func Arg(detail coretypes.ToolCallDetail, key string) (string, error) {
 	v, ok := detail.Args[key]
 	if !ok {
 		return "", fmt.Errorf("missing required argument: %s", key)
@@ -66,7 +67,7 @@ func Arg(detail core.ToolCallDetail, key string) (string, error) {
 }
 
 // RequiredString extracts a required non-empty string argument.
-func RequiredString(detail core.ToolCallDetail, key string) (string, error) {
+func RequiredString(detail coretypes.ToolCallDetail, key string) (string, error) {
 	v, ok := detail.Args[key]
 	if !ok {
 		return "", fmt.Errorf("missing required argument: %s", key)
@@ -82,7 +83,7 @@ func RequiredString(detail core.ToolCallDetail, key string) (string, error) {
 }
 
 // OptionalString extracts an optional string argument, returning "" if missing.
-func OptionalString(detail core.ToolCallDetail, key string) string {
+func OptionalString(detail coretypes.ToolCallDetail, key string) string {
 	v, ok := detail.Args[key]
 	if !ok {
 		return ""
@@ -91,8 +92,22 @@ func OptionalString(detail core.ToolCallDetail, key string) string {
 	return s
 }
 
+// OptionalStringErr extracts an optional string argument, returning "" if
+// missing and an error if present with a non-string type (T8).
+func OptionalStringErr(detail coretypes.ToolCallDetail, key string) (string, error) {
+	v, ok := detail.Args[key]
+	if !ok {
+		return "", nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("argument %q must be a string, got %T", key, v)
+	}
+	return s, nil
+}
+
 // RequiredInt extracts a required integer argument (handles JSON float64 decoding).
-func RequiredInt(detail core.ToolCallDetail, key string) (int, error) {
+func RequiredInt(detail coretypes.ToolCallDetail, key string) (int, error) {
 	v, ok := detail.Args[key]
 	if !ok {
 		return 0, fmt.Errorf("missing required argument: %s", key)
@@ -111,7 +126,7 @@ func RequiredInt(detail core.ToolCallDetail, key string) (int, error) {
 }
 
 // OptionalInt extracts an optional integer, returning defaultVal if missing.
-func OptionalInt(detail core.ToolCallDetail, key string, defaultVal int) (int, error) {
+func OptionalInt(detail coretypes.ToolCallDetail, key string, defaultVal int) (int, error) {
 	v, ok := detail.Args[key]
 	if !ok {
 		return defaultVal, nil
@@ -130,7 +145,7 @@ func OptionalInt(detail core.ToolCallDetail, key string, defaultVal int) (int, e
 }
 
 // OptionalBool extracts an optional boolean, returning defaultVal if missing.
-func OptionalBool(detail core.ToolCallDetail, key string, defaultVal bool) bool {
+func OptionalBool(detail coretypes.ToolCallDetail, key string, defaultVal bool) bool {
 	v, ok := detail.Args[key]
 	if !ok {
 		return defaultVal

@@ -1,11 +1,14 @@
-package longterm
+package dream
 
 import (
 	"context"
 	"testing"
 	"time"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/llm"
+	"github.com/B777B2056-2/kugelblitz/memory/longterm"
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,25 +19,24 @@ type dreamProvider struct {
 	callCount int
 }
 
-func (m *dreamProvider) Generate(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+func (m *dreamProvider) Generate(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 	idx := m.callCount
 	m.callCount++
 	resp := "empty response"
 	if idx < len(m.responses) {
 		resp = m.responses[idx]
 	}
-	return &core.Message{
-		Content: core.TextContent{Text: resp},
-		Usage:   &core.Usage{InputTokens: 100, OutputTokens: 50, TotalTokens: 150},
+	return &coretypes.Message{
+		Content: coretypes.TextContent{Text: resp},
+		Usage:   &coretypes.Usage{InputTokens: 100, OutputTokens: 50, TotalTokens: 150},
 	}, nil
 }
 
-func setupDreamer(t *testing.T) (*LongTermMemory, *Dreamer) {
+func setupDreamer(t *testing.T) (*longterm.LongTermMemory, *Dreamer) {
 	t.Helper()
 
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
-	graph := NewGraphStore(nil, "")
-	ltm.SetGraph(graph)
+	graph := longterm.NewGraphStore(nil, "")
+	ltm, _ := longterm.NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())), longterm.WithGraph(graph))
 
 	// Populate some memories
 	_, _, _ = ltm.Store("user_preferences", "language", "Go")
@@ -43,17 +45,13 @@ func setupDreamer(t *testing.T) (*LongTermMemory, *Dreamer) {
 	_, _, _ = ltm.Store("lessons", "tdd_workflow", "Always write tests first")
 
 	// Add graph data
-	graph.UpsertEntity(EntityCandidate{Name: "Go", Type: "language"})
-	graph.UpsertEntity(EntityCandidate{Name: "kugelblitz", Type: "project"})
-	graph.UpsertEntity(EntityCandidate{Name: "plan_mode.go", Type: "file"})
-	graph.AddRelationship(RelCandidate{From: "Go", To: "kugelblitz", Type: "implements", Weight: 1.0})
-	graph.AddRelationship(RelCandidate{From: "kugelblitz", To: "plan_mode.go", Type: "contains", Weight: 1.0})
+	graph.UpsertEntity(longterm.EntityCandidate{Name: "Go", Type: "language"})
+	graph.UpsertEntity(longterm.EntityCandidate{Name: "kugelblitz", Type: "project"})
+	graph.UpsertEntity(longterm.EntityCandidate{Name: "plan_mode.go", Type: "file"})
+	graph.AddRelationship(longterm.RelCandidate{From: "Go", To: "kugelblitz", Type: "implements", Weight: 1.0})
+	graph.AddRelationship(longterm.RelCandidate{From: "kugelblitz", To: "plan_mode.go", Type: "contains", Weight: 1.0})
 
-	return ltm, &Dreamer{
-		ltm:      ltm,
-		graph:    graph,
-		provider: &dreamProvider{},
-	}
+	return ltm, NewDreamer(llm.NewCaller(&dreamProvider{}, nil), ltm, graph)
 }
 
 func TestDreamer_LightSleep_CollectsCandidates(t *testing.T) {
@@ -84,7 +82,7 @@ func TestDreamer_DeepSleep_ScoresAndFilters(t *testing.T) {
 	ltm2, d := setupDreamer(t)
 
 	// Provider returns JSON scores for each candidate
-	d.provider = &dreamProvider{
+	d.caller.SetProvider(&dreamProvider{
 		responses: []string{
 			`{"scores":[
 				{"section":"user_preferences","key":"language","score":9,"reason":"frequently used"},
@@ -93,10 +91,10 @@ func TestDreamer_DeepSleep_ScoresAndFilters(t *testing.T) {
 				{"section":"lessons","key":"tdd_workflow","score":9,"reason":"recurring theme"}
 			]}`,
 		},
-	}
+	})
 
 	candidates, _ := d.lightSleep(context.Background())
-	scored, err := d.deepSleep(context.Background(), candidates)
+	scored, _, err := d.deepSleep(context.Background(), candidates, nil)
 	require.NoError(t, err)
 	assert.Len(t, scored, 4)
 
@@ -122,33 +120,56 @@ func TestDreamer_DeepSleep_ScoresAndFilters(t *testing.T) {
 	assert.Greater(t, f.Version, 1, "high-score item should be consolidated")
 }
 
+func TestDreamer_Run_DeprecatesLowScore(t *testing.T) {
+	ltm, d := setupDreamer(t)
+
+	d.caller.SetProvider(&dreamProvider{
+		responses: []string{
+			// REM runs first: reflect insights.
+			`{"insights":[{"section":"insights","key":"p","value":"Go"}],"summary":"Go."}`,
+			// Deep sleep runs second: debug_nil_pointer scored 2 → low value, must be removed.
+			`{"scores":[
+				{"section":"user_preferences","key":"language","score":9,"reason":""},
+				{"section":"project_facts","key":"deploy","score":8,"reason":""},
+				{"section":"episodic","key":"debug_nil_pointer","score":2,"reason":"one-time"},
+				{"section":"lessons","key":"tdd_workflow","score":9,"reason":""}
+			]}`,
+		},
+	})
+
+	report, err := d.Run(context.Background())
+	require.NoError(t, err)
+
+	// Low-score item must be deprecated (removed from LTM).
+	_, ok := ltm.Get("episodic", "debug_nil_pointer")
+	assert.False(t, ok, "low-score item must be removed")
+
+	// High-score items must be retained.
+	_, ok = ltm.Get("lessons", "tdd_workflow")
+	assert.True(t, ok, "high-score item must survive")
+
+	assert.Equal(t, 1, report.Deprecated)
+	assert.Equal(t, 1, report.ScoredLow)
+}
+
 func TestDreamer_REM_ExtractsInsights(t *testing.T) {
 	_, d := setupDreamer(t)
 
-	d.provider = &dreamProvider{
+	d.caller.SetProvider(&dreamProvider{
 		responses: []string{
-			// Deep sleep response
-			`{"scores":[
-				{"section":"user_preferences","key":"language","score":9,"reason":""},
-				{"section":"project_facts","key":"deploy","score":7,"reason":""},
-				{"section":"episodic","key":"debug_nil_pointer","score":2,"reason":""},
-				{"section":"lessons","key":"tdd_workflow","score":9,"reason":""}
-			]}`,
-			// REM response
 			`{"insights":[
 				{"section":"insights","key":"go_agent_dev","value":"User is building a Go-based agent framework with TDD workflow"},
 				{"section":"insights","key":"deploy_prod","value":"Project is deployed to production"}
 			],"summary":"User is focused on Go agent development with strong emphasis on testing and production readiness."}`,
 		},
-	}
+	})
 
 	candidates, _ := d.lightSleep(context.Background())
-	scored, _ := d.deepSleep(context.Background(), candidates)
-	var highForREM []MemoryItem
-	for _, s := range scored {
-		highForREM = append(highForREM, s.Item)
+	var items []memorytypes.MemoryItem
+	for _, c := range candidates {
+		items = append(items, c.Item)
 	}
-	insights, _, err := d.rem(context.Background(), highForREM)
+	insights, _, err := d.rem(context.Background(), items)
 	require.NoError(t, err)
 	assert.Len(t, insights, 2)
 	assert.Equal(t, "insights", insights[0].Section)
@@ -158,20 +179,20 @@ func TestDreamer_REM_ExtractsInsights(t *testing.T) {
 func TestDreamer_Run_FullCycle(t *testing.T) {
 	_, d := setupDreamer(t)
 
-	// 4 items → needs 4 scores + 1 REM = 2 LLM calls total
-	d.provider = &dreamProvider{
+	// 4 items → needs 1 REM + 4 scores = 2 LLM calls total
+	d.caller.SetProvider(&dreamProvider{
 		responses: []string{
+			`{"insights":[
+				{"section":"insights","key":"pattern","value":"Go agent framework with TDD"}
+			],"summary":"Go-focused development."}`,
 			`{"scores":[
 				{"section":"user_preferences","key":"language","score":9,"reason":""},
 				{"section":"project_facts","key":"deploy","score":8,"reason":""},
 				{"section":"episodic","key":"debug_nil_pointer","score":2,"reason":""},
 				{"section":"lessons","key":"tdd_workflow","score":9,"reason":""}
 			]}`,
-			`{"insights":[
-				{"section":"insights","key":"pattern","value":"Go agent framework with TDD"}
-			],"summary":"Go-focused development."}`,
 		},
-	}
+	})
 
 	report, err := d.Run(context.Background())
 	require.NoError(t, err)
@@ -183,6 +204,33 @@ func TestDreamer_Run_FullCycle(t *testing.T) {
 	assert.Contains(t, report.Summary, "Go")
 }
 
+func TestDreamer_Run_PromotesInsights(t *testing.T) {
+	ltm, d := setupDreamer(t)
+
+	d.caller.SetProvider(&dreamProvider{
+		responses: []string{
+			`{"insights":[
+				{"section":"insights","key":"go_agent_dev","value":"User builds a Go agent framework with TDD"}
+			],"summary":"Go dev."}`,
+			`{"scores":[
+				{"section":"user_preferences","key":"language","score":9,"reason":""},
+				{"section":"project_facts","key":"deploy","score":8,"reason":""},
+				{"section":"episodic","key":"debug_nil_pointer","score":2,"reason":""},
+				{"section":"lessons","key":"tdd_workflow","score":9,"reason":""}
+			]}`,
+		},
+	})
+
+	report, err := d.Run(context.Background())
+	require.NoError(t, err)
+
+	// The REM insight must be promoted back into LTM by Deep Sleep.
+	ins, ok := ltm.Get("insights", "go_agent_dev")
+	assert.True(t, ok, "REM insight should be promoted into LTM")
+	assert.Contains(t, ins.Value, "Go agent framework")
+	assert.Equal(t, 1, report.Promoted)
+}
+
 func TestDreamReport_ToMarkdown(t *testing.T) {
 	report := &DreamReport{
 		Timestamp:    time.Date(2026, 6, 29, 3, 0, 0, 0, time.UTC),
@@ -191,7 +239,7 @@ func TestDreamReport_ToMarkdown(t *testing.T) {
 		ScoredHigh:   2,
 		ScoredLow:    1,
 		Deprecated:   1,
-		Insights: []MemoryItem{
+		Insights: []memorytypes.MemoryItem{
 			{Section: "insights", Key: "pattern", Value: "Go agent framework with TDD"},
 		},
 		Summary:  "Focused on Go agent development.",
@@ -207,11 +255,8 @@ func TestDreamReport_ToMarkdown(t *testing.T) {
 }
 
 func TestDreamer_EmptyMemories_NoOp(t *testing.T) {
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
-	d := &Dreamer{
-		ltm:      ltm,
-		provider: &dreamProvider{},
-	}
+	ltm, _ := longterm.NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
+	d := NewDreamer(llm.NewCaller(&dreamProvider{}, nil), ltm, nil)
 
 	report, err := d.Run(context.Background())
 	require.NoError(t, err)

@@ -9,26 +9,10 @@ import (
 	"strings"
 	"sync"
 
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/B777B2056-2/kugelblitz/utils"
 )
-
-// Entity is a node in the long-term memory knowledge graph.
-type Entity struct {
-	ID     string   `json:"id"`
-	Name   string   `json:"name"`
-	Type   string   `json:"type"`   // "language", "file", "concept", "person", "project", "bug", ...
-	Labels []string `json:"labels"` // tags for filtering
-}
-
-// Relationship is a directed edge between two entities.
-type Relationship struct {
-	ID     string  `json:"id"`
-	From   string  `json:"from"`   // entity ID
-	To     string  `json:"to"`     // entity ID
-	Type   string  `json:"type"`   // "uses", "depends_on", "mentions", "causes", "contains", ...
-	Weight float64 `json:"weight"` // 1.0 = explicit, < 1.0 = inferred
-}
 
 // EntityCandidate is an entity extracted by the LLM before graph insertion.
 type EntityCandidate struct {
@@ -49,10 +33,10 @@ type RelCandidate struct {
 // Entities and relationships are extracted from conversations and
 // stored under {workspace}/memory/longterm/.
 type GraphStore struct {
-	entities      map[string]*Entity // ID → Entity
-	relationships []*Relationship
-	adjOut        map[string][]*Relationship // entity ID → outgoing edges
-	adjIn         map[string][]*Relationship // entity ID → incoming edges
+	entities      map[string]*memorytypes.Entity // ID → memorytypes.Entity
+	relationships []*memorytypes.Relationship
+	adjOut        map[string][]*memorytypes.Relationship // entity ID → outgoing edges
+	adjIn         map[string][]*memorytypes.Relationship // entity ID → incoming edges
 	mu            sync.RWMutex
 	backend       persist.IPersist
 	path          string
@@ -61,9 +45,9 @@ type GraphStore struct {
 // NewGraphStore creates a GraphStore. Pass nil backend for in-memory-only (testing).
 func NewGraphStore(backend persist.IPersist, path string) *GraphStore {
 	return &GraphStore{
-		entities: make(map[string]*Entity),
-		adjOut:   make(map[string][]*Relationship),
-		adjIn:    make(map[string][]*Relationship),
+		entities: make(map[string]*memorytypes.Entity),
+		adjOut:   make(map[string][]*memorytypes.Relationship),
+		adjIn:    make(map[string][]*memorytypes.Relationship),
 		backend:  backend,
 		path:     path,
 	}
@@ -99,9 +83,9 @@ func (g *GraphStore) Load(ctx context.Context) error {
 		}
 		switch evt.Type {
 		case "entity":
-			g.entities[evt.ID] = &Entity{ID: evt.ID, Name: evt.Name, Type: evt.Type_, Labels: evt.Labels}
+			g.entities[evt.ID] = &memorytypes.Entity{ID: evt.ID, Name: evt.Name, Type: evt.Type_, Labels: evt.Labels}
 		case "relationship":
-			rel := &Relationship{ID: evt.ID, From: evt.From, To: evt.To, Type: evt.Type_, Weight: evt.Weight}
+			rel := &memorytypes.Relationship{ID: evt.ID, From: evt.From, To: evt.To, Type: evt.Type_, Weight: evt.Weight}
 			g.relationships = append(g.relationships, rel)
 			g.adjOut[rel.From] = append(g.adjOut[rel.From], rel)
 			g.adjIn[rel.To] = append(g.adjIn[rel.To], rel)
@@ -160,8 +144,8 @@ func (g *GraphStore) writeMermaid(ctx context.Context) error {
 	// Mermaid graph
 	sb.WriteString("```mermaid\ngraph LR\n")
 
-	// Entity ID → safe display name (Mermaid node IDs can't have dots or Chinese)
-	safeID := func(e *Entity) string {
+	// memorytypes.Entity ID → safe display name (Mermaid node IDs can't have dots or Chinese)
+	safeID := func(e *memorytypes.Entity) string {
 		return strings.NewReplacer(".", "_", " ", "_", "-", "_").Replace(e.ID)
 	}
 	colorByType := map[string]string{
@@ -204,16 +188,16 @@ func (g *GraphStore) writeMermaid(ctx context.Context) error {
 
 	sb.WriteString("```\n\n")
 
-	// Entity legend
+	// memorytypes.Entity legend
 	sb.WriteString("## Legend\n\n")
-	sb.WriteString("| Entity | Type | Labels |\n")
+	sb.WriteString("| memorytypes.Entity | Type | Labels |\n")
 	sb.WriteString("|--------|------|--------|\n")
 	for _, e := range g.entities {
 		fmt.Fprintf(&sb, "| %s | %s | %s |\n", e.Name, e.Type, strings.Join(e.Labels, ", "))
 	}
 	sb.WriteString("\n")
 
-	// Relationship list
+	// memorytypes.Relationship list
 	sb.WriteString("## Relationships\n\n")
 	for _, r := range g.relationships {
 		from := g.entityNameLocked(r.From)
@@ -235,7 +219,7 @@ func (g *GraphStore) entityNameLocked(id string) string {
 // ---- CRUD ----
 
 // UpsertEntity adds or updates an entity by name+type match.
-func (g *GraphStore) UpsertEntity(e EntityCandidate) *Entity {
+func (g *GraphStore) UpsertEntity(e EntityCandidate) *memorytypes.Entity {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
@@ -260,7 +244,7 @@ func (g *GraphStore) UpsertEntity(e EntityCandidate) *Entity {
 	}
 
 	// New entity
-	entity := &Entity{
+	entity := &memorytypes.Entity{
 		ID:     fmt.Sprintf("ent:%s", utils.GenerateShortID()),
 		Name:   e.Name,
 		Type:   e.Type,
@@ -293,7 +277,7 @@ func (g *GraphStore) AddRelationship(c RelCandidate) {
 		}
 	}
 
-	rel := &Relationship{
+	rel := &memorytypes.Relationship{
 		ID:     fmt.Sprintf("rel:%s", utils.GenerateShortID()),
 		From:   fromID,
 		To:     toID,
@@ -329,12 +313,12 @@ func (g *GraphStore) UpsertRelationships(ctx context.Context, entities []EntityC
 // ---- Query ----
 
 // SearchEntities finds entities matching a query by name, type, or label.
-func (g *GraphStore) SearchEntities(query string, limit int) []Entity {
+func (g *GraphStore) SearchEntities(query string, limit int) []memorytypes.Entity {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
 	q := strings.ToLower(query)
-	var result []Entity
+	var result []memorytypes.Entity
 	for _, e := range g.entities {
 		if strings.Contains(strings.ToLower(e.Name), q) ||
 			strings.Contains(strings.ToLower(e.Type), q) {
@@ -355,13 +339,13 @@ func (g *GraphStore) SearchEntities(query string, limit int) []Entity {
 }
 
 // Neighbors returns entities and relationships connected to the given entity.
-func (g *GraphStore) Neighbors(entityID string) ([]Entity, []Relationship) {
+func (g *GraphStore) Neighbors(entityID string) ([]memorytypes.Entity, []memorytypes.Relationship) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
 	seen := make(map[string]bool)
-	var entities []Entity
-	var rels []Relationship
+	var entities []memorytypes.Entity
+	var rels []memorytypes.Relationship
 
 	for _, r := range g.adjOut[entityID] {
 		rels = append(rels, *r)
@@ -441,21 +425,21 @@ func (g *GraphStore) ShortestPath(fromID, toID string) []string {
 }
 
 // Subgraph returns entities and relationships within n hops of an entity.
-func (g *GraphStore) Subgraph(entityID string, hops int) ([]Entity, []Relationship) {
+func (g *GraphStore) Subgraph(entityID string, hops int) ([]memorytypes.Entity, []memorytypes.Relationship) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
 	visited := map[string]int{entityID: 0}
 	queue := []string{entityID}
 	seenRel := make(map[string]bool)
-	var entities []Entity
-	var rels []Relationship
+	var entities []memorytypes.Entity
+	var rels []memorytypes.Relationship
 
 	if e, ok := g.entities[entityID]; ok {
 		entities = append(entities, *e)
 	}
 
-	addRel := func(r *Relationship) {
+	addRel := func(r *memorytypes.Relationship) {
 		if !seenRel[r.ID] {
 			seenRel[r.ID] = true
 			rels = append(rels, *r)
@@ -502,10 +486,10 @@ func (g *GraphStore) Stats() (int, int) {
 }
 
 // AllEntities returns all entities (for graph visualization).
-func (g *GraphStore) AllEntities() []Entity {
+func (g *GraphStore) AllEntities() []memorytypes.Entity {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	result := make([]Entity, 0, len(g.entities))
+	result := make([]memorytypes.Entity, 0, len(g.entities))
 	for _, e := range g.entities {
 		result = append(result, *e)
 	}

@@ -6,13 +6,13 @@ package config
 import (
 	"fmt"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/provider"
 )
 
 // ModelConfig groups LLM provider and thinking configuration.
 type ModelConfig struct {
-	Provider core.ILMProvider // concrete provider instance (set at runtime)
+	Provider types.ILMProvider // concrete provider instance (set at runtime)
 
 	ProviderName    string `json:"provider_name"`
 	Model           string `json:"model"`
@@ -86,6 +86,17 @@ type ObservabilityConfig struct {
 	ServiceName string `json:"otel_service_name"` // default "kugelblitz"
 }
 
+// AutoDreamConfig controls background memory consolidation (dreaming).
+// Dreaming is opt-in: Enabled defaults to false — set auto_dream_enabled: true
+// in kugelblitz.yaml to enable it. Intervals are in seconds; zero means
+// "use the default".
+type AutoDreamConfig struct {
+	Enabled          bool `json:"auto_dream_enabled"`            // opt-in (default false)
+	CheckIntervalSec int  `json:"auto_dream_check_interval_sec"` // poll every N sec (default 1800 = 30m)
+	CooldownSec      int  `json:"auto_dream_cooldown_sec"`       // min between dreams (default 21600 = 6h)
+	IdleThresholdSec int  `json:"auto_dream_idle_threshold_sec"` // min idle before dream (default 300 = 5m)
+}
+
 // Config is the top-level configuration for AgentLoop + Kernel.
 type Config struct {
 	Model           ModelConfig                `json:"model"`
@@ -94,12 +105,13 @@ type Config struct {
 	TargetDrift     TargetDriftConfig          `json:"target_drift"`
 	Multimodal      MultimodalConfig           `json:"multimodal"`
 	Observability   ObservabilityConfig        `json:"observability"`
+	AutoDream       AutoDreamConfig            `json:"auto_dream"`
 	MCP             map[string]MCPServerConfig `json:"mcp_servers"`
 }
 
-// NewProvider creates a core.ILMProvider from name + credentials.
+// NewProvider creates a types.ILMProvider from name + credentials.
 // Supported provider names: "deepseek", "openai".
-func NewProvider(name, apiKey, baseURL, model string) (core.ILMProvider, error) {
+func NewProvider(name, apiKey, baseURL, model string) (types.ILMProvider, error) {
 	switch name {
 	case "deepseek":
 		return provider.DeepSeek(apiKey, baseURL, model), nil
@@ -120,11 +132,12 @@ func DefaultConfig() Config {
 			APIKey:          "",
 			StreamMode:      true,
 			EnableThinking:  true,
-			ReasoningEffort: core.ReasoningEffortHigh,
+			ReasoningEffort: types.ReasoningEffortHigh,
 		},
 		Runtime:         RuntimeConfig{MaxStateMachineCycles: 30},
 		ContextCompress: ContextCompressConfig{MaxAttempts: 1, MaxToolResultChars: 4000, KeepLastN: 20, MinMessagesToCompress: 10},
 		TargetDrift:     TargetDriftConfig{ReviewInterval: 12, MaxFailuresBeforeReview: 5},
 		Observability:   ObservabilityConfig{Enabled: false, ServiceName: "kugelblitz"},
+		AutoDream:       AutoDreamConfig{Enabled: false, CheckIntervalSec: 1800, CooldownSec: 21600, IdleThresholdSec: 300},
 	}
 }

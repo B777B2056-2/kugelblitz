@@ -2,13 +2,19 @@ package runtime
 
 import (
 	"context"
-	"strings"
+	"fmt"
+	"time"
 
 	"github.com/B777B2056-2/kugelblitz/config"
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/llm"
 	"github.com/B777B2056-2/kugelblitz/memory"
 	"github.com/B777B2056-2/kugelblitz/memory/longterm"
+	"github.com/B777B2056-2/kugelblitz/memory/longterm/dream"
+	"github.com/B777B2056-2/kugelblitz/memory/longterm/write"
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/B777B2056-2/kugelblitz/prompts"
@@ -26,8 +32,8 @@ type AgentLoop struct {
 	// LTM subsystem
 	ltm            *longterm.LongTermMemory
 	indexMgr       *longterm.IndexManager
-	writePipeline  *longterm.WritePipeline
-	dreamScheduler *longterm.DreamScheduler
+	writePipeline  *write.WritePipeline
+	dreamScheduler *dream.DreamScheduler
 
 	// session
 	sessionMem *memory.SessionMemory
@@ -44,7 +50,7 @@ type AgentLoop struct {
 
 	// config
 	cfg   config.Config
-	input core.AgentInput
+	input coretypes.AgentInput
 
 	// lifecycle
 	done     chan struct{}
@@ -61,7 +67,7 @@ func WithExistingSessionID(sessionID string) AgentLoopOption {
 	}
 }
 
-func NewAgentLoop(cfg config.Config, opts ...AgentLoopOption) *AgentLoop {
+func NewAgentLoop(cfg config.Config, opts ...AgentLoopOption) (*AgentLoop, error) {
 	al := &AgentLoop{
 		cfg: cfg,
 	}
@@ -72,14 +78,14 @@ func NewAgentLoop(cfg config.Config, opts ...AgentLoopOption) *AgentLoop {
 	}
 
 	// LTM subsystem
-	initLTM(cfg.Model.Provider, al)
+	if err := initLTM(cfg.Model.Provider, al); err != nil {
+		return nil, err
+	}
 
 	// Skills (registers globally)
 	initSkills()
 	// MCP (idempotent — only connects once per process)
 	mcp.Init(context.Background(), cfg.MCP)
-
-	initSemanticJudge(cfg.Model.Provider)
 
 	// Session memory: opts may have set it (WithExistingSession/ID), else create.
 	if al.sessionMem == nil {
@@ -90,32 +96,72 @@ func NewAgentLoop(cfg config.Config, opts ...AgentLoopOption) *AgentLoop {
 	}
 
 	al.planner = engine.NewKernel(al.sessionMem, cfg)
-	return al
+	return al, nil
 }
 
-func initLTM(provider core.ILMProvider, al *AgentLoop) {
+func initLTM(provider coretypes.ILMProvider, al *AgentLoop) error {
 	mgr := persist.GetManager()
-	ltm, err := longterm.NewLongTermMemory(mgr.Markdown())
-	if err != nil {
-		core.Warn("plan_mode: failed to init long-term memory", "error", err)
-		return
-	}
-	al.ltm = ltm
-	al.indexMgr = longterm.NewIndexManager(mgr.Vector(), ltm)
-	al.writePipeline = longterm.NewWritePipeline(provider, ltm, al.indexMgr, 0.15)
-	internals.RegisterMemoryTools(ltm, al.indexMgr, al.writePipeline)
+	caller := llm.NewCaller(provider, otel.Tracer("kugelblitz"))
 
 	graphStore := longterm.NewGraphStore(mgr.JSONL(), "memory/longterm/memory_graph.jsonl")
 	_ = graphStore.Load(context.Background())
-	ltm.SetGraph(graphStore)
 
-	dreamer := &longterm.Dreamer{}
-	dreamer.SetProvider(provider)
-	dreamer.SetLTM(ltm)
-	dreamer.SetGraph(graphStore)
-	dreamer.SetIndexManager(al.indexMgr)
-	al.dreamScheduler = longterm.NewDreamScheduler(dreamer)
-	al.dreamScheduler.Start()
+	ltm, err := longterm.NewLongTermMemory(mgr.Markdown(),
+		longterm.WithGraph(graphStore),
+		longterm.WithSemanticJudge(newSemanticJudge(caller)),
+	)
+	if err != nil {
+		return fmt.Errorf("init long-term memory: %w", err)
+	}
+	al.ltm = ltm
+	al.indexMgr = longterm.NewIndexManager(mgr.Vector(), ltm)
+	al.writePipeline = write.NewWritePipeline(caller, ltm, al.indexMgr, 0.15)
+	internals.RegisterMemoryTools(ltm, al.indexMgr, al.writePipeline)
+	internals.RegisterContextCompressTool()
+
+	if !al.cfg.AutoDream.Enabled {
+		return nil
+	}
+	al.dreamScheduler = dream.NewDreamSchedulerWithIntervals(
+		dream.NewDreamer(caller, ltm, graphStore),
+		dreamInterval(al.cfg.AutoDream.CheckIntervalSec, 30*time.Minute),
+		dreamInterval(al.cfg.AutoDream.CooldownSec, 6*time.Hour),
+		dreamInterval(al.cfg.AutoDream.IdleThresholdSec, 5*time.Minute),
+	)
+	// Not Start()ed here: Start() is deferred to Run(), so the scheduler only
+	// runs while the AgentLoop lifecycle is active (see Run).
+	return nil
+}
+
+// newSemanticJudge builds the LLM-backed semantic-equivalence judge injected
+// into long-term memory for Store's conflict resolution.
+func newSemanticJudge(caller *llm.Caller) func(oldVal, newVal string) bool {
+	return func(oldVal, newVal string) bool {
+		text, err := prompts.DefaultFactory.Render(prompts.TypeSemanticJudge, prompts.SemanticJudgeParams{
+			OldVal: oldVal, NewVal: newVal,
+		})
+		if err != nil {
+			return false
+		}
+		res, err := caller.Call(context.Background(), llm.Request{
+			Prompt:   text,
+			Mode:     llm.ModeBool,
+			SpanName: "semantic.judge",
+		})
+		if err != nil {
+			return false
+		}
+		return res.Bool
+	}
+}
+
+// dreamInterval converts a config interval in seconds to a time.Duration,
+// falling back to def when the config value is unset (<= 0).
+func dreamInterval(sec int, def time.Duration) time.Duration {
+	if sec <= 0 {
+		return def
+	}
+	return time.Duration(sec) * time.Second
 }
 
 func initSkills() {
@@ -130,30 +176,17 @@ func initSkills() {
 	internals.RegisterSkillTool(skillList, activeSkill)
 }
 
-func initSemanticJudge(provider core.ILMProvider) {
-	longterm.SetSemanticJudge(func(oldVal, newVal string) bool {
-		msg := core.NewUserMessage(core.TextContent{
-			Text: prompts.DefaultFactory.MustRender(prompts.TypeSemanticJudge, prompts.SemanticJudgeParams{
-				OldVal: oldVal, NewVal: newVal,
-			}),
-		})
-		resp, err := provider.Generate(context.Background(), core.GenerateParams{
-			Messages: []core.Message{msg}, Stream: false,
-		})
-		if err != nil {
-			return false
-		}
-		if tc, ok := resp.Content.(core.TextContent); ok {
-			return strings.Contains(strings.ToUpper(tc.Text), "YES")
-		}
-		return false
-	})
-}
-
 // ---- Public API ----
 
 // SessionID returns the ID of the underlying session memory.
 func (a *AgentLoop) SessionID() string { return a.sessionMem.SessionID() }
+
+// CompressContext manually compresses the session history into a summary,
+// freeing context-window space. It applies the configured compression policy
+// and returns the LLM token usage of the summarization call.
+func (a *AgentLoop) CompressContext(ctx context.Context) (*coretypes.Usage, error) {
+	return a.planner.CompressContext(ctx)
+}
 
 // RegisterEventHooks saves hooks for the next Execute call.
 func (a *AgentLoop) RegisterEventHooks(hooks core.AgentEventHooks) {
@@ -161,17 +194,16 @@ func (a *AgentLoop) RegisterEventHooks(hooks core.AgentEventHooks) {
 }
 
 // Run starts the agent loop in a background goroutine.
-func (a *AgentLoop) Run(ctx context.Context, input core.AgentInput) {
+func (a *AgentLoop) Run(ctx context.Context, input coretypes.AgentInput) {
 	ctx, a.cancelFn = context.WithCancel(ctx)
 	a.done = make(chan struct{})
 	go func() {
 		defer close(a.done)
 		defer a.Cancel()
-		defer func() {
-			if a.dreamScheduler != nil {
-				a.dreamScheduler.Stop()
-			}
-		}()
+		if a.dreamScheduler != nil {
+			a.dreamScheduler.Start()
+			defer a.dreamScheduler.Stop()
+		}
 		_, err := a.execute(ctx, input)
 		if err != nil && a.eventHooks.OnError != nil {
 			a.eventHooks.OnError(constants.AgentMain, err)
@@ -199,7 +231,7 @@ func (a *AgentLoop) Done() <-chan struct{} { return a.done }
 // resolveProvider selects the LLM provider based on the current input.
 // If input has media and the matching multimodal model is configured, use it.
 // Otherwise fall back to the main text model.
-func (a *AgentLoop) resolveProvider() core.ILMProvider {
+func (a *AgentLoop) resolveProvider() coretypes.ILMProvider {
 	if a.input.IsTextOnly() {
 		return a.cfg.Model.Provider
 	}
@@ -226,7 +258,7 @@ func (a *AgentLoop) Agent() core.IAgent { return a.planner.Agent() }
 
 // ---- Execution ----
 
-func (a *AgentLoop) execute(ctx context.Context, input core.AgentInput) (messages []core.Message, err error) {
+func (a *AgentLoop) execute(ctx context.Context, input coretypes.AgentInput) (messages []coretypes.Message, err error) {
 	if err := input.Validate(); err != nil {
 		return nil, err
 	}
@@ -256,13 +288,16 @@ func (a *AgentLoop) execute(ctx context.Context, input core.AgentInput) (message
 	a.planner.RegisterEventHooks(a.rewriteEventHooks(a.eventHooks))
 
 	// wire memory_extract input
-	internals.BindMemoryExtractInput(func() longterm.ExtractionInput {
-		return longterm.ExtractionInput{
+	internals.BindMemoryExtractInput(func() memorytypes.ExtractionInput {
+		return memorytypes.ExtractionInput{
 			Conversation:   a.sessionMem.GetHistoryMessages(),
 			SessionSummary: a.sessionMem.Summary(),
 			Goal:           a.input.Text,
 		}
 	})
+
+	// wire context_compress to the planner's manual compression entry point
+	internals.BindContextCompress(a.planner.CompressContext)
 
 	// Resolve provider: if input has media, switch to configured multimodal model
 	a.planner.SetProvider(a.resolveProvider())
@@ -273,13 +308,23 @@ func (a *AgentLoop) execute(ctx context.Context, input core.AgentInput) (message
 	return result, err
 }
 
+// backgroundCtx returns the root execution context when available, falling back
+// to context.Background(). It carries cancellation and the root trace span so
+// that sub-operations (memory compress/extract) are cancelled and traced (B22).
+func (a *AgentLoop) backgroundCtx() context.Context {
+	if a.rootCtx != nil {
+		return a.rootCtx
+	}
+	return context.Background()
+}
+
 // rewriteEventHooks merges AgentLoop internal callbacks with user hooks.
 // AgentLoop callbacks fire first, then user callbacks.
 func (a *AgentLoop) rewriteEventHooks(userHooks core.AgentEventHooks) core.AgentEventHooks {
 	// AgentLoop system wrappers: compress + extract + then user.
 	sysHooks := core.AgentEventHooks{
-		OnToolCallEnd: func(id constants.AgentIdentity, result core.ToolCallResult) {
-			a.sessionMem.CompressToolResult(context.Background(),
+		OnToolCallEnd: func(id constants.AgentIdentity, result coretypes.ToolCallResult) {
+			a.sessionMem.CompressToolResult(a.backgroundCtx(),
 				a.planner.Compressor(), a.cfg.ContextCompress.MaxToolResultChars, &result)
 		},
 		OnBeforeCompress: func(id constants.AgentIdentity) {
@@ -302,13 +347,13 @@ func (a *AgentLoop) rewriteEventHooks(userHooks core.AgentEventHooks) core.Agent
 		sysHooks.OnBlockThinking = func(id constants.AgentIdentity, reasoning string) {
 			instrH.OnBlockThinking(reasoning)
 		}
-		sysHooks.OnFunctionCall = func(id constants.AgentIdentity, detail core.ToolCallDetail) {
+		sysHooks.OnFunctionCall = func(id constants.AgentIdentity, detail coretypes.ToolCallDetail) {
 			instrH.OnFunctionCall(detail)
 		}
 		sysHooks.OnModelFinished = func(id constants.AgentIdentity, reason string) {
 			instrH.OnFinished(reason)
 		}
-		sysHooks.OnUsageUpdated = func(id constants.AgentIdentity, usage core.Usage) {
+		sysHooks.OnUsageUpdated = func(id constants.AgentIdentity, usage coretypes.Usage) {
 			instrH.OnUsageUpdated(usage)
 		}
 		sysHooks.OnError = func(id constants.AgentIdentity, err error) {
@@ -319,17 +364,18 @@ func (a *AgentLoop) rewriteEventHooks(userHooks core.AgentEventHooks) core.Agent
 	return core.Chain(userHooks, sysHooks)
 }
 
-// extractMemories runs the LTM write pipeline before compresses session memory.
+// extractMemories runs the LTM write pipeline before session memory is
+// compressed, so facts in soon-to-be-summarized messages are preserved.
 func (a *AgentLoop) extractMemories() {
-	input := longterm.ExtractionInput{
+	input := memorytypes.ExtractionInput{
 		Conversation:   a.sessionMem.GetHistoryMessages(),
 		SessionSummary: a.sessionMem.Summary(),
 		Goal:           a.input.Text,
 	}
-	result, _ := a.writePipeline.ExtractFromSession(context.Background(), input)
+	result, _ := a.writePipeline.ExtractFromSession(a.backgroundCtx(), input)
 	if result != nil {
 		tracer := otel.Tracer("kugelblitz")
-		_, span := tracer.Start(a.rootCtx, "memory.extract_before_compress")
+		_, span := tracer.Start(a.backgroundCtx(), "memory.extract_before_compress")
 		span.SetAttributes(
 			attribute.Int("facts_stored", result.ItemsStored),
 			attribute.Int("needs_human", result.NeedsHuman),

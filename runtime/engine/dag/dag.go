@@ -8,9 +8,11 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/observability"
-	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
+	"github.com/B777B2056-2/kugelblitz/runtime/engine/types"
+	"github.com/B777B2056-2/kugelblitz/runtime/engine/worker"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -18,23 +20,32 @@ import (
 // ExecuteBatch runs all batches automatically until the DAG reaches a terminal
 // state (all done, any failed, or context cancelled).
 type DAGTaskExecutor struct {
-	provider            core.ILMProvider
+	provider            coretypes.ILMProvider
 	streamMode          bool
 	cancel              context.CancelFunc
-	workerHooks         core.AgentEventHooks         // set by Planner.RegisterEventHooks
-	workerAgentIdentity constants.AgentIdentity      // set by Kernel
-	PauseMu             sync.RWMutex                 // shared pause gate for all workers
-	hitlAgents          map[string]*infra.ReactAgent // taskID → waiting worker (HITL)
-	stepTracer          *observability.StepTracer    // per-step instrumentation
+	cancelMu            sync.Mutex                  // protects cancel
+	workerHooks         core.AgentEventHooks        // set by Planner.RegisterEventHooks
+	workerAgentIdentity constants.AgentIdentity     // set by Kernel
+	workerFactory       worker.WorkerFactory        // builds each Worker; injected by composition root
+	humanToolFactory    worker.HumanToolFactory     // builds ask_human tool; nil = omit
+	PauseGate           worker.PauseGate            // shared pause gate for all workers
+	hitlAgents          map[string]worker.HitlAgent // taskID → waiting worker (HITL)
+	hitlMu              sync.Mutex                  // protects hitlAgents
+	stepTracer          *observability.StepTracer   // per-step instrumentation
 }
 
-// NewDAGTaskExecutor creates an executor that spawns WorkerAgents internally.
-func NewDAGTaskExecutor(provider core.ILMProvider, streamMode bool) *DAGTaskExecutor {
+// NewDAGTaskExecutor creates an executor that spawns workers via the injected
+// workerFactory (worker.WorkerFactory) and shares the injected pauseGate across
+// all workers. The executor depends only on the worker contract, not on concrete
+// infra implementations.
+func NewDAGTaskExecutor(provider coretypes.ILMProvider, streamMode bool, workerFactory worker.WorkerFactory, pauseGate worker.PauseGate) *DAGTaskExecutor {
 	return &DAGTaskExecutor{
 		provider:            provider,
 		streamMode:          streamMode,
+		workerFactory:       workerFactory,
 		workerAgentIdentity: constants.AgentWorker,
-		hitlAgents:          make(map[string]*infra.ReactAgent),
+		PauseGate:           pauseGate,
+		hitlAgents:          make(map[string]worker.HitlAgent),
 	}
 }
 
@@ -42,8 +53,14 @@ func (d *DAGTaskExecutor) SetWorkerHooks(hooks core.AgentEventHooks) {
 	d.workerHooks = hooks
 }
 
+// SetHumanToolFactory injects the factory used to build each worker's local
+// ask_human tool. When nil, workers run with no ask_human tool.
+func (d *DAGTaskExecutor) SetHumanToolFactory(f worker.HumanToolFactory) {
+	d.humanToolFactory = f
+}
+
 // SetProvider replaces the LLM provider used for subsequently spawned workers.
-func (d *DAGTaskExecutor) SetProvider(p core.ILMProvider) {
+func (d *DAGTaskExecutor) SetProvider(p coretypes.ILMProvider) {
 	d.provider = p
 }
 
@@ -54,6 +71,8 @@ func (d *DAGTaskExecutor) SetStepTracer(st *observability.StepTracer) {
 
 // AnyWorkerInHumanLoopWaiting returns true if any worker is waiting for human input.
 func (d *DAGTaskExecutor) AnyWorkerInHumanLoopWaiting() bool {
+	d.hitlMu.Lock()
+	defer d.hitlMu.Unlock()
 	for _, gate := range d.hitlAgents {
 		if gate.HumanLoopWaiting() {
 			return true
@@ -64,20 +83,29 @@ func (d *DAGTaskExecutor) AnyWorkerInHumanLoopWaiting() bool {
 
 // ResumeAnyWorkerWithHumanResponse delivers a human response to the first waiting worker.
 func (d *DAGTaskExecutor) ResumeAnyWorkerWithHumanResponse(ctx context.Context, response string) error {
+	d.hitlMu.Lock()
+	var target worker.HitlAgent
 	for id, gate := range d.hitlAgents {
 		if gate.HumanLoopWaiting() {
-			defer func() {
-				delete(d.hitlAgents, id)
-				d.Resume()
-			}()
-			return gate.ResumeWithHumanResponse(ctx, response)
+			target = gate
+			delete(d.hitlAgents, id)
+			break
 		}
 	}
-	return fmt.Errorf("no worker waiting for human input")
+	d.hitlMu.Unlock()
+
+	if target == nil {
+		return fmt.Errorf("no worker waiting for human input")
+	}
+	err := target.ResumeWithHumanResponse(ctx, response)
+	d.Resume()
+	return err
 }
 
 // Cancel stops all pending worker tasks. Already-running workers complete normally.
 func (d *DAGTaskExecutor) Cancel() {
+	d.cancelMu.Lock()
+	defer d.cancelMu.Unlock()
 	if d.cancel != nil {
 		d.cancel()
 		d.cancel = nil
@@ -85,18 +113,15 @@ func (d *DAGTaskExecutor) Cancel() {
 }
 
 // BatchResult reports the outcome of one ExecuteBatch call.
-type BatchResult struct {
-	Batched   bool // at least one task was executed
-	HasFailed bool // at least one task in this batch failed
-	AllDone   bool // all tasks are terminal (done or failed)
-}
+// Aliased from the leaf types package so callers may reference either name.
+type BatchResult = types.BatchResult
 
 // Pause blocks all worker tool calls until Resume is called. Used when a
 // worker enters HITL — other workers must wait for the human response.
-func (d *DAGTaskExecutor) Pause() { d.PauseMu.Lock() }
+func (d *DAGTaskExecutor) Pause() { d.PauseGate.Pause() }
 
 // Resume unblocks all worker tool calls previously paused by Pause.
-func (d *DAGTaskExecutor) Resume() { d.PauseMu.Unlock() }
+func (d *DAGTaskExecutor) Resume() { d.PauseGate.Resume() }
 
 // ExecuteBatch finds all pending tasks whose parents are done, marks them doing,
 // and spawns them concurrently. It repeats batch-by-batch until the DAG reaches
@@ -111,8 +136,15 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 
 	// Create a child context so Cancel() stops only this invocation.
 	ctx, cancel := context.WithCancel(ctx)
+	d.cancelMu.Lock()
 	d.cancel = cancel
-	defer func() { d.cancel = nil; cancel() }()
+	d.cancelMu.Unlock()
+	defer func() {
+		d.cancelMu.Lock()
+		d.cancel = nil
+		d.cancelMu.Unlock()
+		cancel()
+	}()
 
 	hasFailed := false
 	anyBatch := false
@@ -132,14 +164,18 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 				t.Status = working.TaskStatusFailed
 				t.FinishedReason = "cancelled"
 			}
-			working.PutPlan(plan)
+			if err := working.PutPlan(plan); err != nil {
+				core.Warn("dag: persist plan", "plan", plan.ID, "err", err)
+			}
 			return BatchResult{Batched: anyBatch, HasFailed: true, AllDone: d.isDAGDone(plan)}
 		}
 
 		for _, t := range ready {
 			t.Status = working.TaskStatusDoing
 		}
-		working.PutPlan(plan)
+		if err := working.PutPlan(plan); err != nil {
+			core.Warn("dag: persist plan", "plan", plan.ID, "err", err)
+		}
 
 		g, gctx := errgroup.WithContext(ctx)
 		failCount := int32(0)
@@ -152,20 +188,25 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 						if _, taskMu := working.FindTask(task.ID); taskMu != nil {
 							taskMu.Status = working.TaskStatusFailed
 							taskMu.FinishedReason = "cancelled"
-							working.PutPlan(planMu)
+							if err := working.PutPlan(planMu); err != nil {
+								core.Warn("dag: persist plan", "plan", planMu.ID, "err", err)
+							}
 						}
 					}
 					return nil
 				}
-				worker := infra.NewWorkerAgent(d.provider, d.streamMode)
-				worker.SetHooks(d.workerHooks)
-				worker.SetStepTracer(d.stepTracer)
-				worker.SetPauseGate(&d.PauseMu)
-				worker.SetOnHITL(func(agent *infra.ReactAgent, reason, prompt string) {
+				w := d.workerFactory(d.provider, d.streamMode)
+				w.SetHooks(d.workerHooks)
+				w.SetStepTracer(d.stepTracer)
+				w.SetPauseGate(d.PauseGate)
+				w.SetHumanToolFactory(d.humanToolFactory)
+				w.SetOnHITL(func(agent worker.HitlAgent, reason, prompt string) {
+					d.hitlMu.Lock()
 					d.hitlAgents[task.ID] = agent
+					d.hitlMu.Unlock()
 					d.Pause()
 				})
-				output, usage, err := worker.ExecuteTask(gctx, task.Goal, task.Action)
+				output, usage, err := w.ExecuteTask(gctx, task.Goal, task.Action)
 				planMu, _ := working.GetPlan(plan.ID)
 				if planMu == nil {
 					return nil
@@ -178,20 +219,28 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 				// reads all SubTasks. Holding the plan mutex during mutation ensures
 				// the marshal (which also acquires plan.mu) sees a consistent snapshot.
 				planMu.Lock()
+				var failReason string
 				if err != nil {
 					taskMu.Status = working.TaskStatusFailed
-					taskMu.FinishedReason = err.Error()
+					failReason = err.Error()
+					taskMu.FinishedReason = failReason
 					atomic.AddInt32(&failCount, 1)
-					if onTaskFailed != nil {
-						onTaskFailed(task.ID, task.Goal, taskMu.FinishedReason)
-					}
 				} else {
 					taskMu.Status = working.TaskStatusDone
 					taskMu.FinishedReason = output
 				}
 				taskMu.Usage = usage
 				planMu.Unlock()
-				working.PutPlan(planMu)
+
+				// Invoke the failure callback outside the plan lock: it may run
+				// an LLM review (Reviewer.Review) and trigger drift rollback.
+				if failReason != "" && onTaskFailed != nil {
+					onTaskFailed(task.ID, task.Goal, failReason)
+				}
+
+				if err := working.PutPlan(planMu); err != nil {
+					core.Warn("dag: persist plan", "plan", planMu.ID, "err", err)
+				}
 
 				if d.workerHooks.OnTaskUpdated != nil {
 					d.workerHooks.OnTaskUpdated(d.workerAgentIdentity, task.ID, task.Goal, string(taskMu.Status), output)

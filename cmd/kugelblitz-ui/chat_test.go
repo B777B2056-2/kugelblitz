@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +19,7 @@ func TestDerivePlanUpdate_PlanCreate(t *testing.T) {
 	srv := &Server{}
 	session := newDeriveTestSession()
 
-	result := core.ToolCallResult{
+	result := coretypes.ToolCallResult{
 		ToolName: "plan_create",
 		Outputs: map[string]any{
 			"id":   "plan-1",
@@ -51,13 +51,13 @@ func TestDerivePlanUpdate_ConfirmPlan(t *testing.T) {
 	session := newDeriveTestSession()
 
 	// First, create a plan
-	srv.derivePlanUpdate(session, core.ToolCallResult{
+	srv.derivePlanUpdate(session, coretypes.ToolCallResult{
 		ToolName: "plan_create",
 		Outputs:  map[string]any{"id": "plan-1", "name": "P"},
 	})
 
 	// Then confirm it
-	pu := srv.derivePlanUpdate(session, core.ToolCallResult{
+	pu := srv.derivePlanUpdate(session, coretypes.ToolCallResult{
 		ToolName: "confirm_plan",
 		Outputs:  map[string]any{"id": "plan-1", "status": "doing"},
 	})
@@ -69,12 +69,12 @@ func TestDerivePlanUpdate_TaskInsert(t *testing.T) {
 	srv := &Server{}
 	session := newDeriveTestSession()
 
-	srv.derivePlanUpdate(session, core.ToolCallResult{
+	srv.derivePlanUpdate(session, coretypes.ToolCallResult{
 		ToolName: "plan_create",
 		Outputs:  map[string]any{"id": "plan-1", "name": "P"},
 	})
 
-	pu := srv.derivePlanUpdate(session, core.ToolCallResult{
+	pu := srv.derivePlanUpdate(session, coretypes.ToolCallResult{
 		ToolName: "task_insert",
 		Outputs:  map[string]any{"id": "t3", "goal": "new task"},
 	})
@@ -89,7 +89,7 @@ func TestDerivePlanUpdate_TaskStatusUpdate(t *testing.T) {
 	srv := &Server{}
 	session := newDeriveTestSession()
 
-	srv.derivePlanUpdate(session, core.ToolCallResult{
+	srv.derivePlanUpdate(session, coretypes.ToolCallResult{
 		ToolName: "plan_create",
 		Outputs: map[string]any{
 			"id": "plan-1", "name": "P",
@@ -97,7 +97,7 @@ func TestDerivePlanUpdate_TaskStatusUpdate(t *testing.T) {
 		},
 	})
 
-	pu := srv.derivePlanUpdate(session, core.ToolCallResult{
+	pu := srv.derivePlanUpdate(session, coretypes.ToolCallResult{
 		ToolName: "task_status_update",
 		Outputs:  map[string]any{"id": "t1", "status": "done", "goal": "step 1 (completed)"},
 	})
@@ -111,7 +111,7 @@ func TestDerivePlanUpdate_TaskDelete(t *testing.T) {
 	srv := &Server{}
 	session := newDeriveTestSession()
 
-	srv.derivePlanUpdate(session, core.ToolCallResult{
+	srv.derivePlanUpdate(session, coretypes.ToolCallResult{
 		ToolName: "plan_create",
 		Outputs: map[string]any{
 			"id": "plan-1", "name": "P",
@@ -122,7 +122,7 @@ func TestDerivePlanUpdate_TaskDelete(t *testing.T) {
 		},
 	})
 
-	pu := srv.derivePlanUpdate(session, core.ToolCallResult{
+	pu := srv.derivePlanUpdate(session, coretypes.ToolCallResult{
 		ToolName: "task_delete",
 		Outputs:  map[string]any{"id": "t2"},
 	})
@@ -135,7 +135,7 @@ func TestDerivePlanUpdate_UnknownTool_NoPlan(t *testing.T) {
 	srv := &Server{}
 	session := newDeriveTestSession()
 
-	pu := srv.derivePlanUpdate(session, core.ToolCallResult{
+	pu := srv.derivePlanUpdate(session, coretypes.ToolCallResult{
 		ToolName: "file_read",
 		Outputs:  map[string]any{"path": "/tmp/test"},
 	})

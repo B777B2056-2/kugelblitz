@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"sync"
 )
 
 // JSONLEvent is a single line in a JSONL file.
@@ -17,6 +19,7 @@ type JSONLEvent struct {
 // JSONLPersist implements IPersist and adds JSONL-specific append/read methods.
 type JSONLPersist struct {
 	backend IPersist
+	mu      sync.Mutex // serializes Append's read-modify-write (P2)
 }
 
 // NewJSONLPersist creates a JSONLPersist backed by the given IPersist.
@@ -49,7 +52,13 @@ func (j *JSONLPersist) Exists(ctx context.Context, key string) bool {
 
 // Append adds JSONL events to the end of a file.
 func (j *JSONLPersist) Append(ctx context.Context, path string, events []JSONLEvent) error {
-	existing, _ := j.backend.Load(ctx, path)
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	existing, err := j.backend.Load(ctx, path)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("jsonl append: load existing: %w", err)
+	}
 	var all []byte
 	if len(existing) > 0 {
 		all = existing

@@ -47,6 +47,12 @@ type ServerConfig struct {
 	OtelEndpoint    string `json:"otel_endpoint,omitempty"`
 	OtelAuthHeader  string `json:"otel_auth_header,omitempty"`
 	OtelServiceName string `json:"otel_service_name,omitempty"`
+
+	// Auto Dream
+	AutoDreamEnabled          bool `json:"auto_dream_enabled"`
+	AutoDreamCheckIntervalSec int  `json:"auto_dream_check_interval_sec"`
+	AutoDreamCooldownSec      int  `json:"auto_dream_cooldown_sec"`
+	AutoDreamIdleThresholdSec int  `json:"auto_dream_idle_threshold_sec"`
 }
 
 var (
@@ -150,6 +156,12 @@ func toServerConfig(cfg config.Config) ServerConfig {
 	sc.OtelAuthHeader = cfg.Observability.AuthHeader
 	sc.OtelServiceName = cfg.Observability.ServiceName
 
+	// Auto Dream
+	sc.AutoDreamEnabled = cfg.AutoDream.Enabled
+	sc.AutoDreamCheckIntervalSec = cfg.AutoDream.CheckIntervalSec
+	sc.AutoDreamCooldownSec = cfg.AutoDream.CooldownSec
+	sc.AutoDreamIdleThresholdSec = cfg.AutoDream.IdleThresholdSec
+
 	return sc
 }
 
@@ -181,6 +193,12 @@ func fromServerConfig(sc ServerConfig, existingCfg config.Config) config.Config 
 	cfg.Observability.Endpoint = sc.OtelEndpoint
 	cfg.Observability.AuthHeader = sc.OtelAuthHeader
 	cfg.Observability.ServiceName = sc.OtelServiceName
+
+	// Auto Dream
+	cfg.AutoDream.Enabled = sc.AutoDreamEnabled
+	cfg.AutoDream.CheckIntervalSec = sc.AutoDreamCheckIntervalSec
+	cfg.AutoDream.CooldownSec = sc.AutoDreamCooldownSec
+	cfg.AutoDream.IdleThresholdSec = sc.AutoDreamIdleThresholdSec
 
 	// Multimodal — preserve existing config unless explicitly overridden.
 	cfg.Multimodal.AutoDescribeMedia = sc.AutoDescribeMedia

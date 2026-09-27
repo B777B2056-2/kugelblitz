@@ -21,33 +21,76 @@ func NewFilePersist(root string) *FilePersist {
 	return &FilePersist{root: root}
 }
 
-func (fp *FilePersist) fullPath(key string) string {
-	return filepath.Join(fp.root, key)
+// fullPath resolves key under the persist root, refusing any key that would
+// escape it via path traversal (C3).
+func (fp *FilePersist) fullPath(key string) (string, error) {
+	root := filepath.Clean(fp.root)
+	path := filepath.Join(root, filepath.Clean(key))
+	if path != root && !strings.HasPrefix(path, root+string(filepath.Separator)) {
+		return "", fmt.Errorf("file persist: key %q escapes root", key)
+	}
+	return path, nil
 }
 
 // Store writes data to the key's file. Directories are created as needed.
+// The write is atomic (temp file + rename) so a crash cannot leave a truncated
+// file behind (P14).
 func (fp *FilePersist) Store(_ context.Context, key string, data []byte) error {
 	fp.mu.Lock()
 	defer fp.mu.Unlock()
-	path := fp.fullPath(key)
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	path, err := fp.fullPath(key)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("file persist store: %w", err)
 	}
-	return os.WriteFile(path, data, 0644)
+
+	tmp, err := os.CreateTemp(dir, ".tmp-*")
+	if err != nil {
+		return fmt.Errorf("file persist store: create temp: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }() // no-op after successful rename
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("file persist store: write: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("file persist store: sync: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("file persist store: close: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("file persist store: rename: %w", err)
+	}
+	return nil
 }
 
 // Load reads the key's file contents.
 func (fp *FilePersist) Load(_ context.Context, key string) ([]byte, error) {
 	fp.mu.RLock()
 	defer fp.mu.RUnlock()
-	return os.ReadFile(fp.fullPath(key))
+	path, err := fp.fullPath(key)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(path)
 }
 
 // Exists reports whether the key's file exists.
 func (fp *FilePersist) Exists(_ context.Context, key string) bool {
 	fp.mu.RLock()
 	defer fp.mu.RUnlock()
-	_, err := os.Stat(fp.fullPath(key))
+	path, err := fp.fullPath(key)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(path)
 	return err == nil
 }
 
@@ -55,7 +98,11 @@ func (fp *FilePersist) Exists(_ context.Context, key string) bool {
 func (fp *FilePersist) Delete(_ context.Context, key string) error {
 	fp.mu.Lock()
 	defer fp.mu.Unlock()
-	if err := os.Remove(fp.fullPath(key)); err != nil && !os.IsNotExist(err) {
+	path, err := fp.fullPath(key)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("file persist delete: %w", err)
 	}
 	return nil
@@ -63,7 +110,13 @@ func (fp *FilePersist) Delete(_ context.Context, key string) error {
 
 // List returns all keys under the given prefix.
 func (fp *FilePersist) List(_ context.Context, prefix string) ([]string, error) {
-	dir := filepath.Join(fp.root, prefix)
+	fp.mu.RLock()
+	defer fp.mu.RUnlock()
+
+	dir, err := fp.fullPath(prefix)
+	if err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {

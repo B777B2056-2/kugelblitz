@@ -2,49 +2,54 @@ package infra
 
 import (
 	"context"
+	"errors"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/llm"
 	"github.com/B777B2056-2/kugelblitz/prompts"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
+	"github.com/B777B2056-2/kugelblitz/runtime/engine/types"
 )
 
 // Reviewer checks for goal drift using a dedicated tool call.
 type Reviewer struct {
-	Provider core.ILMProvider
-	Hooks    core.AgentEventHooks
-	tracer   trace.Tracer
+	caller *llm.Caller
+	Hooks  core.AgentEventHooks
 }
 
-type ReviewResult struct {
-	Drift      bool
-	Reason     string
-	Suggestion string
-	Usage      *core.Usage
-}
+// ReviewResult reports a goal-drift review outcome.
+// Aliased from the leaf types package so callers may reference either name.
+type ReviewResult = types.ReviewResult
 
-func NewReviewer(provider core.ILMProvider, tracer trace.Tracer) *Reviewer {
-	return &Reviewer{Provider: provider, tracer: tracer}
+func NewReviewer(caller *llm.Caller) *Reviewer {
+	return &Reviewer{caller: caller}
 }
 
 func (r *Reviewer) SetHooks(hooks core.AgentEventHooks) { r.Hooks = hooks }
 
-func (r *Reviewer) SetProvider(p core.ILMProvider) { r.Provider = p }
+// SetProvider swaps the underlying LLM provider at runtime (e.g. per-input
+// multimodal model selection). A nil caller is a no-op (test stubs).
+func (r *Reviewer) SetProvider(p coretypes.ILMProvider) {
+	if r.caller != nil {
+		r.caller.SetProvider(p)
+	}
+}
 
-// Review does a single Generate call with a reviewer_report tool.
+// Review does a single tool-call generation via the unified caller.
 func (r *Reviewer) Review(ctx context.Context, originalGoal, planSummary, recentActivity string) ReviewResult {
-	ctx, span := r.tracer.Start(ctx, "reviewer.check")
-	defer span.End()
-
-	userMsg := core.NewUserMessage(core.TextContent{
-		Text: prompts.DefaultFactory.MustRender(prompts.TypeReview, prompts.ReviewParams{
-			OriginalGoal: originalGoal, PlanSummary: planSummary, RecentActivity: recentActivity,
-		}),
+	text, err := prompts.DefaultFactory.Render(prompts.TypeReview, prompts.ReviewParams{
+		OriginalGoal: originalGoal, PlanSummary: planSummary, RecentActivity: recentActivity,
 	})
-	params := core.GenerateParams{
-		Messages: []core.Message{userMsg},
-		Tools: []core.ToolDefinition{{
+	if err != nil {
+		return ReviewResult{Drift: false, Reason: "prompt render: " + err.Error()}
+	}
+	userMsg := coretypes.NewUserMessage(coretypes.TextContent{Text: text})
+
+	res, err := r.caller.Call(ctx, llm.Request{
+		Messages: []coretypes.Message{userMsg},
+		Mode:     llm.ModeToolCall,
+		Tool: &coretypes.ToolDefinition{
 			Name:        "reviewer_report",
 			Description: "Report your goal-alignment assessment.",
 			JSONSchema: map[string]any{
@@ -56,40 +61,26 @@ func (r *Reviewer) Review(ctx context.Context, originalGoal, planSummary, recent
 				},
 				"required": []string{"drift", "reason"},
 			},
-		}},
-		Stream:       false,
+		},
+		SpanName:     "reviewer.check",
 		EventHandler: r.Hooks.AsModelEventHandler(constants.AgentReviewer),
-	}
-
-	result, err := r.Provider.Generate(ctx, params)
+	})
 	if err != nil {
-		span.RecordError(err)
-		var usage *core.Usage
-		if result != nil {
-			usage = result.Usage
+		var usage *coretypes.Usage
+		if res != nil {
+			usage = res.Usage
+		}
+		if errors.Is(err, llm.ErrNoToolCall) {
+			return ReviewResult{Drift: false, Reason: "no reviewer_report call received", Usage: usage}
 		}
 		return ReviewResult{Drift: false, Reason: "reviewer error: " + err.Error(), Usage: usage}
 	}
 
-	if result.Usage != nil {
-		span.SetAttributes(
-			attribute.Int64("tokens_in", result.Usage.InputTokens),
-			attribute.Int64("tokens_out", result.Usage.OutputTokens),
-		)
+	drift, driftOK := res.Args["drift"].(bool)
+	if !driftOK {
+		return ReviewResult{Drift: false, Reason: "reviewer_report: drift field missing or non-bool", Usage: res.Usage}
 	}
-
-	if tc, ok := result.Content.(core.ToolCallContent); ok {
-		for _, d := range tc.Details {
-			if d.ToolName == "reviewer_report" {
-				drift, _ := d.Args["drift"].(bool)
-				reason, _ := d.Args["reason"].(string)
-				suggestion, _ := d.Args["suggestion"].(string)
-				span.SetAttributes(attribute.Bool("drift_detected", drift))
-				span.SetAttributes(attribute.String("drift_reason", reason))
-				return ReviewResult{Drift: drift, Reason: reason, Suggestion: suggestion, Usage: result.Usage}
-			}
-		}
-	}
-
-	return ReviewResult{Drift: false, Reason: "no reviewer_report call received", Usage: result.Usage}
+	reason, _ := res.Args["reason"].(string)
+	suggestion, _ := res.Args["suggestion"].(string)
+	return ReviewResult{Drift: drift, Reason: reason, Suggestion: suggestion, Usage: res.Usage}
 }

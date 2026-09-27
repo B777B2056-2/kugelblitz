@@ -2,18 +2,19 @@ package internals
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
 // DirCreate creates a directory (including parent directories).
 type DirCreate struct{}
 
-func (t *DirCreate) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *DirCreate) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "dir_create",
 		Description: "Create a directory at the given path. Creates parent directories as needed (like mkdir -p).",
 		JSONSchema: map[string]any{
@@ -32,7 +33,7 @@ func (t *DirCreate) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *DirCreate) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *DirCreate) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	path, err := tools.Arg(detail, "path")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "dir_create", err)
@@ -48,8 +49,8 @@ func (t *DirCreate) Execute(ctx context.Context, detail core.ToolCallDetail) cor
 // DirCopy copies or moves an entire directory recursively.
 type DirCopy struct{}
 
-func (t *DirCopy) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *DirCopy) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "dir_copy",
 		Description: "Copy or move a directory and all its contents from source to destination. Set 'move' to true to move instead of copy.",
 		JSONSchema: map[string]any{
@@ -72,7 +73,7 @@ func (t *DirCopy) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *DirCopy) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *DirCopy) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	src, err := tools.Arg(detail, "source")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "dir_copy", err)
@@ -96,7 +97,9 @@ func (t *DirCopy) Execute(ctx context.Context, detail core.ToolCallDetail) core.
 			if err := copyDir(src, dst); err != nil {
 				return tools.ErrorResult(detail.ID, "dir_copy", err)
 			}
-			_ = os.RemoveAll(src)
+			if err := os.RemoveAll(src); err != nil {
+				return tools.ErrorResult(detail.ID, "dir_copy", fmt.Errorf("move fallback: remove source: %w", err))
+			}
 		}
 	} else {
 		if err := copyDir(src, dst); err != nil {

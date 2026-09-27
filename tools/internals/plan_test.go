@@ -2,10 +2,13 @@ package internals
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 
 	"github.com/stretchr/testify/assert"
@@ -21,7 +24,7 @@ func resetStore(t *testing.T) {
 func TestPlanCreate(t *testing.T) {
 	resetStore(t)
 	tool := &PlanCreate{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "c1", ToolName: "plan_create",
 		Args: map[string]any{"name": "Test Plan"},
 	})
@@ -34,7 +37,7 @@ func TestPlanCreate(t *testing.T) {
 func TestPlanCreate_MissingName(t *testing.T) {
 	resetStore(t)
 	tool := &PlanCreate{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "c1", ToolName: "plan_create", Args: map[string]any{},
 	})
 	assert.NotNil(t, result.Outputs["error"])
@@ -43,11 +46,11 @@ func TestPlanCreate_MissingName(t *testing.T) {
 func TestTaskInsert(t *testing.T) {
 	resetStore(t)
 	pc := &PlanCreate{}
-	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", ToolName: "plan_create", Args: map[string]any{"name": "P"}})
+	pres := pc.Execute(context.Background(), coretypes.ToolCallDetail{ID: "c1", ToolName: "plan_create", Args: map[string]any{"name": "P"}})
 	planID := pres.Outputs["id"].(string)
 
 	ti := &TaskInsert{}
-	result := ti.Execute(context.Background(), core.ToolCallDetail{
+	result := ti.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "i1", ToolName: "task_insert",
 		Args: map[string]any{"plan_id": planID, "goal": "do something"},
 	})
@@ -59,12 +62,12 @@ func TestTaskInsert(t *testing.T) {
 func TestTaskInsert_AfterID(t *testing.T) {
 	resetStore(t)
 	pc := &PlanCreate{}
-	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", ToolName: "plan_create", Args: map[string]any{"name": "P"}})
+	pres := pc.Execute(context.Background(), coretypes.ToolCallDetail{ID: "c1", ToolName: "plan_create", Args: map[string]any{"name": "P"}})
 	planID := pres.Outputs["id"].(string)
 
 	ti := &TaskInsert{}
-	r1 := ti.Execute(context.Background(), core.ToolCallDetail{ID: "i1", ToolName: "task_insert", Args: map[string]any{"plan_id": planID, "goal": "first"}})
-	r2 := ti.Execute(context.Background(), core.ToolCallDetail{ID: "i2", ToolName: "task_insert", Args: map[string]any{"plan_id": planID, "goal": "second", "after_id": r1.Outputs["task_id"]}})
+	r1 := ti.Execute(context.Background(), coretypes.ToolCallDetail{ID: "i1", ToolName: "task_insert", Args: map[string]any{"plan_id": planID, "goal": "first"}})
+	r2 := ti.Execute(context.Background(), coretypes.ToolCallDetail{ID: "i2", ToolName: "task_insert", Args: map[string]any{"plan_id": planID, "goal": "second", "after_id": r1.Outputs["task_id"]}})
 
 	plan, _ := working.GetPlan(planID)
 	require.Len(t, plan.SubTasks, 2)
@@ -76,15 +79,15 @@ func TestTaskInsert_AfterID(t *testing.T) {
 func TestTaskQuery(t *testing.T) {
 	resetStore(t)
 	pc := &PlanCreate{}
-	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", ToolName: "plan_create", Args: map[string]any{"name": "P"}})
+	pres := pc.Execute(context.Background(), coretypes.ToolCallDetail{ID: "c1", ToolName: "plan_create", Args: map[string]any{"name": "P"}})
 	planID := pres.Outputs["id"].(string)
 
 	ti := &TaskInsert{}
-	ires := ti.Execute(context.Background(), core.ToolCallDetail{ID: "i1", ToolName: "task_insert", Args: map[string]any{"plan_id": planID, "goal": "test"}})
+	ires := ti.Execute(context.Background(), coretypes.ToolCallDetail{ID: "i1", ToolName: "task_insert", Args: map[string]any{"plan_id": planID, "goal": "test"}})
 	taskID := ires.Outputs["task_id"].(string)
 
 	tq := &TaskQuery{}
-	result := tq.Execute(context.Background(), core.ToolCallDetail{ID: "q1", ToolName: "task_query", Args: map[string]any{"task_id": taskID}})
+	result := tq.Execute(context.Background(), coretypes.ToolCallDetail{ID: "q1", ToolName: "task_query", Args: map[string]any{"task_id": taskID}})
 	assert.Nil(t, result.Outputs["error"])
 	assert.Equal(t, "test", result.Outputs["goal"])
 }
@@ -92,30 +95,30 @@ func TestTaskQuery(t *testing.T) {
 func TestTaskDelete(t *testing.T) {
 	resetStore(t)
 	pc := &PlanCreate{}
-	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "P"}})
+	pres := pc.Execute(context.Background(), coretypes.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "P"}})
 	planID := pres.Outputs["id"].(string)
 
 	ti := &TaskInsert{}
-	ires := ti.Execute(context.Background(), core.ToolCallDetail{ID: "i1", Args: map[string]any{"plan_id": planID, "goal": "test"}})
+	ires := ti.Execute(context.Background(), coretypes.ToolCallDetail{ID: "i1", Args: map[string]any{"plan_id": planID, "goal": "test"}})
 	taskID := ires.Outputs["task_id"].(string)
 
 	td := &TaskDelete{}
-	result := td.Execute(context.Background(), core.ToolCallDetail{ID: "d1", Args: map[string]any{"task_id": taskID}})
+	result := td.Execute(context.Background(), coretypes.ToolCallDetail{ID: "d1", Args: map[string]any{"task_id": taskID}})
 	assert.Nil(t, result.Outputs["error"])
 
 	tq := &TaskQuery{}
-	qres := tq.Execute(context.Background(), core.ToolCallDetail{ID: "q1", Args: map[string]any{"task_id": taskID}})
+	qres := tq.Execute(context.Background(), coretypes.ToolCallDetail{ID: "q1", Args: map[string]any{"task_id": taskID}})
 	assert.NotNil(t, qres.Outputs["error"])
 }
 
 func TestPlanQuery_ByID(t *testing.T) {
 	resetStore(t)
 	pc := &PlanCreate{}
-	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "P"}})
+	pres := pc.Execute(context.Background(), coretypes.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "P"}})
 	planID := pres.Outputs["id"].(string)
 
 	pq := &PlanQuery{}
-	result := pq.Execute(context.Background(), core.ToolCallDetail{ID: "q1", Args: map[string]any{"plan_id": planID}})
+	result := pq.Execute(context.Background(), coretypes.ToolCallDetail{ID: "q1", Args: map[string]any{"plan_id": planID}})
 	assert.Nil(t, result.Outputs["error"])
 	assert.Equal(t, "P", result.Outputs["name"])
 }
@@ -123,11 +126,11 @@ func TestPlanQuery_ByID(t *testing.T) {
 func TestConfirmPlan(t *testing.T) {
 	resetStore(t)
 	pc := &PlanCreate{}
-	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "P"}})
+	pres := pc.Execute(context.Background(), coretypes.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "P"}})
 	planID := pres.Outputs["id"].(string)
 
 	ps := &ConfirmPlan{}
-	result := ps.Execute(context.Background(), core.ToolCallDetail{ID: "s1", Args: map[string]any{"plan_id": planID, "status": "doing"}})
+	result := ps.Execute(context.Background(), coretypes.ToolCallDetail{ID: "s1", Args: map[string]any{"plan_id": planID, "status": "doing"}})
 	assert.Nil(t, result.Outputs["error"])
 	assert.Equal(t, "doing", result.Outputs["status"])
 }
@@ -135,31 +138,74 @@ func TestConfirmPlan(t *testing.T) {
 func TestTaskStatusUpdate(t *testing.T) {
 	resetStore(t)
 	pc := &PlanCreate{}
-	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "P"}})
+	pres := pc.Execute(context.Background(), coretypes.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "P"}})
 	planID := pres.Outputs["id"].(string)
 
 	ti := &TaskInsert{}
-	ires := ti.Execute(context.Background(), core.ToolCallDetail{ID: "i1", Args: map[string]any{"plan_id": planID, "goal": "test"}})
+	ires := ti.Execute(context.Background(), coretypes.ToolCallDetail{ID: "i1", Args: map[string]any{"plan_id": planID, "goal": "test"}})
 	taskID := ires.Outputs["task_id"].(string)
 
 	ts := &TaskStatusUpdate{}
-	result := ts.Execute(context.Background(), core.ToolCallDetail{ID: "s1", Args: map[string]any{"task_id": taskID, "status": "doing"}})
+	result := ts.Execute(context.Background(), coretypes.ToolCallDetail{ID: "s1", Args: map[string]any{"task_id": taskID, "status": "doing"}})
 	assert.Nil(t, result.Outputs["error"])
 	assert.Equal(t, "doing", result.Outputs["status"])
+}
+
+func TestPlanRollback_InvalidVersionType_ReturnsError(t *testing.T) {
+	resetStore(t)
+	working.ResetPlans()
+
+	pc := &PlanCreate{}
+	pres := pc.Execute(context.Background(), coretypes.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "P"}})
+	planID := pres.Outputs["id"].(string)
+
+	pr := &PlanRollback{}
+	result := pr.Execute(context.Background(), coretypes.ToolCallDetail{
+		ID: "r1", Args: map[string]any{"plan_id": planID, "version": "abc"},
+	})
+	assert.NotNil(t, result.Outputs["error"], "wrong-typed version must be surfaced (T7)")
+}
+
+func TestTaskInsert_Concurrent(t *testing.T) {
+	resetStore(t)
+	working.ResetPlans()
+
+	pc := &PlanCreate{}
+	pres := pc.Execute(context.Background(), coretypes.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "P"}})
+	planID := pres.Outputs["id"].(string)
+
+	const n = 20
+	ti := &TaskInsert{}
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			ti.Execute(context.Background(), coretypes.ToolCallDetail{
+				ID:       fmt.Sprintf("i%d", i),
+				ToolName: "task_insert",
+				Args:     map[string]any{"plan_id": planID, "goal": fmt.Sprintf("goal-%d", i)},
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	plan, _ := working.GetPlan(planID)
+	assert.Len(t, plan.SubTasks, n, "concurrent inserts must not lose tasks (T9)")
 }
 
 func TestPlanPersistAndLoad(t *testing.T) {
 	resetStore(t)
 	pc := &PlanCreate{}
-	pres := pc.Execute(context.Background(), core.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "Test"}})
+	pres := pc.Execute(context.Background(), coretypes.ToolCallDetail{ID: "c1", Args: map[string]any{"name": "Test"}})
 	planID := pres.Outputs["id"].(string)
 
 	ti := &TaskInsert{}
-	ires := ti.Execute(context.Background(), core.ToolCallDetail{ID: "i1", Args: map[string]any{"plan_id": planID, "goal": "do it"}})
+	ires := ti.Execute(context.Background(), coretypes.ToolCallDetail{ID: "i1", Args: map[string]any{"plan_id": planID, "goal": "do it"}})
 	taskID := ires.Outputs["task_id"].(string)
 
 	ts := &TaskStatusUpdate{}
-	ts.Execute(context.Background(), core.ToolCallDetail{ID: "s1", Args: map[string]any{"task_id": taskID, "status": "done", "reason": "completed"}})
+	ts.Execute(context.Background(), coretypes.ToolCallDetail{ID: "s1", Args: map[string]any{"task_id": taskID, "status": "done", "reason": "completed"}})
 
 	// Load from disk
 	loaded, err := working.LoadPlan(planID)

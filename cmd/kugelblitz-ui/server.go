@@ -9,7 +9,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/core"
 )
 
-//go:embed static/*
+//go:embed static
 var staticFiles embed.FS
 
 // Server is the HTTP server for the Kugelblitz Web UI.
@@ -72,7 +72,12 @@ func (s *Server) ListenAndServe(addr string) error {
 // ── Session handlers ──
 
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
-	session := s.sessions.Create()
+	session, err := s.sessions.Create()
+	if err != nil {
+		core.Warn("create session failed", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create session"})
+		return
+	}
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"session_id": session.ID,
 	})

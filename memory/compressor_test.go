@@ -4,72 +4,13 @@ import (
 	"context"
 	"testing"
 
-	"github.com/B777B2056-2/kugelblitz/core"
-	"github.com/B777B2056-2/kugelblitz/prompts"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/llm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 )
-
-func TestBuildSummarizePrompt_NoExistingSummary(t *testing.T) {
-	msgs := []core.Message{
-		core.NewUserMessage(core.TextContent{Text: "hello"}),
-		core.NewAssistantMessage(core.TextContent{Text: "world"}),
-	}
-	prompt := prompts.BuildSummarizePrompt(msgs, "")
-	assert.Contains(t, prompt, "Summarize the following conversation")
-	assert.Contains(t, prompt, "hello")
-	assert.Contains(t, prompt, "world")
-	assert.NotContains(t, prompt, "EXISTING SUMMARY")
-	assert.NotContains(t, prompt, "previous summary")
-}
-
-func TestBuildSummarizePrompt_WithExistingSummary(t *testing.T) {
-	msgs := []core.Message{
-		core.NewUserMessage(core.TextContent{Text: "new info"}),
-	}
-	existing := "User likes Go programming."
-	prompt := prompts.BuildSummarizePrompt(msgs, existing)
-	assert.Contains(t, prompt, "EXISTING SUMMARY")
-	assert.Contains(t, prompt, existing)
-	assert.Contains(t, prompt, "CONSOLIDATED")
-	assert.Contains(t, prompt, "PREFER the new information")
-	assert.Contains(t, prompt, "new info")
-}
-
-func TestBuildSummarizePrompt_ToolCalls(t *testing.T) {
-	msgs := []core.Message{
-		{
-			Role: "assistant",
-			Content: core.ToolCallContent{
-				Details: []core.ToolCallDetail{
-					{ID: "t1", ToolName: "search"},
-					{ID: "t2", ToolName: "calculate"},
-				},
-			},
-		},
-	}
-	prompt := prompts.BuildSummarizePrompt(msgs, "")
-	assert.Contains(t, prompt, "[tool calls: search, calculate]")
-}
-
-func TestBuildSummarizePrompt_ToolResults(t *testing.T) {
-	msgs := []core.Message{
-		{
-			Role: "tool",
-			Content: core.ToolResultContent{
-				Results: []core.ToolCallResult{
-					{ToolCallID: "t1"},
-					{ToolCallID: "t2"},
-					{ToolCallID: "t3"},
-				},
-			},
-		},
-	}
-	prompt := prompts.BuildSummarizePrompt(msgs, "")
-	assert.Contains(t, prompt, "[tool results: 3]")
-}
 
 func TestTruncate_Short(t *testing.T) {
 	assert.Equal(t, "hi", truncate("hi", 500))
@@ -86,27 +27,27 @@ func TestTruncate_Long(t *testing.T) {
 }
 
 type mockCompressProvider struct {
-	generate func(ctx context.Context, params core.GenerateParams) (*core.Message, error)
+	generate func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error)
 }
 
-func (m *mockCompressProvider) Generate(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+func (m *mockCompressProvider) Generate(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 	return m.generate(ctx, params)
 }
 
 func TestCompressor_Summarize_ReturnsUsage(t *testing.T) {
-	usage := &core.Usage{InputTokens: 200, OutputTokens: 150, TotalTokens: 350}
+	usage := &coretypes.Usage{InputTokens: 200, OutputTokens: 150, TotalTokens: 350}
 	mp := &mockCompressProvider{
-		generate: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
-			return &core.Message{
+		generate: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
+			return &coretypes.Message{
 				Role:    "assistant",
-				Content: core.TextContent{Text: "compressed summary"},
+				Content: coretypes.TextContent{Text: "compressed summary"},
 				Usage:   usage,
 			}, nil
 		},
 	}
-	c := NewCompressor(mp, otel.Tracer("test"))
-	summary, gotUsage, err := c.Summarize(context.Background(), []core.Message{
-		core.NewUserMessage(core.TextContent{Text: "hello"}),
+	c := NewCompressor(llm.NewCaller(mp, otel.Tracer("test")))
+	summary, gotUsage, err := c.Summarize(context.Background(), []coretypes.Message{
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "hello"}),
 	}, "")
 	assert.NoError(t, err)
 	assert.Equal(t, "compressed summary", summary)
@@ -118,13 +59,13 @@ func TestCompressor_Summarize_ReturnsUsage(t *testing.T) {
 
 func TestCompressor_Summarize_NilUsageWhenError(t *testing.T) {
 	mp := &mockCompressProvider{
-		generate: func(ctx context.Context, params core.GenerateParams) (*core.Message, error) {
+		generate: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
 			return nil, assert.AnError
 		},
 	}
-	c := NewCompressor(mp, otel.Tracer("test"))
-	_, gotUsage, err := c.Summarize(context.Background(), []core.Message{
-		core.NewUserMessage(core.TextContent{Text: "hello"}),
+	c := NewCompressor(llm.NewCaller(mp, otel.Tracer("test")))
+	_, gotUsage, err := c.Summarize(context.Background(), []coretypes.Message{
+		coretypes.NewUserMessage(coretypes.TextContent{Text: "hello"}),
 	}, "")
 	assert.Error(t, err)
 	assert.Nil(t, gotUsage)

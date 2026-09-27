@@ -5,13 +5,42 @@ import (
 	"fmt"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory/longterm"
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
+// MemoryStoreBackend is the consumer-side view of long-term memory storage
+// required by the memory tools. *longterm.LongTermMemory satisfies it.
+// Graph() returns the concrete *longterm.GraphStore for the memory_search
+// needGraph query; keeping that one concrete type is an accepted coupling.
+type MemoryStoreBackend interface {
+	Store(section, key, value string) (memorytypes.MemoryItem, *memorytypes.MemoryItem, error)
+	GetSection(section string) []memorytypes.MemoryItem
+	Remove(section, key string) error
+	ListSections() map[string]int
+	Stats() (int, int, float64)
+	SearchWithMode(query string, mode persist.SearchMode) []memorytypes.MemoryItem
+	Graph() *longterm.GraphStore
+}
+
+// MemoryIndex is the consumer-side view of the vector index used by
+// memory_search and memory_stats. *longterm.IndexManager satisfies it.
+type MemoryIndex interface {
+	Search(ctx context.Context, query string, mode persist.SearchMode, limit int) []memorytypes.MemoryItem
+	IsAvailable() bool
+}
+
+// MemoryExtractor is the consumer-side view of the write pipeline used by
+// memory_extract. *longterm.WritePipeline satisfies it.
+type MemoryExtractor interface {
+	ExtractFromSession(ctx context.Context, input memorytypes.ExtractionInput) (*memorytypes.PipelineResult, error)
+}
+
 // RegisterMemoryTools registers all memory-related tools.
-func RegisterMemoryTools(ltm *longterm.LongTermMemory, indexMgr *longterm.IndexManager, pipeline *longterm.WritePipeline) {
+func RegisterMemoryTools(ltm MemoryStoreBackend, indexMgr MemoryIndex, pipeline MemoryExtractor) {
 	t := []tools.Tool{
 		&MemoryStore{ltm: ltm},
 		&MemorySearch{ltm: ltm, indexMgr: indexMgr},
@@ -36,7 +65,7 @@ func RegisterMemoryTools(ltm *longterm.LongTermMemory, indexMgr *longterm.IndexM
 var registeredMemoryExtract *MemoryExtract
 
 // BindMemoryExtractInput binds the extraction input source to the registered MemoryExtract tool.
-func BindMemoryExtractInput(fn func() longterm.ExtractionInput) {
+func BindMemoryExtractInput(fn func() memorytypes.ExtractionInput) {
 	if registeredMemoryExtract != nil {
 		registeredMemoryExtract.inputFn = fn
 	}
@@ -44,10 +73,10 @@ func BindMemoryExtractInput(fn func() longterm.ExtractionInput) {
 
 // ---- MemoryStore ----
 
-type MemoryStore struct{ ltm *longterm.LongTermMemory }
+type MemoryStore struct{ ltm MemoryStoreBackend }
 
-func (t *MemoryStore) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *MemoryStore) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "memory_store",
 		Description: "Store a fact in long-term memory (MEMORY.md).",
 		JSONSchema: map[string]any{
@@ -79,7 +108,7 @@ func (t *MemoryStore) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *MemoryStore) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *MemoryStore) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	section, err := tools.RequiredString(detail, "section")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "memory_store", err)
@@ -115,12 +144,12 @@ func (t *MemoryStore) Execute(ctx context.Context, detail core.ToolCallDetail) c
 // ---- MemorySearch ----
 
 type MemorySearch struct {
-	ltm      *longterm.LongTermMemory
-	indexMgr *longterm.IndexManager
+	ltm      MemoryStoreBackend
+	indexMgr MemoryIndex
 }
 
-func (t *MemorySearch) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *MemorySearch) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "memory_search",
 		Description: "Search long-term memory. Uses ChromaDB for semantic search; falls back to keyword search on MEMORY.md.",
 		JSONSchema: map[string]any{
@@ -151,7 +180,7 @@ func (t *MemorySearch) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *MemorySearch) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *MemorySearch) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	query := tools.OptionalString(detail, "query")
 	modeStr := tools.OptionalString(detail, "mode")
 	if modeStr != "" {
@@ -167,7 +196,7 @@ func (t *MemorySearch) Execute(ctx context.Context, detail core.ToolCallDetail) 
 		mode = persist.SearchHybrid
 	}
 
-	var items []longterm.MemoryItem
+	var items []memorytypes.MemoryItem
 	if t.indexMgr != nil {
 		items = t.indexMgr.Search(ctx, query, mode, 10)
 	} else {
@@ -217,10 +246,10 @@ func (t *MemorySearch) Execute(ctx context.Context, detail core.ToolCallDetail) 
 
 // ---- MemoryGetSection ----
 
-type MemoryGetSection struct{ ltm *longterm.LongTermMemory }
+type MemoryGetSection struct{ ltm MemoryStoreBackend }
 
-func (t *MemoryGetSection) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *MemoryGetSection) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "memory_get_section",
 		Description: "Get all items in a memory section.",
 		JSONSchema: map[string]any{
@@ -245,7 +274,7 @@ func (t *MemoryGetSection) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *MemoryGetSection) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *MemoryGetSection) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	section, err := tools.RequiredString(detail, "section")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "memory_get_section", err)
@@ -262,10 +291,10 @@ func (t *MemoryGetSection) Execute(ctx context.Context, detail core.ToolCallDeta
 
 // ---- MemoryRemove ----
 
-type MemoryRemove struct{ ltm *longterm.LongTermMemory }
+type MemoryRemove struct{ ltm MemoryStoreBackend }
 
-func (t *MemoryRemove) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *MemoryRemove) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "memory_remove",
 		Description: "Permanently delete a fact from long-term memory.",
 		JSONSchema: map[string]any{
@@ -285,7 +314,7 @@ func (t *MemoryRemove) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *MemoryRemove) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *MemoryRemove) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	section, err := tools.RequiredString(detail, "section")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "memory_remove", err)
@@ -302,10 +331,10 @@ func (t *MemoryRemove) Execute(ctx context.Context, detail core.ToolCallDetail) 
 
 // ---- MemoryListSections ----
 
-type MemoryListSections struct{ ltm *longterm.LongTermMemory }
+type MemoryListSections struct{ ltm MemoryStoreBackend }
 
-func (t *MemoryListSections) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *MemoryListSections) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "memory_list_sections",
 		Description: "List all memory sections with fact counts.",
 		JSONSchema:  map[string]any{"type": "object", "properties": map[string]any{}},
@@ -321,7 +350,7 @@ func (t *MemoryListSections) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *MemoryListSections) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *MemoryListSections) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	sections := t.ltm.ListSections()
 	counts := make(map[string]any, len(sections))
 	for k, v := range sections {
@@ -333,12 +362,12 @@ func (t *MemoryListSections) Execute(ctx context.Context, detail core.ToolCallDe
 // ---- MemoryStats ----
 
 type MemoryStats struct {
-	ltm      *longterm.LongTermMemory
-	indexMgr *longterm.IndexManager
+	ltm      MemoryStoreBackend
+	indexMgr MemoryIndex
 }
 
-func (t *MemoryStats) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *MemoryStats) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "memory_stats",
 		Description: "Get aggregate statistics about long-term memory.",
 		JSONSchema:  map[string]any{"type": "object", "properties": map[string]any{}},
@@ -354,7 +383,7 @@ func (t *MemoryStats) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *MemoryStats) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *MemoryStats) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	total, sections, avgConf := t.ltm.Stats()
 	indexed := t.indexMgr != nil && t.indexMgr.IsAvailable()
 	return tools.SuccessResult(detail.ID, "memory_stats", map[string]any{
@@ -365,12 +394,12 @@ func (t *MemoryStats) Execute(ctx context.Context, detail core.ToolCallDetail) c
 // ---- MemoryExtract ----
 
 type MemoryExtract struct {
-	pipeline *longterm.WritePipeline
-	inputFn  func() longterm.ExtractionInput
+	pipeline MemoryExtractor
+	inputFn  func() memorytypes.ExtractionInput
 }
 
-func (t *MemoryExtract) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *MemoryExtract) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name: "memory_extract",
 		Description: "Extract and store long-term memories from the current session. " +
 			"All memories are stored in MEMORY.md; ChromaDB index is rebuilt automatically.",
@@ -392,7 +421,7 @@ func (t *MemoryExtract) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *MemoryExtract) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *MemoryExtract) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	if t.inputFn == nil {
 		return tools.ErrorResult(detail.ID, "memory_extract", fmt.Errorf("extraction context not configured"))
 	}

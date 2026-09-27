@@ -4,15 +4,15 @@ import (
 	"context"
 	"os"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
 // FileDelete deletes a file at the given path.
 type FileDelete struct{}
 
-func (t *FileDelete) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *FileDelete) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "file_delete",
 		Description: "Delete a file at the given path. Returns an error if the file does not exist.",
 		JSONSchema: map[string]any{
@@ -35,7 +35,7 @@ func (t *FileDelete) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *FileDelete) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *FileDelete) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	path, err := tools.Arg(detail, "path")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "file_delete", err)

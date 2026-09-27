@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,7 +14,8 @@ import (
 
 func TestSessionManager_Create(t *testing.T) {
 	sm := NewSessionManager(t.TempDir())
-	s := sm.Create()
+	s, err := sm.Create()
+	require.NoError(t, err)
 	assert.NotEmpty(t, s.ID, "should assign an ID")
 	assert.Len(t, s.ID, 8, "ID should be 8 chars")
 	assert.NotNil(t, s.hitlCh)
@@ -20,7 +23,8 @@ func TestSessionManager_Create(t *testing.T) {
 
 func TestSessionManager_Get_Exists(t *testing.T) {
 	sm := NewSessionManager(t.TempDir())
-	s := sm.Create()
+	s, err := sm.Create()
+	require.NoError(t, err)
 	got := sm.Get(s.ID)
 	require.NotNil(t, got)
 	assert.Equal(t, s.ID, got.ID)
@@ -33,7 +37,8 @@ func TestSessionManager_Get_NotFound(t *testing.T) {
 
 func TestSessionManager_Delete(t *testing.T) {
 	sm := NewSessionManager(t.TempDir())
-	s := sm.Create()
+	s, err := sm.Create()
+	require.NoError(t, err)
 	sm.Delete(s.ID)
 	assert.Nil(t, sm.Get(s.ID), "should be removed from memory")
 }
@@ -41,7 +46,8 @@ func TestSessionManager_Delete(t *testing.T) {
 func TestSessionManager_GetOrCreate_New(t *testing.T) {
 	sm := NewSessionManager(t.TempDir())
 	// GetOrCreate with an unknown ID creates a new session (with auto-generated ID)
-	s := sm.GetOrCreate("unknown")
+	s, err := sm.GetOrCreate("unknown")
+	require.NoError(t, err)
 	require.NotNil(t, s)
 	assert.NotEmpty(t, s.ID, "should auto-assign an ID")
 }
@@ -49,24 +55,29 @@ func TestSessionManager_GetOrCreate_New(t *testing.T) {
 func TestSessionManager_GetOrCreate_Existing(t *testing.T) {
 	sm := NewSessionManager(t.TempDir())
 	// First, create a session to get a known ID
-	known := sm.Create()
+	known, err := sm.Create()
+	require.NoError(t, err)
 	// Then GetOrCreate with that ID should return the SAME instance
-	got := sm.GetOrCreate(known.ID)
+	got, err := sm.GetOrCreate(known.ID)
+	require.NoError(t, err)
 	assert.Same(t, known, got, "should return the same instance for known ID")
 }
 
 func TestSessionManager_GetOrCreate_AutoCreate(t *testing.T) {
 	sm := NewSessionManager(t.TempDir())
-	s := sm.GetOrCreate("")
+	s, err := sm.GetOrCreate("")
+	require.NoError(t, err)
 	require.NotNil(t, s)
 	assert.NotEmpty(t, s.ID)
 }
 
 func TestSessionManager_List_SortedByUpdatedAt(t *testing.T) {
 	sm := NewSessionManager(t.TempDir())
-	a := sm.Create()
+	a, err := sm.Create()
+	require.NoError(t, err)
 	time.Sleep(10 * time.Millisecond)
-	b := sm.Create()
+	b, err := sm.Create()
+	require.NoError(t, err)
 
 	entries := sm.List()
 	require.GreaterOrEqual(t, len(entries), 2)
@@ -77,9 +88,10 @@ func TestSessionManager_List_SortedByUpdatedAt(t *testing.T) {
 
 func TestSessionManager_List_IncludesGoal(t *testing.T) {
 	sm := NewSessionManager(t.TempDir())
-	s := sm.Create()
+	s, err := sm.Create()
+	require.NoError(t, err)
 	s.Goal = "build a web app"
-	sm.ArchiveTurn(s)
+	require.NoError(t, sm.ArchiveTurn(s))
 
 	entries := sm.List()
 	require.GreaterOrEqual(t, len(entries), 1)
@@ -95,10 +107,11 @@ func TestSessionManager_List_IncludesGoal(t *testing.T) {
 
 func TestSessionManager_LoadHistory(t *testing.T) {
 	sm := NewSessionManager(t.TempDir())
-	s := sm.Create()
+	s, err := sm.Create()
+	require.NoError(t, err)
 	s.Goal = "test"
 	s.turnMessages = []StoredMessage{{Role: "user", Content: "hello"}}
-	sm.ArchiveTurn(s)
+	require.NoError(t, sm.ArchiveTurn(s))
 
 	history, err := sm.LoadHistory(s.ID)
 	require.NoError(t, err)
@@ -117,10 +130,11 @@ func TestSessionManager_PersistenceAcrossInstances(t *testing.T) {
 	dir := t.TempDir()
 
 	sm1 := NewSessionManager(dir)
-	s1 := sm1.Create()
+	s1, err := sm1.Create()
+	require.NoError(t, err)
 	s1.Goal = "persist me"
 	s1.turnMessages = []StoredMessage{{Role: "user", Content: "hi"}}
-	sm1.ArchiveTurn(s1)
+	require.NoError(t, sm1.ArchiveTurn(s1))
 
 	// New instance loads persisted
 	sm2 := NewSessionManager(dir)
@@ -128,6 +142,36 @@ func TestSessionManager_PersistenceAcrossInstances(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "persist me", history.Goal)
 	require.Len(t, history.Turns, 1)
+}
+
+// TestSessionManager_Create_PersistErrorPropagates guards U6: a session record
+// that cannot be written to disk must surface as an error, not be swallowed.
+func TestSessionManager_Create_PersistErrorPropagates(t *testing.T) {
+	tmp := t.TempDir()
+	// A regular file blocks the storage subdir, so writes under it must fail.
+	blocker := filepath.Join(tmp, "blocker")
+	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0644))
+	sm := NewSessionManager(filepath.Join(blocker, "sessions"))
+
+	s, err := sm.Create()
+	assert.Error(t, err, "persistence failure must be surfaced (U6)")
+	assert.Nil(t, s)
+}
+
+// TestSessionManager_ArchiveTurn_PersistErrorPropagates guards U6: an archive
+// write that fails must surface as an error, not be silently dropped.
+func TestSessionManager_ArchiveTurn_PersistErrorPropagates(t *testing.T) {
+	tmp := t.TempDir()
+	sm := NewSessionManager(tmp)
+	s, err := sm.Create()
+	require.NoError(t, err)
+
+	// Replace the storage dir with a regular file so the archive write fails.
+	require.NoError(t, os.RemoveAll(tmp))
+	require.NoError(t, os.WriteFile(tmp, []byte("x"), 0644))
+
+	err = sm.ArchiveTurn(s)
+	assert.Error(t, err, "archive persistence failure must be surfaced (U6)")
 }
 
 // ── Batch 2: HITL + Token + Plan ──
@@ -176,6 +220,18 @@ func TestChatSession_AddTokenReport_Accumulates(t *testing.T) {
 	s.addTokenReport(TokenReport{Identity: "worker", Input: 20, Output: 8, Total: 28})
 	assert.Equal(t, 2, len(s.tokenReports))
 	assert.Greater(t, s.tokenTotal.Total, int64(15))
+}
+
+// TestChatSession_AddTokenReport_NoInputFoldedIntoOutput guards U2: input tokens
+// must be attributed to Input, never folded into Output for non-intent reports.
+func TestChatSession_AddTokenReport_NoInputFoldedIntoOutput(t *testing.T) {
+	s := newTestSession()
+	s.addTokenReport(TokenReport{Identity: "intent", Input: 100, Output: 10, Total: 110})
+	s.addTokenReport(TokenReport{Identity: "exec", Input: 200, Output: 30, Total: 230})
+
+	assert.Equal(t, int64(300), s.tokenTotal.Input)
+	assert.Equal(t, int64(40), s.tokenTotal.Output)
+	assert.Equal(t, int64(340), s.tokenTotal.Total)
 }
 
 func TestChatSession_AddTurnPlan_Upsert(t *testing.T) {

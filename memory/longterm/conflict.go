@@ -3,6 +3,8 @@ package longterm
 import (
 	"math"
 	"time"
+
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 )
 
 // ConflictDecision encodes the result of a conflict resolution.
@@ -29,16 +31,16 @@ func NewConflictResolver(ltm *LongTermMemory, confidenceGap float64) *ConflictRe
 
 // ResolveResult captures the outcome of resolving a single fact candidate against existing LTM.
 type ResolveResult struct {
-	Candidate MemoryItemCandidate
+	Candidate memorytypes.MemoryItemCandidate
 	Decision  ConflictDecision
-	Winner    MemoryItem // The winning fact
-	OldFact   *MemoryItem
+	Winner    memorytypes.MemoryItem // The winning fact
+	OldFact   *memorytypes.MemoryItem
 }
 
 // Resolve processes a batch of fact candidates against existing LTM items.
 // When confidence gap is narrow, the existing fact is kept.
-func (cr *ConflictResolver) Resolve(candidates []MemoryItemCandidate) []MemoryItem {
-	var stored []MemoryItem
+func (cr *ConflictResolver) Resolve(candidates []memorytypes.MemoryItemCandidate) []memorytypes.MemoryItem {
+	var stored []memorytypes.MemoryItem
 	for _, c := range candidates {
 		result := cr.resolveOne(c)
 		switch result.Decision {
@@ -49,7 +51,7 @@ func (cr *ConflictResolver) Resolve(candidates []MemoryItemCandidate) []MemoryIt
 	return stored
 }
 
-func (cr *ConflictResolver) resolveOne(c MemoryItemCandidate) ResolveResult {
+func (cr *ConflictResolver) resolveOne(c memorytypes.MemoryItemCandidate) ResolveResult {
 	existing, exists := cr.ltm.Get(c.Section, c.Key)
 
 	if !exists {
@@ -57,10 +59,11 @@ func (cr *ConflictResolver) resolveOne(c MemoryItemCandidate) ResolveResult {
 		return ResolveResult{
 			Candidate: c,
 			Decision:  ConflictAcceptNew,
-			Winner: MemoryItem{
+			Winner: memorytypes.MemoryItem{
 				Section:    c.Section,
 				Key:        c.Key,
 				Value:      c.Value,
+				Source:     c.SourceEvidence,
 				Version:    1,
 				Confidence: clampConfidence(c.SuggestedConfidence),
 				UpdatedAt:  now,
@@ -72,6 +75,9 @@ func (cr *ConflictResolver) resolveOne(c MemoryItemCandidate) ResolveResult {
 	if cr.ltm.isSemanticMatch(existing.Value, c.Value) {
 		existing.Confidence = math.Min(1.0, existing.Confidence+0.1)
 		existing.Value = c.Value
+		if c.SourceEvidence != "" {
+			existing.Source = c.SourceEvidence
+		}
 		existing.Version++
 		existing.UpdatedAt = time.Now()
 		return ResolveResult{
@@ -91,10 +97,11 @@ func (cr *ConflictResolver) resolveOne(c MemoryItemCandidate) ResolveResult {
 		return ResolveResult{
 			Candidate: c,
 			Decision:  ConflictAcceptNew,
-			Winner: MemoryItem{
+			Winner: memorytypes.MemoryItem{
 				Section:    c.Section,
 				Key:        c.Key,
 				Value:      c.Value,
+				Source:     c.SourceEvidence,
 				Version:    existing.Version + 1,
 				Confidence: newConf,
 				UpdatedAt:  now,

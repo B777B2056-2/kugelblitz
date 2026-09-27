@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,9 +38,9 @@ func TestStepTracer_LLMUsage(t *testing.T) {
 	h := pi.EventHandler()
 	h.OnThinkingChunk("thinking...")
 	h.OnReplyChunk("reply")
-	h.OnUsageUpdated(core.Usage{InputTokens: 1000, OutputTokens: 200, TotalTokens: 1200})
+	h.OnUsageUpdated(coretypes.Usage{InputTokens: 1000, OutputTokens: 200, TotalTokens: 1200})
 
-	pi.StepSpan(context.Background(), 1, []core.ToolCallResult{})
+	pi.StepSpan(context.Background(), 1, []coretypes.ToolCallResult{})
 	pi.Flush()
 
 	spans := sr.Ended()
@@ -61,11 +61,11 @@ func TestStepTracer_ToolSpans(t *testing.T) {
 
 	h := pi.EventHandler()
 	h.OnThinkingChunk("planning")
-	h.OnFunctionCall(core.ToolCallDetail{ID: "1", ToolName: "plan_create", Args: map[string]any{"name": "my-plan"}})
+	h.OnFunctionCall(coretypes.ToolCallDetail{ID: "1", ToolName: "plan_create", Args: map[string]any{"name": "my-plan"}})
 	h.OnReplyChunk("done")
-	h.OnUsageUpdated(core.Usage{InputTokens: 100, OutputTokens: 50, TotalTokens: 150})
+	h.OnUsageUpdated(coretypes.Usage{InputTokens: 100, OutputTokens: 50, TotalTokens: 150})
 
-	pi.StepSpan(context.Background(), 1, []core.ToolCallResult{
+	pi.StepSpan(context.Background(), 1, []coretypes.ToolCallResult{
 		{ToolCallID: "1", ToolName: "plan_create", Outputs: map[string]any{"plan_id": "plan-abc"}},
 	})
 	pi.Flush()
@@ -89,18 +89,18 @@ func TestStepTracer_MultipleSteps(t *testing.T) {
 
 	// Step 1
 	h.OnThinkingChunk("step1 think")
-	h.OnFunctionCall(core.ToolCallDetail{ID: "1", ToolName: "file_read", Args: map[string]any{"path": "a.go"}})
+	h.OnFunctionCall(coretypes.ToolCallDetail{ID: "1", ToolName: "file_read", Args: map[string]any{"path": "a.go"}})
 	h.OnReplyChunk("step1 reply")
-	h.OnUsageUpdated(core.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15})
-	pi.StepSpan(context.Background(), 1, []core.ToolCallResult{
+	h.OnUsageUpdated(coretypes.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15})
+	pi.StepSpan(context.Background(), 1, []coretypes.ToolCallResult{
 		{ToolCallID: "1", ToolName: "file_read", Outputs: map[string]any{"content": "hello"}},
 	})
 
 	// Step 2
 	h.OnThinkingChunk("step2 think")
 	h.OnReplyChunk("step2 reply")
-	h.OnUsageUpdated(core.Usage{InputTokens: 20, OutputTokens: 10, TotalTokens: 30})
-	pi.StepSpan(context.Background(), 2, []core.ToolCallResult{})
+	h.OnUsageUpdated(coretypes.Usage{InputTokens: 20, OutputTokens: 10, TotalTokens: 30})
+	pi.StepSpan(context.Background(), 2, []coretypes.ToolCallResult{})
 
 	pi.Flush()
 
@@ -140,9 +140,9 @@ func TestStepTracer_OnErrorRecordsOnStepSpan(t *testing.T) {
 	h.OnThinkingChunk("thinking...")
 	h.OnError(errors.New("LLM rate limit exceeded"))
 	h.OnReplyChunk("partial reply")
-	h.OnUsageUpdated(core.Usage{InputTokens: 50, OutputTokens: 10, TotalTokens: 60})
+	h.OnUsageUpdated(coretypes.Usage{InputTokens: 50, OutputTokens: 10, TotalTokens: 60})
 
-	pi.StepSpan(context.Background(), 1, []core.ToolCallResult{})
+	pi.StepSpan(context.Background(), 1, []coretypes.ToolCallResult{})
 	pi.Flush()
 
 	spans := sr.Ended()
@@ -183,11 +183,11 @@ func TestStepTracer_ToolErrorSetStatus(t *testing.T) {
 
 	h := pi.EventHandler()
 	h.OnThinkingChunk("calling tool...")
-	h.OnFunctionCall(core.ToolCallDetail{ID: "1", ToolName: "shell_exec", Args: map[string]any{"command": "rm -rf /"}})
+	h.OnFunctionCall(coretypes.ToolCallDetail{ID: "1", ToolName: "shell_exec", Args: map[string]any{"command": "rm -rf /"}})
 	h.OnReplyChunk("tool failed")
-	h.OnUsageUpdated(core.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15})
+	h.OnUsageUpdated(coretypes.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15})
 
-	pi.StepSpan(context.Background(), 1, []core.ToolCallResult{
+	pi.StepSpan(context.Background(), 1, []coretypes.ToolCallResult{
 		{ToolCallID: "1", ToolName: "shell_exec", Outputs: map[string]any{"error": "permission denied"}},
 	})
 	pi.Flush()
@@ -234,7 +234,7 @@ func TestStepTracer_FlushGenSpanHasParent(t *testing.T) {
 	h := pi.EventHandler()
 	h.OnThinkingChunk("final thinking...")
 	h.OnReplyChunk("final answer")
-	h.OnUsageUpdated(core.Usage{InputTokens: 100, OutputTokens: 50, TotalTokens: 150})
+	h.OnUsageUpdated(coretypes.Usage{InputTokens: 100, OutputTokens: 50, TotalTokens: 150})
 
 	// Simulate the ReAct loop ending without a StepSpan call (no tool calls).
 	// In real usage this happens when the LLM returns text with no tool_calls.
@@ -267,14 +267,14 @@ func TestStepTracer_LastErrClearedAfterStepSpan(t *testing.T) {
 	h.OnThinkingChunk("step 1")
 	h.OnError(errors.New("first error"))
 	h.OnReplyChunk("reply")
-	h.OnUsageUpdated(core.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15})
-	pi.StepSpan(context.Background(), 1, []core.ToolCallResult{})
+	h.OnUsageUpdated(coretypes.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15})
+	pi.StepSpan(context.Background(), 1, []coretypes.ToolCallResult{})
 
 	// Step 2: no error — should be clean
 	h.OnThinkingChunk("step 2 clean")
 	h.OnReplyChunk("clean reply")
-	h.OnUsageUpdated(core.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15})
-	pi.StepSpan(context.Background(), 2, []core.ToolCallResult{})
+	h.OnUsageUpdated(coretypes.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15})
+	pi.StepSpan(context.Background(), 2, []coretypes.ToolCallResult{})
 
 	pi.Flush()
 

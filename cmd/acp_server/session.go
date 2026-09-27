@@ -7,17 +7,39 @@ import (
 	"time"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/google/uuid"
 )
 
 // Session represents an ACP conversation session.
 type Session struct {
-	ID        string         `json:"id"`
-	Cwd       string         `json:"cwd"`
-	Messages  []core.Message `json:"messages"`
-	CreatedAt time.Time      `json:"created_at"`
-	Agent     core.IAgent    `json:"-"`
-	cancelFn  context.CancelFunc
+	ID        string              `json:"id"`
+	Cwd       string              `json:"cwd"`
+	Messages  []coretypes.Message `json:"messages"`
+	CreatedAt time.Time           `json:"created_at"`
+	Agent     core.IAgent         `json:"-"`
+
+	// cancelMu guards cancelFn, which is written by SetCancelFunc during an
+	// active prompt and read by Cancel from another goroutine (A3).
+	cancelMu sync.Mutex
+	cancelFn context.CancelFunc
+}
+
+// setCancelFn stores the active execution's cancel function.
+func (s *Session) setCancelFn(fn context.CancelFunc) {
+	s.cancelMu.Lock()
+	s.cancelFn = fn
+	s.cancelMu.Unlock()
+}
+
+// cancel invokes the stored cancel function, if any.
+func (s *Session) cancel() {
+	s.cancelMu.Lock()
+	fn := s.cancelFn
+	s.cancelMu.Unlock()
+	if fn != nil {
+		fn()
+	}
 }
 
 // SessionManager manages ACP session lifecycle in memory only.
@@ -93,7 +115,7 @@ func (sm *SessionManager) Delete(sessionID string) error {
 }
 
 // AppendMessage adds a message to a session's history.
-func (sm *SessionManager) AppendMessage(sessionID string, msg core.Message) error {
+func (sm *SessionManager) AppendMessage(sessionID string, msg coretypes.Message) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -113,10 +135,8 @@ func (sm *SessionManager) Cancel(sessionID string) error {
 	if !ok {
 		return fmt.Errorf("session: not found: %s", sessionID)
 	}
-	if session.cancelFn != nil {
-		core.Debug("ACP: session manager cancelling execution", "id", sessionID)
-		session.cancelFn()
-	}
+	core.Debug("ACP: session manager cancelling execution", "id", sessionID)
+	session.cancel()
 	return nil
 }
 
@@ -129,6 +149,6 @@ func (sm *SessionManager) SetCancelFunc(sessionID string, fn context.CancelFunc)
 	if !ok {
 		return fmt.Errorf("session: not found: %s", sessionID)
 	}
-	session.cancelFn = fn
+	session.setCancelFn(fn)
 	return nil
 }

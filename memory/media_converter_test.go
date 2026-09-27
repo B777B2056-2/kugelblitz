@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,7 +23,7 @@ func TestNewMediaConverter(t *testing.T) {
 func TestMediaConverter_Base64ToFile_WritesToSessionDir(t *testing.T) {
 	mc := NewMediaConverter(t.TempDir())
 
-	detail := &core.MultiModalDetail{
+	detail := &coretypes.MultiModalDetail{
 		ID:       "img-1",
 		Type:     constants.MultiModalTypeImage,
 		Base64:   base64.StdEncoding.EncodeToString([]byte("fake-image-data")),
@@ -46,7 +46,7 @@ func TestMediaConverter_Base64ToFile_PreservesBase64(t *testing.T) {
 	mc := NewMediaConverter(t.TempDir())
 	originalBase64 := base64.StdEncoding.EncodeToString([]byte("test-image-data"))
 
-	detail := &core.MultiModalDetail{
+	detail := &coretypes.MultiModalDetail{
 		ID:       "img-2",
 		Type:     constants.MultiModalTypeImage,
 		Base64:   originalBase64,
@@ -65,7 +65,7 @@ func TestMediaConverter_FileToBase64_RestoresBase64(t *testing.T) {
 	mc := NewMediaConverter(t.TempDir())
 
 	originalData := []byte("audio-data-bytes")
-	detail := &core.MultiModalDetail{
+	detail := &coretypes.MultiModalDetail{
 		ID:       "aud-1",
 		Type:     constants.MultiModalTypeAudio,
 		Base64:   base64.StdEncoding.EncodeToString(originalData),
@@ -94,7 +94,7 @@ func TestMediaConverter_FileToBase64_NotFound(t *testing.T) {
 func TestMediaConverter_Remove(t *testing.T) {
 	mc := NewMediaConverter(t.TempDir())
 
-	detail := &core.MultiModalDetail{
+	detail := &coretypes.MultiModalDetail{
 		ID:       "img-3",
 		Type:     constants.MultiModalTypeImage,
 		Base64:   base64.StdEncoding.EncodeToString([]byte("data")),
@@ -126,7 +126,7 @@ func TestMediaConverter_PruneSession(t *testing.T) {
 
 	// Store multiple files in same session
 	for i, id := range []string{"img-a", "img-b"} {
-		detail := &core.MultiModalDetail{
+		detail := &coretypes.MultiModalDetail{
 			ID:       id,
 			Type:     constants.MultiModalTypeImage,
 			Base64:   base64.StdEncoding.EncodeToString([]byte("data")),

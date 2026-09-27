@@ -4,6 +4,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sync"
 )
 
 // Logger is the logging interface used throughout Kugelblitz.
@@ -15,11 +16,17 @@ type Logger interface {
 	Error(msg string, args ...any)
 }
 
-// globalLogger is the singleton logger instance. Set via SetLogger.
-var globalLogger Logger = newSlogLogger(os.Stderr, slog.LevelInfo)
+// globalLogger is the singleton logger instance, guarded by loggerMu so that
+// SetLogger can be called at runtime without racing active log calls (C4).
+var (
+	loggerMu     sync.RWMutex
+	globalLogger Logger = newSlogLogger(os.Stderr, slog.LevelInfo)
+)
 
 // SetLogger replaces the global logger. Pass nil to restore the default.
 func SetLogger(l Logger) {
+	loggerMu.Lock()
+	defer loggerMu.Unlock()
 	if l == nil {
 		globalLogger = newSlogLogger(os.Stderr, slog.LevelInfo)
 	} else {
@@ -28,14 +35,18 @@ func SetLogger(l Logger) {
 }
 
 // GetLogger returns the global logger.
-func GetLogger() Logger { return globalLogger }
+func GetLogger() Logger {
+	loggerMu.RLock()
+	defer loggerMu.RUnlock()
+	return globalLogger
+}
 
 // Convenience functions using the global logger.
 
-func Debug(msg string, args ...any) { globalLogger.Debug(msg, args...) }
-func Info(msg string, args ...any)  { globalLogger.Info(msg, args...) }
-func Warn(msg string, args ...any)  { globalLogger.Warn(msg, args...) }
-func Error(msg string, args ...any) { globalLogger.Error(msg, args...) }
+func Debug(msg string, args ...any) { GetLogger().Debug(msg, args...) }
+func Info(msg string, args ...any)  { GetLogger().Info(msg, args...) }
+func Warn(msg string, args ...any)  { GetLogger().Warn(msg, args...) }
+func Error(msg string, args ...any) { GetLogger().Error(msg, args...) }
 
 // --- Default slog-based implementation ---
 

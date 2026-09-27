@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
@@ -17,8 +17,8 @@ import (
 // Supports cwd and timeout options.
 type ShellExec struct{}
 
-func (t *ShellExec) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *ShellExec) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "shell_exec",
 		Description: "Execute a shell command and return the output. Supports optional cwd and timeout (seconds, default 30). Max output: 4000 chars each for stdout/stderr.",
 		JSONSchema: map[string]any{
@@ -50,13 +50,16 @@ func (t *ShellExec) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *ShellExec) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *ShellExec) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	command, err := tools.Arg(detail, "command")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "shell_exec", err)
 	}
 
-	cwd, _ := tools.Arg(detail, "cwd")
+	cwd, err := tools.OptionalStringErr(detail, "cwd")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "shell_exec", err)
+	}
 
 	timeout := 30 * time.Second
 	if timeoutSec, err := tools.OptionalInt(detail, "timeout", 30); err != nil {
@@ -93,11 +96,19 @@ func (t *ShellExec) Execute(ctx context.Context, detail core.ToolCallDetail) cor
 
 	exitCode := 0
 	if err != nil {
+		// Check the context first: on timeout/cancel, CommandContext kills the
+		// process and Run returns an *exec.ExitError, so a timeout would
+		// otherwise be misreported as a non-zero exit (T1).
+		if ctx.Err() != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				return tools.ErrorResult(detail.ID, "shell_exec",
+					fmt.Errorf("command timed out after %v", timeout))
+			}
+			return tools.ErrorResult(detail.ID, "shell_exec",
+				fmt.Errorf("command cancelled: %v", ctx.Err()))
+		}
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
-		} else if ctx.Err() != nil {
-			return tools.ErrorResult(detail.ID, "shell_exec",
-				fmt.Errorf("command timed out after %v", timeout))
 		} else {
 			return tools.ErrorResult(detail.ID, "shell_exec", err)
 		}
@@ -114,8 +125,9 @@ func (t *ShellExec) Execute(ctx context.Context, detail core.ToolCallDetail) cor
 }
 
 func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + fmt.Sprintf("\n... (truncated, %d total chars)", len(s))
+	return string(runes[:maxLen]) + fmt.Sprintf("\n... (truncated, %d total chars)", len(runes))
 }

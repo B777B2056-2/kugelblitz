@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/stretchr/testify/assert"
@@ -19,8 +19,8 @@ func newConverter() *Converter { return NewConverter() }
 
 func TestConvertMessages_SystemMessage(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{
-		{ID: "s1", Role: constants.RoleSystem, Content: core.TextContent{Text: "system prompt"}},
+	msgs := []coretypes.Message{
+		{ID: "s1", Role: constants.RoleSystem, Content: coretypes.TextContent{Text: "system prompt"}},
 	}
 	result, err := c.ConvertMessages(msgs)
 	require.NoError(t, err)
@@ -29,7 +29,7 @@ func TestConvertMessages_SystemMessage(t *testing.T) {
 
 func TestConvertMessages_UserTextMessage(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{core.NewUserMessage(core.TextContent{Text: "hello"})}
+	msgs := []coretypes.Message{coretypes.NewUserMessage(coretypes.TextContent{Text: "hello"})}
 	result, err := c.ConvertMessages(msgs)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
@@ -37,7 +37,7 @@ func TestConvertMessages_UserTextMessage(t *testing.T) {
 
 func TestConvertMessages_AssistantTextMessage(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{core.NewAssistantMessage(core.TextContent{Text: "response"})}
+	msgs := []coretypes.Message{coretypes.NewAssistantMessage(coretypes.TextContent{Text: "response"})}
 	result, err := c.ConvertMessages(msgs)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
@@ -45,27 +45,27 @@ func TestConvertMessages_AssistantTextMessage(t *testing.T) {
 
 func TestConvertMessages_ToolCallWithReasoning(t *testing.T) {
 	c := newConverter()
-	msg := core.Message{
+	msg := coretypes.Message{
 		ID:   "a1",
 		Role: constants.RoleAssistant,
-		Content: core.CompositeContent{
-			Parts: []core.Content{
-				core.ReasoningContent{Reasoning: "I need to search"},
-				core.ToolCallContent{Details: []core.ToolCallDetail{
+		Content: coretypes.CompositeContent{
+			Parts: []coretypes.Content{
+				coretypes.ReasoningContent{Reasoning: "I need to search"},
+				coretypes.ToolCallContent{Details: []coretypes.ToolCallDetail{
 					{ID: "tc-1", ToolName: "search", Args: map[string]any{"q": "test"}},
 				}},
 			},
 		},
 	}
-	result, err := c.ConvertMessages([]core.Message{msg})
+	result, err := c.ConvertMessages([]coretypes.Message{msg})
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 }
 
 func TestConvertMessages_ToolResultMessage(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{
-		core.NewToolMessage([]core.ToolCallResult{
+	msgs := []coretypes.Message{
+		coretypes.NewToolMessage([]coretypes.ToolCallResult{
 			{ToolCallID: "tc-1", ToolName: "search", Outputs: map[string]any{"result": "found"}},
 		}),
 	}
@@ -76,14 +76,14 @@ func TestConvertMessages_ToolResultMessage(t *testing.T) {
 
 func TestConvertMessages_EmptyList(t *testing.T) {
 	c := newConverter()
-	result, err := c.ConvertMessages([]core.Message{})
+	result, err := c.ConvertMessages([]coretypes.Message{})
 	require.NoError(t, err)
 	assert.Empty(t, result)
 }
 
 func TestConvertMessages_UnknownRole(t *testing.T) {
 	c := newConverter()
-	_, err := c.ConvertMessages([]core.Message{{Role: constants.RoleType("invalid")}})
+	_, err := c.ConvertMessages([]coretypes.Message{{Role: constants.RoleType("invalid")}})
 	assert.Error(t, err)
 }
 
@@ -91,7 +91,7 @@ func TestConvertMessages_UnknownRole(t *testing.T) {
 
 func TestConvertTools_SingleTool(t *testing.T) {
 	c := newConverter()
-	tools := []core.ToolDefinition{
+	tools := []coretypes.ToolDefinition{
 		{Name: "search", Description: "Search", JSONSchema: map[string]any{"type": "object"}},
 	}
 	result, err := c.ConvertTools(tools)
@@ -101,9 +101,92 @@ func TestConvertTools_SingleTool(t *testing.T) {
 
 func TestConvertTools_Empty(t *testing.T) {
 	c := newConverter()
-	result, err := c.ConvertTools([]core.ToolDefinition{})
+	result, err := c.ConvertTools([]coretypes.ToolDefinition{})
 	require.NoError(t, err)
 	assert.Nil(t, result)
+}
+
+func TestIsStrictCompliant(t *testing.T) {
+	tests := []struct {
+		name   string
+		schema map[string]any
+		want   bool
+	}{
+		{
+			name: "compliant object with required",
+			schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"drift":  map[string]any{"type": "boolean"},
+					"reason": map[string]any{"type": "string"},
+				},
+				"required":             []any{"drift", "reason"},
+				"additionalProperties": false,
+			},
+			want: true,
+		},
+		{
+			name:   "missing additionalProperties",
+			schema: map[string]any{"type": "object", "properties": map[string]any{"a": map[string]any{"type": "string"}}, "required": []any{"a"}},
+			want:   false,
+		},
+		{
+			name:   "additionalProperties true",
+			schema: map[string]any{"type": "object", "properties": map[string]any{"a": map[string]any{"type": "string"}}, "required": []any{"a"}, "additionalProperties": true},
+			want:   false,
+		},
+		{
+			name:   "non-object type",
+			schema: map[string]any{"type": "string"},
+			want:   false,
+		},
+		{
+			name:   "property missing from required",
+			schema: map[string]any{"type": "object", "properties": map[string]any{"a": map[string]any{"type": "string"}, "b": map[string]any{"type": "string"}}, "required": []any{"a"}, "additionalProperties": false},
+			want:   false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isStrictCompliant(tt.schema))
+		})
+	}
+}
+
+func TestConvertTools_StrictOnlyWhenCompliant(t *testing.T) {
+	c := newConverter()
+	compliant := coretypes.ToolDefinition{
+		Name: "compliant", Description: "C",
+		JSONSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"q": map[string]any{"type": "string"},
+			},
+			"required":             []any{"q"},
+			"additionalProperties": false,
+		},
+	}
+	nonCompliant := coretypes.ToolDefinition{
+		Name: "noncompliant", Description: "N",
+		JSONSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"q": map[string]any{"type": "string"},
+			},
+		},
+	}
+
+	result, err := c.ConvertTools([]coretypes.ToolDefinition{compliant, nonCompliant})
+	require.NoError(t, err)
+	require.Len(t, result, 2)
+
+	// Compliant schema → Strict is set (valid) and true.
+	strict0 := result[0].OfFunction.Function.Strict
+	require.True(t, strict0.Valid())
+	assert.True(t, strict0.Value)
+
+	// Non-compliant schema → Strict is omitted (invalid / not present).
+	assert.False(t, result[1].OfFunction.Function.Strict.Valid())
 }
 
 // --- ParseResponse ---
@@ -114,7 +197,7 @@ func TestParseResponse_TextMessage(t *testing.T) {
 	result, err := c.ParseResponse(context.Background(), "p1", raw)
 	require.NoError(t, err)
 
-	text, ok := result.Content.(core.TextContent)
+	text, ok := result.Content.(coretypes.TextContent)
 	require.True(t, ok)
 	assert.Equal(t, "hello world", text.Text)
 }
@@ -129,7 +212,7 @@ func TestParseResponse_ToolCalls(t *testing.T) {
 	result, err := c.ParseResponse(context.Background(), "p1", raw)
 	require.NoError(t, err)
 
-	toolContent, ok := result.Content.(core.ToolCallContent)
+	toolContent, ok := result.Content.(coretypes.ToolCallContent)
 	require.True(t, ok)
 	assert.Equal(t, "search", toolContent.Details[0].ToolName)
 }
@@ -145,7 +228,7 @@ func TestParseStreamChunk_TextDelta(t *testing.T) {
 	}
 	result, err := c.ParseStreamChunk(context.Background(), "p1", raw)
 	require.NoError(t, err)
-	text, ok := result.Content.(core.TextContent)
+	text, ok := result.Content.(coretypes.TextContent)
 	require.True(t, ok)
 	assert.Equal(t, "hello", text.Text)
 }
@@ -155,6 +238,50 @@ func TestParseStreamChunk_EmptyChoices(t *testing.T) {
 	result, err := c.ParseStreamChunk(context.Background(), "p1", openai.ChatCompletionChunk{})
 	require.NoError(t, err)
 	assert.Nil(t, result)
+}
+
+// TestParseStreamChunk_UsageOnlyChunk guards the include_usage terminal chunk:
+// streaming APIs (DeepSeek/OpenAI) emit a final chunk with usage but no choices.
+// It must still surface a message carrying Usage so token tracking works.
+func TestParseStreamChunk_UsageOnlyChunk(t *testing.T) {
+	c := newConverter()
+	raw := openai.ChatCompletionChunk{
+		Usage: openai.CompletionUsage{
+			TotalTokens:      70,
+			PromptTokens:     31,
+			CompletionTokens: 39,
+		},
+	}
+	result, err := c.ParseStreamChunk(context.Background(), "p1", raw)
+	require.NoError(t, err)
+	require.NotNil(t, result, "usage-only chunk must yield a message carrying usage")
+	require.NotNil(t, result.Usage)
+	assert.Equal(t, int64(70), result.Usage.TotalTokens)
+	assert.Equal(t, int64(31), result.Usage.InputTokens)
+	assert.Equal(t, int64(39), result.Usage.OutputTokens)
+}
+
+// TestParseStreamChunk_UsageWithEmptyContentChunk guards DeepSeek's include_usage
+// terminal chunk: it has a choice with empty content and finish_reason, and the
+// usage attached to the same chunk. Usage must survive despite empty content.
+func TestParseStreamChunk_UsageWithEmptyContentChunk(t *testing.T) {
+	c := newConverter()
+	raw := openai.ChatCompletionChunk{
+		Choices: []openai.ChatCompletionChunkChoice{
+			{FinishReason: "stop", Delta: openai.ChatCompletionChunkChoiceDelta{Content: ""}},
+		},
+		Usage: openai.CompletionUsage{
+			TotalTokens:      77,
+			PromptTokens:     31,
+			CompletionTokens: 46,
+		},
+	}
+	result, err := c.ParseStreamChunk(context.Background(), "p1", raw)
+	require.NoError(t, err)
+	require.NotNil(t, result, "terminal chunk with empty content must still surface usage")
+	require.NotNil(t, result.Usage)
+	assert.Equal(t, int64(77), result.Usage.TotalTokens)
+	assert.Equal(t, "stop", result.FinishReason)
 }
 
 func TestParseStreamChunk_WithFinishReason(t *testing.T) {
@@ -206,9 +333,9 @@ func TestParseReasoningFromChunkRaw_Absent(t *testing.T) {
 
 func TestConvertMessages_UserImageMessage(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{
-		core.NewUserMessage(core.MultiModalContent{
-			Detail: core.MultiModalDetail{
+	msgs := []coretypes.Message{
+		coretypes.NewUserMessage(coretypes.MultiModalContent{
+			Detail: coretypes.MultiModalDetail{
 				ID:       "img-1",
 				Type:     constants.MultiModalTypeImage,
 				Base64:   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk",
@@ -237,9 +364,9 @@ func TestConvertMessages_UserImageMessage(t *testing.T) {
 
 func TestConvertMessages_UserAudioMessage(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{
-		core.NewUserMessage(core.MultiModalContent{
-			Detail: core.MultiModalDetail{
+	msgs := []coretypes.Message{
+		coretypes.NewUserMessage(coretypes.MultiModalContent{
+			Detail: coretypes.MultiModalDetail{
 				ID:       "aud-1",
 				Type:     constants.MultiModalTypeAudio,
 				Base64:   "ZGF0YQ==", // "data" in base64
@@ -265,12 +392,12 @@ func TestConvertMessages_UserAudioMessage(t *testing.T) {
 
 func TestConvertMessages_UserCompositeTextAndImage(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{
-		core.NewUserMessage(core.CompositeContent{
-			Parts: []core.Content{
-				core.TextContent{Text: "请描述这张图片"},
-				core.MultiModalContent{
-					Detail: core.MultiModalDetail{
+	msgs := []coretypes.Message{
+		coretypes.NewUserMessage(coretypes.CompositeContent{
+			Parts: []coretypes.Content{
+				coretypes.TextContent{Text: "请描述这张图片"},
+				coretypes.MultiModalContent{
+					Detail: coretypes.MultiModalDetail{
 						ID:       "img-1",
 						Type:     constants.MultiModalTypeImage,
 						Base64:   "iVBORw0KGgo=",
@@ -301,9 +428,9 @@ func TestConvertMessages_UserCompositeTextAndImage(t *testing.T) {
 
 func TestConvertMessages_UserVideoMessage(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{
-		core.NewUserMessage(core.MultiModalContent{
-			Detail: core.MultiModalDetail{
+	msgs := []coretypes.Message{
+		coretypes.NewUserMessage(coretypes.MultiModalContent{
+			Detail: coretypes.MultiModalDetail{
 				ID:       "vid-1",
 				Type:     constants.MultiModalTypeVideo,
 				Base64:   "iVBORw0KGgo=",
@@ -325,9 +452,9 @@ func TestConvertMessages_UserVideoMessage(t *testing.T) {
 
 func TestConvertMessages_UnsupportedMediaType(t *testing.T) {
 	c := newConverter()
-	msgs := []core.Message{
-		core.NewUserMessage(core.MultiModalContent{
-			Detail: core.MultiModalDetail{
+	msgs := []coretypes.Message{
+		coretypes.NewUserMessage(coretypes.MultiModalContent{
+			Detail: coretypes.MultiModalDetail{
 				ID:   "pdf-1",
 				Type: constants.MultiModalTypePDF,
 			},

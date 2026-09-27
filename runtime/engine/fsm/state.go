@@ -5,13 +5,12 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
-	"github.com/B777B2056-2/kugelblitz/memory/working"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 )
 
 // State represents a single state in the finite state machine.
 type State interface {
 	Name() constants.PlanState
-	AvailableTools() []string
 	Execute(ctx *Context) (constants.PlanState, error)
 }
 
@@ -24,6 +23,7 @@ var stateToolsMap = map[constants.PlanState][]string{
 		"dir_create", "dir_copy",
 		"memory_store", "memory_search", "memory_get_section",
 		"memory_remove", "memory_list_sections", "memory_stats",
+		"memory_extract", "context_compress",
 		"skill_use", "ask_human",
 	},
 	constants.PlanStateInit: {
@@ -33,7 +33,7 @@ var stateToolsMap = map[constants.PlanState][]string{
 		"memory_extract",
 		"skill_use",
 	},
-	constants.PlanStateConfirmed: {"ask_human", "confirm_plan"},
+	constants.PlanStateConfirmed: {"ask_human", "confirm_plan", "memory_extract"},
 	constants.PlanStateDoing:     {"task_query", "task_status_update"},
 	constants.PlanStateUpdating: {
 		"memory_store", "memory_search", "memory_get_section",
@@ -42,20 +42,20 @@ var stateToolsMap = map[constants.PlanState][]string{
 		"skill_use",
 		"task_insert", "task_delete", "task_query", "plan_query",
 	},
-	constants.PlanStateDone:     {"task_query", "plan_query"},
-	constants.PlanStateFailed:   {"task_query", "plan_query"},
+	constants.PlanStateDone:     {"task_query", "plan_query", "memory_extract"},
+	constants.PlanStateFailed:   {"task_query", "plan_query", "memory_extract"},
 	constants.PlanStateRejected: {},
 }
 
-// ToolsForState returns the available tools for a given state, merged with
-// any custom tools registered in the global tool registry.
-func ToolsForState(status constants.PlanState) []string {
+// ToolsForState returns the available tools for a given state, merged with the
+// custom tool names supplied by the caller (injected via deps.CustomToolNames
+// at the composition root rather than read from the global registry here).
+func ToolsForState(status constants.PlanState, customNames []string) []string {
 	tools, ok := stateToolsMap[status]
 	if !ok {
 		return nil
 	}
 
-	customNames := core.GetToolRegistry().CustomToolNames()
 	if len(customNames) == 0 {
 		return tools
 	}
@@ -68,7 +68,6 @@ func ToolsForState(status constants.PlanState) []string {
 type IntentState struct{}
 
 func (s *IntentState) Name() constants.PlanState { return constants.PlanStateIntent }
-func (s *IntentState) AvailableTools() []string  { return ToolsForState(constants.PlanStateIntent) }
 func (s *IntentState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateIntent,
@@ -79,9 +78,12 @@ func (s *IntentState) Execute(ctx *Context) (constants.PlanState, error) {
 		return constants.PlanStateIntent, err
 	}
 
-	ctx.WorkMode, _ = core.ExtractToolResult[string](result.Messages, "set_work_mode", "mode")
+	ctx.WorkMode, _ = coretypes.ExtractToolResult[string](result.Messages, "set_work_mode", "mode")
 	if ctx.WorkMode == "plan" {
 		return constants.PlanStateInit, nil
+	}
+	if ctx.WorkMode != "simple" {
+		core.Warn("intent: no valid work mode, falling back to direct", "mode", ctx.WorkMode)
 	}
 	return constants.PlanStateDirect, nil
 }
@@ -90,7 +92,6 @@ func (s *IntentState) Execute(ctx *Context) (constants.PlanState, error) {
 type DirectState struct{}
 
 func (s *DirectState) Name() constants.PlanState { return constants.PlanStateDirect }
-func (s *DirectState) AvailableTools() []string  { return ToolsForState(constants.PlanStateDirect) }
 func (s *DirectState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateDirect,
@@ -108,7 +109,6 @@ func (s *DirectState) Execute(ctx *Context) (constants.PlanState, error) {
 type InitState struct{}
 
 func (s *InitState) Name() constants.PlanState { return constants.PlanStateInit }
-func (s *InitState) AvailableTools() []string  { return ToolsForState(constants.PlanStateInit) }
 func (s *InitState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateInit,
@@ -119,13 +119,13 @@ func (s *InitState) Execute(ctx *Context) (constants.PlanState, error) {
 		return constants.PlanStateInit, err
 	}
 
-	ctx.PlanID, _ = core.ExtractToolResult[string](result.Messages, "plan_create", "id")
+	ctx.PlanID, _ = coretypes.ExtractToolResult[string](result.Messages, "plan_create", "id")
 	if ctx.PlanID != "" {
-		plan, ok := working.GetPlan(ctx.PlanID)
+		plan, ok := ctx.Deps.GetPlan(ctx.PlanID)
 		if ok && plan != nil {
 			if err := plan.Validate(); err != nil {
 				// Validation failed — inform the LLM and retry in Updating
-				ctx.Deps.Session.AppendMessage(core.NewSystemMessage(core.TextContent{
+				ctx.Deps.Session.AppendMessage(coretypes.NewSystemMessage(coretypes.TextContent{
 					Text: fmt.Sprintf(
 						"[System] Plan validation failed: %s. Please fix and re-create with plan_create.", err.Error()),
 				}))
@@ -138,6 +138,7 @@ func (s *InitState) Execute(ctx *Context) (constants.PlanState, error) {
 	}
 
 	// plan_create was not called — fallback to direct
+	core.Warn("init: plan_create not called, falling back to direct mode")
 	return constants.PlanStateDirect, nil
 }
 
@@ -145,14 +146,11 @@ func (s *InitState) Execute(ctx *Context) (constants.PlanState, error) {
 type ConfirmedState struct{}
 
 func (s *ConfirmedState) Name() constants.PlanState { return constants.PlanStateConfirmed }
-func (s *ConfirmedState) AvailableTools() []string {
-	return ToolsForState(constants.PlanStateConfirmed)
-}
 func (s *ConfirmedState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateConfirmed,
 		Plan:  ctx.Plan,
-		Input: core.AgentInput{Text: "The plan has been created. Present it to the user for approval via ask_human. " +
+		Input: coretypes.AgentInput{Text: "The plan has been created. Present it to the user for approval via ask_human. " +
 			"After the user responds, call confirm_plan with the appropriate status."},
 	}
 	_, err := action.Execute(ctx)
@@ -161,7 +159,7 @@ func (s *ConfirmedState) Execute(ctx *Context) (constants.PlanState, error) {
 	}
 
 	if ctx.PlanID != "" {
-		plan, ok := working.GetPlan(ctx.PlanID)
+		plan, ok := ctx.Deps.GetPlan(ctx.PlanID)
 		if ok && plan != nil && plan.State != constants.PlanStateConfirmed {
 			return plan.State, nil
 		}
@@ -173,7 +171,6 @@ func (s *ConfirmedState) Execute(ctx *Context) (constants.PlanState, error) {
 type DoingState struct{}
 
 func (s *DoingState) Name() constants.PlanState { return constants.PlanStateDoing }
-func (s *DoingState) AvailableTools() []string  { return ToolsForState(constants.PlanStateDoing) }
 func (s *DoingState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &DAGAction{
 		Plan: ctx.Plan,
@@ -194,12 +191,11 @@ func (s *DoingState) Execute(ctx *Context) (constants.PlanState, error) {
 type UpdatingState struct{}
 
 func (s *UpdatingState) Name() constants.PlanState { return constants.PlanStateUpdating }
-func (s *UpdatingState) AvailableTools() []string  { return ToolsForState(constants.PlanStateUpdating) }
 func (s *UpdatingState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateUpdating,
 		Plan:  ctx.Plan,
-		Input: core.AgentInput{Text: "Some tasks have failed. Review the failed tasks and update the plan as needed."},
+		Input: coretypes.AgentInput{Text: "Some tasks have failed. Review the failed tasks and update the plan as needed."},
 	}
 	_, err := action.Execute(ctx)
 	if err != nil {
@@ -207,10 +203,10 @@ func (s *UpdatingState) Execute(ctx *Context) (constants.PlanState, error) {
 	}
 
 	if ctx.PlanID != "" {
-		plan, ok := working.GetPlan(ctx.PlanID)
+		plan, ok := ctx.Deps.GetPlan(ctx.PlanID)
 		if ok && plan != nil {
 			if err := plan.Validate(); err != nil {
-				ctx.Deps.Session.AppendMessage(core.NewSystemMessage(core.TextContent{
+				ctx.Deps.Session.AppendMessage(coretypes.NewSystemMessage(coretypes.TextContent{
 					Text: fmt.Sprintf("[System] Plan still invalid after fix: %s.", err.Error()),
 				}))
 			} else {
@@ -219,6 +215,7 @@ func (s *UpdatingState) Execute(ctx *Context) (constants.PlanState, error) {
 			}
 		}
 	}
+	core.Warn("updating: plan still invalid, falling back to direct mode")
 	return constants.PlanStateDirect, nil
 }
 
@@ -226,12 +223,11 @@ func (s *UpdatingState) Execute(ctx *Context) (constants.PlanState, error) {
 type DoneState struct{}
 
 func (s *DoneState) Name() constants.PlanState { return constants.PlanStateDone }
-func (s *DoneState) AvailableTools() []string  { return ToolsForState(constants.PlanStateDone) }
 func (s *DoneState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateDone,
 		Plan:  ctx.Plan,
-		Input: core.AgentInput{Text: "All tasks have completed. Review the results and summarize what was accomplished."},
+		Input: coretypes.AgentInput{Text: "All tasks have completed. Review the results and summarize what was accomplished."},
 	}
 	result, err := action.Execute(ctx)
 	if err != nil {
@@ -245,12 +241,11 @@ func (s *DoneState) Execute(ctx *Context) (constants.PlanState, error) {
 type FailedState struct{}
 
 func (s *FailedState) Name() constants.PlanState { return constants.PlanStateFailed }
-func (s *FailedState) AvailableTools() []string  { return ToolsForState(constants.PlanStateFailed) }
 func (s *FailedState) Execute(ctx *Context) (constants.PlanState, error) {
 	action := &ReactAction{
 		State: constants.PlanStateFailed,
 		Plan:  ctx.Plan,
-		Input: core.AgentInput{Text: "The plan has failed. Review the failed tasks and summarize what went wrong."},
+		Input: coretypes.AgentInput{Text: "The plan has failed. Review the failed tasks and summarize what went wrong."},
 	}
 	result, err := action.Execute(ctx)
 	if err != nil {
@@ -264,7 +259,6 @@ func (s *FailedState) Execute(ctx *Context) (constants.PlanState, error) {
 type RejectedState struct{}
 
 func (s *RejectedState) Name() constants.PlanState { return constants.PlanStateRejected }
-func (s *RejectedState) AvailableTools() []string  { return ToolsForState(constants.PlanStateRejected) }
 func (s *RejectedState) Execute(ctx *Context) (constants.PlanState, error) {
 	return constants.PlanStateRejected, nil // terminal, no action
 }

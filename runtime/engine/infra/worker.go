@@ -8,8 +8,10 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/prompts"
+	"github.com/B777B2056-2/kugelblitz/runtime/engine/worker"
 )
 
 // WorkerAgent is a lightweight agent that executes a single task with a
@@ -32,17 +34,18 @@ var workerTools = []string{
 }
 
 type WorkerAgent struct {
-	provider   core.ILMProvider
-	streamMode bool
-	maxSteps   int                                            // safety limit on ReAct loop iterations
-	hooks      core.AgentEventHooks                           // set by DAG executor; relayed to worker's ReactAgent
-	pauseGate  *sync.RWMutex                                  // shared DAG pause gate; nil = no pausing
-	onHITL     func(agent *ReactAgent, reason, prompt string) // fire on worker HITL
-	stepTracer *observability.StepTracer                      // per-step OTel instrumentation (shared from DAG)
+	provider         coretypes.ILMProvider
+	streamMode       bool
+	maxSteps         int                                                 // safety limit on ReAct loop iterations
+	hooks            core.AgentEventHooks                                // set by DAG executor; relayed to worker's ReactAgent
+	pauseGate        worker.PauseGate                                    // shared DAG pause gate; nil = no pausing
+	onHITL           func(agent worker.HitlAgent, reason, prompt string) // fire on worker HITL
+	stepTracer       *observability.StepTracer                           // per-step OTel instrumentation (shared from DAG)
+	humanToolFactory worker.HumanToolFactory                             // builds ask_human tool; nil = omit (set by DAG)
 }
 
 // NewWorkerAgent creates a WorkerAgent with built-in execution tools plus custom tools.
-func NewWorkerAgent(provider core.ILMProvider, streamMode bool) *WorkerAgent {
+func NewWorkerAgent(provider coretypes.ILMProvider, streamMode bool) *WorkerAgent {
 	return &WorkerAgent{
 		provider:   provider,
 		streamMode: streamMode,
@@ -54,22 +57,28 @@ func NewWorkerAgent(provider core.ILMProvider, streamMode bool) *WorkerAgent {
 func (w *WorkerAgent) SetHooks(hooks core.AgentEventHooks) { w.hooks = hooks }
 
 // SetPauseGate sets the shared DAG pause gate.
-func (w *WorkerAgent) SetPauseGate(g *sync.RWMutex) { w.pauseGate = g }
+func (w *WorkerAgent) SetPauseGate(g worker.PauseGate) { w.pauseGate = g }
 
 // SetProvider replaces the LLM provider used for subsequent task execution.
-func (w *WorkerAgent) SetProvider(p core.ILMProvider) { w.provider = p }
+func (w *WorkerAgent) SetProvider(p coretypes.ILMProvider) { w.provider = p }
 
 // SetStepTracer attaches a StepTracer for per-step OTel instrumentation.
 func (w *WorkerAgent) SetStepTracer(st *observability.StepTracer) { w.stepTracer = st }
 
 // SetOnHITL sets the callback fired when the worker enters HITL.
-func (w *WorkerAgent) SetOnHITL(fn func(agent *ReactAgent, reason, prompt string)) { w.onHITL = fn }
+func (w *WorkerAgent) SetOnHITL(fn func(agent worker.HitlAgent, reason, prompt string)) {
+	w.onHITL = fn
+}
+
+// SetHumanToolFactory injects the factory used to build the worker's local
+// ask_human tool. When nil, EnableHumanInTheLoop registers no tool.
+func (w *WorkerAgent) SetHumanToolFactory(f worker.HumanToolFactory) { w.humanToolFactory = f }
 
 // workerResult collects the WorkerAgent's output and usage safely from callbacks.
 type workerResult struct {
 	mu     sync.Mutex
 	output strings.Builder
-	usage  core.Usage
+	usage  coretypes.Usage
 	err    error
 }
 
@@ -79,7 +88,7 @@ func (r *workerResult) write(chunk string) {
 	r.output.WriteString(chunk)
 }
 
-func (r *workerResult) addUsage(u core.Usage) {
+func (r *workerResult) addUsage(u coretypes.Usage) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.usage.InputTokens += u.InputTokens
@@ -98,19 +107,23 @@ func (r *workerResult) setErr(err error) {
 }
 
 // ExecuteTask runs the worker to complete a single task.
-func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (string, *core.Usage, error) {
+func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (string, *coretypes.Usage, error) {
 	result := &workerResult{}
 
-	sysPrompt := prompts.DefaultFactory.MustRender(prompts.TypeWorker, prompts.WorkerParams{
+	sysPrompt, err := prompts.DefaultFactory.Render(prompts.TypeWorker, prompts.WorkerParams{
 		Goal: goal, Action: action,
 	})
-	systemMsg := core.NewSystemMessage(core.TextContent{Text: sysPrompt})
+	if err != nil {
+		return "", nil, fmt.Errorf("render worker prompt: %w", err)
+	}
+	systemMsg := coretypes.NewSystemMessage(coretypes.TextContent{Text: sysPrompt})
 
-	userMsg := core.NewUserMessage(core.TextContent{
+	userMsg := coretypes.NewUserMessage(coretypes.TextContent{
 		Text: fmt.Sprintf("Execute the task: %s", goal),
 	})
 
 	agent := NewReactAgent(w.provider, w.streamMode)
+	agent.SetMaxSteps(w.maxSteps)
 
 	// Wire per-step OTel tracing for this task
 	if w.stepTracer != nil {
@@ -118,26 +131,23 @@ func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (str
 	}
 
 	agent.WithTools(append(workerTools, core.GetToolRegistry().CustomToolNames()...)...)
+	agent.SetHumanToolFactory(w.humanToolFactory)
 	agent.EnableHumanInTheLoop()
 	if w.pauseGate != nil {
 		agent.WithPauseGate(w.pauseGate)
 	}
 
 	// Compose hooks: Chain preserves user callbacks.
+	// NOTE: reply text is collected from the returned messages (single source),
+	// not from OnReplyChunk/OnBlockReply, to avoid duplicating the output (B17).
 	hooks := core.Chain(w.hooks, core.AgentEventHooks{
-		OnReplyChunk: func(id constants.AgentIdentity, chunk string) {
-			result.write(chunk)
-		},
-		OnBlockReply: func(id constants.AgentIdentity, text string) {
-			result.write(text)
-		},
-		OnUsageUpdated: func(id constants.AgentIdentity, usage core.Usage) {
+		OnUsageUpdated: func(id constants.AgentIdentity, usage coretypes.Usage) {
 			result.addUsage(usage)
 		},
 		OnError: func(id constants.AgentIdentity, err error) {
 			result.setErr(err)
 		},
-		OnToolCallEnd: func(id constants.AgentIdentity, r core.ToolCallResult) {
+		OnToolCallEnd: func(id constants.AgentIdentity, r coretypes.ToolCallResult) {
 			if errMsg, ok := r.Outputs["error"]; ok {
 				result.write(fmt.Sprintf("[tool error: %s → %v]", r.ToolName, errMsg))
 			}
@@ -156,18 +166,18 @@ func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (str
 		_ = agent.Interrupt(context.Background())
 	}()
 
-	messages, err := agent.Execute(ctx, systemMsg, []core.Message{userMsg})
+	messages, err := agent.Execute(ctx, systemMsg, []coretypes.Message{userMsg})
 	if err != nil {
 		result.setErr(err)
 	}
 
 	for _, msg := range messages {
-		if tc, ok := msg.Content.(core.TextContent); ok {
-			result.write(tc.Text)
+		if text := extractReplyText(msg.Content); text != "" {
+			result.write(text)
 		}
 	}
 
-	usage := &core.Usage{
+	usage := &coretypes.Usage{
 		InputTokens:     result.usage.InputTokens,
 		OutputTokens:    result.usage.OutputTokens,
 		ReasoningTokens: result.usage.ReasoningTokens,
@@ -178,4 +188,24 @@ func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (str
 		return result.output.String(), usage, result.err
 	}
 	return result.output.String(), usage, nil
+}
+
+// extractReplyText extracts the text portion of a message content for the
+// worker's final output. It handles plain text and composite (reasoning+text)
+// content, ignoring reasoning and tool-call parts.
+func extractReplyText(content coretypes.Content) string {
+	switch ct := content.(type) {
+	case coretypes.TextContent:
+		return ct.Text
+	case coretypes.CompositeContent:
+		var sb strings.Builder
+		for _, part := range ct.Parts {
+			if tc, ok := part.(coretypes.TextContent); ok {
+				sb.WriteString(tc.Text)
+			}
+		}
+		return sb.String()
+	default:
+		return ""
+	}
 }

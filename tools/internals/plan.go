@@ -7,6 +7,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/B777B2056-2/kugelblitz/tools"
@@ -17,8 +18,8 @@ import (
 
 type PlanCreate struct{}
 
-func (t *PlanCreate) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *PlanCreate) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "plan_create",
 		Description: "Create a new empty plan. Use task_insert afterwards to add subtasks.",
 		JSONSchema: map[string]any{
@@ -43,7 +44,7 @@ func (t *PlanCreate) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *PlanCreate) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *PlanCreate) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	name, err := tools.Arg(detail, "name")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "plan_create", err)
@@ -54,7 +55,9 @@ func (t *PlanCreate) Execute(ctx context.Context, detail core.ToolCallDetail) co
 		Name:      name,
 		State:     constants.PlanStateInit,
 	}
-	working.PutPlan(plan)
+	if err := working.PutPlan(plan); err != nil {
+		return tools.ErrorResult(detail.ID, "plan_create", err)
+	}
 	return tools.SuccessResult(detail.ID, "plan_create", working.PlanToMap(plan))
 }
 
@@ -62,8 +65,8 @@ func (t *PlanCreate) Execute(ctx context.Context, detail core.ToolCallDetail) co
 
 type PlanQuery struct{}
 
-func (t *PlanQuery) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *PlanQuery) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "plan_query",
 		Description: "Query a plan by ID to get all subtasks with status, or omit plan_id to list all plans.",
 		JSONSchema: map[string]any{
@@ -86,7 +89,7 @@ func (t *PlanQuery) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *PlanQuery) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *PlanQuery) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	if planID, ok := detail.Args["plan_id"].(string); ok && planID != "" {
 		plan, found := working.GetPlan(planID)
 		if !found {
@@ -107,8 +110,8 @@ func (t *PlanQuery) Execute(ctx context.Context, detail core.ToolCallDetail) cor
 
 type ConfirmPlan struct{}
 
-func (t *ConfirmPlan) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *ConfirmPlan) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name: "confirm_plan",
 		Description: "Confirm the plan after user review. Call after ask_human to finalize. " +
 			"Set status to 'doing' (approved), 'rejected', or 'update' (needs changes).",
@@ -143,7 +146,7 @@ func (t *ConfirmPlan) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *ConfirmPlan) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *ConfirmPlan) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	planID, err := tools.RequiredString(detail, "plan_id")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "confirm_plan", err)
@@ -163,11 +166,15 @@ func (t *ConfirmPlan) Execute(ctx context.Context, detail core.ToolCallDetail) c
 	}
 
 	newStatus := constants.PlanState(statusStr)
+	plan.Lock()
 	plan.State = newStatus
 	if reason != "" {
 		plan.FinishedReason = reason
 	}
-	working.PutPlan(plan)
+	plan.Unlock()
+	if err := working.PutPlan(plan); err != nil {
+		return tools.ErrorResult(detail.ID, "confirm_plan", err)
+	}
 
 	return tools.SuccessResult(detail.ID, "confirm_plan", map[string]any{
 		"id": plan.ID, "status": string(plan.State),
@@ -178,8 +185,8 @@ func (t *ConfirmPlan) Execute(ctx context.Context, detail core.ToolCallDetail) c
 
 type TaskInsert struct{}
 
-func (t *TaskInsert) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *TaskInsert) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "task_insert",
 		Description: "Insert a new subtask into a plan. Use parent_task_id to define execution order — independent tasks run concurrently.",
 		JSONSchema: map[string]any{
@@ -216,7 +223,7 @@ func (t *TaskInsert) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *TaskInsert) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *TaskInsert) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	planID, err := tools.RequiredString(detail, "plan_id")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "task_insert", err)
@@ -240,8 +247,12 @@ func (t *TaskInsert) Execute(ctx context.Context, detail core.ToolCallDetail) co
 		Action:       action,
 		Status:       working.TaskStatusPending,
 	}
+	plan.Lock()
 	plan.SubTasks = append(plan.SubTasks, task)
-	working.PutPlan(plan)
+	plan.Unlock()
+	if err := working.PutPlan(plan); err != nil {
+		return tools.ErrorResult(detail.ID, "task_insert", err)
+	}
 
 	return tools.SuccessResult(detail.ID, "task_insert", map[string]any{
 		"task_id": task.ID, "goal": task.Goal,
@@ -252,8 +263,8 @@ func (t *TaskInsert) Execute(ctx context.Context, detail core.ToolCallDetail) co
 
 type TaskDelete struct{}
 
-func (t *TaskDelete) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *TaskDelete) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "task_delete",
 		Description: "Delete a task from its plan. Use to remove failed or unnecessary tasks during replanning.",
 		JSONSchema: map[string]any{
@@ -275,7 +286,7 @@ func (t *TaskDelete) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *TaskDelete) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *TaskDelete) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	taskID, err := tools.RequiredString(detail, "task_id")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "task_delete", err)
@@ -288,9 +299,13 @@ func (t *TaskDelete) Execute(ctx context.Context, detail core.ToolCallDetail) co
 	if idx < 0 {
 		return tools.ErrorResult(detail.ID, "task_delete", fmt.Errorf("task not found in plan"))
 	}
+	plan.Lock()
 	plan.SubTasks = append(plan.SubTasks[:idx], plan.SubTasks[idx+1:]...)
 	plan.CurrentActivateSubTaskIDs = working.RemoveFromSlice(plan.CurrentActivateSubTaskIDs, taskID)
-	working.PutPlan(plan)
+	plan.Unlock()
+	if err := working.PutPlan(plan); err != nil {
+		return tools.ErrorResult(detail.ID, "task_delete", err)
+	}
 	return tools.SuccessResult(detail.ID, "task_delete", map[string]any{"deleted": true})
 }
 
@@ -298,8 +313,8 @@ func (t *TaskDelete) Execute(ctx context.Context, detail core.ToolCallDetail) co
 
 type TaskQuery struct{}
 
-func (t *TaskQuery) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *TaskQuery) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "task_query",
 		Description: "Query a task by ID to get full details, or list all tasks in a plan by plan_id. Provide exactly one of task_id or plan_id.",
 		JSONSchema: map[string]any{
@@ -333,7 +348,7 @@ func (t *TaskQuery) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *TaskQuery) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *TaskQuery) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	if taskID, ok := detail.Args["task_id"].(string); ok && taskID != "" {
 		_, task := working.FindTask(taskID)
 		if task == nil {
@@ -361,8 +376,8 @@ func (t *TaskQuery) Execute(ctx context.Context, detail core.ToolCallDetail) cor
 
 type TaskStatusUpdate struct{}
 
-func (t *TaskStatusUpdate) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *TaskStatusUpdate) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "task_status_update",
 		Description: "Update a task's status manually. Use during execution to mark tasks as done or failed after reviewing their output.",
 		JSONSchema: map[string]any{
@@ -397,7 +412,7 @@ func (t *TaskStatusUpdate) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *TaskStatusUpdate) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *TaskStatusUpdate) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	taskID, err := tools.RequiredString(detail, "task_id")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "task_status_update", err)
@@ -416,11 +431,15 @@ func (t *TaskStatusUpdate) Execute(ctx context.Context, detail core.ToolCallDeta
 		return tools.ErrorResult(detail.ID, "task_status_update", fmt.Errorf("task not found: %s", taskID))
 	}
 
+	plan.Lock()
 	task.Status = working.TaskStatus(statusStr)
 	if reason != "" {
 		task.FinishedReason = reason
 	}
-	working.PutPlan(plan)
+	plan.Unlock()
+	if err := working.PutPlan(plan); err != nil {
+		return tools.ErrorResult(detail.ID, "task_status_update", err)
+	}
 
 	return tools.SuccessResult(detail.ID, "task_status_update", map[string]any{
 		"id": task.ID, "status": string(task.Status),
@@ -431,8 +450,8 @@ func (t *TaskStatusUpdate) Execute(ctx context.Context, detail core.ToolCallDeta
 
 type PlanRollback struct{}
 
-func (t *PlanRollback) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+func (t *PlanRollback) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name:        "plan_rollback",
 		Description: "Rollback a plan to a previous checkpoint. Use when execution has drifted or produced incorrect results. A new checkpoint is created on rollback.",
 		JSONSchema: map[string]any{
@@ -460,7 +479,7 @@ func (t *PlanRollback) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *PlanRollback) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *PlanRollback) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	planID, err := tools.Arg(detail, "plan_id")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "plan_rollback", err)
@@ -470,14 +489,15 @@ func (t *PlanRollback) Execute(ctx context.Context, detail core.ToolCallDetail) 
 		return tools.ErrorResult(detail.ID, "plan_rollback", fmt.Errorf("plan not found: %s", planID))
 	}
 
+	plan.Lock()
 	fromVersion := plan.Version
-	var targetVersion int
-	if v, ok := detail.Args["version"].(float64); ok {
-		targetVersion = int(v)
-	} else if v, ok := detail.Args["version"].(int); ok {
-		targetVersion = v
-	} else {
-		targetVersion = fromVersion - 1
+	plan.Unlock()
+
+	// OptionalInt surfaces a wrong-typed version instead of silently defaulting
+	// to current-1 and rolling back to the wrong checkpoint (T7).
+	targetVersion, err := tools.OptionalInt(detail, "version", fromVersion-1)
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "plan_rollback", err)
 	}
 	if targetVersion < 1 || targetVersion >= fromVersion {
 		return tools.ErrorResult(detail.ID, "plan_rollback",
@@ -489,12 +509,16 @@ func (t *PlanRollback) Execute(ctx context.Context, detail core.ToolCallDetail) 
 		return tools.ErrorResult(detail.ID, "plan_rollback", err)
 	}
 
+	plan.Lock()
 	plan.Name = cp.Plan.Name
 	plan.SubTasks = cp.Plan.SubTasks
 	plan.CurrentActivateSubTaskIDs = cp.Plan.CurrentActivateSubTaskIDs
 	plan.State = cp.Plan.State
 	plan.FinishedReason = cp.Plan.FinishedReason
-	working.PutPlan(plan)
+	plan.Unlock()
+	if err := working.PutPlan(plan); err != nil {
+		return tools.ErrorResult(detail.ID, "plan_rollback", err)
+	}
 
 	return tools.SuccessResult(detail.ID, "plan_rollback", map[string]any{
 		"plan_id": planID, "from_version": fromVersion, "to_version": plan.Version,

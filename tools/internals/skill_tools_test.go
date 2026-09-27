@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/skills"
 
 	"github.com/stretchr/testify/assert"
@@ -22,7 +23,7 @@ func TestSkillUse_ActivatesSkill(t *testing.T) {
 
 	tool := &SkillUse{active: &skills.Skill{}, skills: []*skills.Skill{skill}}
 
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "s1", ToolName: "skill_use",
 		Args: map[string]any{"name": "reviewer"},
 	})
@@ -36,7 +37,7 @@ func TestSkillUse_ActivatesSkill(t *testing.T) {
 func TestSkillUse_NotFound(t *testing.T) {
 	tool := &SkillUse{active: &skills.Skill{}, skills: nil}
 
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "s1", ToolName: "skill_use",
 		Args: map[string]any{"name": "nonexistent"},
 	})
@@ -47,7 +48,7 @@ func TestSkillUse_NoArgsDeactivates(t *testing.T) {
 	skill := &skills.Skill{Name: "active", Prompt: "p"}
 	tool := &SkillUse{active: skill, skills: []*skills.Skill{skill}}
 
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "s1", ToolName: "skill_use",
 		Args: map[string]any{},
 	})
@@ -64,7 +65,7 @@ func TestSkillUse_AvailableTools(t *testing.T) {
 	}
 	tool := &SkillUse{active: &skills.Skill{}, skills: []*skills.Skill{skill}}
 
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "s1", ToolName: "skill_use",
 		Args: map[string]any{"name": "deployer"},
 	})
@@ -81,7 +82,7 @@ func TestSkillUse_Deactivate(t *testing.T) {
 	skill := &skills.Skill{Name: "r", Prompt: "p"}
 	tool := &SkillUse{active: skill, skills: []*skills.Skill{skill}}
 
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "s1", ToolName: "skill_use",
 		Args: map[string]any{},
 	})

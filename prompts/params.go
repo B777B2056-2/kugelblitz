@@ -27,6 +27,31 @@ type SemanticJudgeParams struct {
 	NewVal string
 }
 
+// SummarizeParams fills the TypeSummarize template.
+type SummarizeParams struct {
+	ExistingSummary string
+	Messages        string // pre-formatted message dump (see FormatMessages)
+}
+
+// MemoryScoreParams fills the TypeMemoryScore template.
+type MemoryScoreParams struct {
+	Items string // pre-formatted item list
+}
+
+// MemoryReflectParams fills the TypeMemoryReflect template.
+type MemoryReflectParams struct {
+	Items string // pre-formatted item list
+}
+
+// ExtractParams fills the TypeExtract template.
+type ExtractParams struct {
+	SessionSummary  string
+	ExistingItems   string // pre-formatted existing-memory list
+	CheckpointGoals string // pre-formatted active-goal list
+	UserMessage     string
+	Conversation    string // pre-summarized conversation
+}
+
 // PlanConfirmParams fills the TypePlanConfirm template.
 type PlanConfirmParams struct {
 	Name  string

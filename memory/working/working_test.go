@@ -3,7 +3,9 @@ package working
 import (
 	"testing"
 
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsValidDAG_Empty(t *testing.T) {
@@ -117,4 +119,27 @@ func TestIsValidDAG_SelfLoopInMulti(t *testing.T) {
 		{ID: "B", ParentTaskID: "A,B"}, // self-reference B
 	}}
 	assert.Error(t, p.Validate())
+}
+
+// TestCopyTasks_DeepCopiesUsage guards B20: checkpoint snapshots must not share
+// the *coretypes.Usage pointer with the live plan, so later mutations do not corrupt
+// already-persisted checkpoints.
+func TestCopyTasks_DeepCopiesUsage(t *testing.T) {
+	usage := &coretypes.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15}
+	tasks := []Task{{ID: "t1", Usage: usage}}
+
+	out := copyTasks(tasks)
+
+	require.NotNil(t, out[0].Usage)
+	assert.NotSame(t, tasks[0].Usage, out[0].Usage, "Usage must be a fresh copy")
+	assert.Equal(t, int64(10), out[0].Usage.InputTokens)
+
+	// Mutating the live task's Usage must not affect the copied snapshot.
+	tasks[0].Usage.InputTokens = 999
+	assert.Equal(t, int64(10), out[0].Usage.InputTokens)
+}
+
+func TestCopyTasks_NilUsageStaysNil(t *testing.T) {
+	out := copyTasks([]Task{{ID: "t1", Usage: nil}})
+	assert.Nil(t, out[0].Usage)
 }

@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"log/slog"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -41,6 +42,28 @@ func TestGetLogger(t *testing.T) {
 	custom := &captureLogger{}
 	SetLogger(custom)
 	assert.Equal(t, custom, GetLogger())
+}
+
+// TestSetLogger_Concurrent guards C4: SetLogger may be called at runtime while
+// other goroutines log. Exercised under `-race`.
+func TestSetLogger_Concurrent(t *testing.T) {
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			Info("log line", "key", "value")
+		}()
+	}
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			SetLogger(DiscardLogger())
+		}()
+	}
+	wg.Wait()
+	SetLogger(nil) // restore default for subsequent tests
 }
 
 func TestDiscardLogger(t *testing.T) {

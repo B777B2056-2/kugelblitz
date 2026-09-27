@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +20,7 @@ func TestContentBlocksToMessages_TextOnly(t *testing.T) {
 	assert.Equal(t, constants.RoleUser, msgs[0].Role)
 	assert.NotEmpty(t, msgs[0].ID)
 
-	tc, ok := msgs[0].Content.(core.TextContent)
+	tc, ok := msgs[0].Content.(coretypes.TextContent)
 	require.True(t, ok)
 	assert.Equal(t, "Hello, what can you do?", tc.Text)
 }
@@ -33,8 +33,8 @@ func TestContentBlocksToMessages_MultipleText(t *testing.T) {
 	msgs, err := ContentBlocksToMessages(blocks)
 	require.NoError(t, err)
 	require.Len(t, msgs, 2)
-	assert.Equal(t, "First message.", msgs[0].Content.(core.TextContent).Text)
-	assert.Equal(t, "Second message.", msgs[1].Content.(core.TextContent).Text)
+	assert.Equal(t, "First message.", msgs[0].Content.(coretypes.TextContent).Text)
+	assert.Equal(t, "Second message.", msgs[1].Content.(coretypes.TextContent).Text)
 }
 
 func TestContentBlocksToMessages_Image(t *testing.T) {
@@ -45,7 +45,7 @@ func TestContentBlocksToMessages_Image(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 
-	mmc, ok := msgs[0].Content.(core.MultiModalContent)
+	mmc, ok := msgs[0].Content.(coretypes.MultiModalContent)
 	require.True(t, ok)
 	assert.Equal(t, constants.MultiModalTypeImage, mmc.Detail.Type)
 	assert.Equal(t, "base64data", mmc.Detail.Base64)
@@ -59,7 +59,7 @@ func TestContentBlocksToMessages_ResourceLink(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 
-	mmc, ok := msgs[0].Content.(core.MultiModalContent)
+	mmc, ok := msgs[0].Content.(coretypes.MultiModalContent)
 	require.True(t, ok)
 	assert.Equal(t, "file:///tmp/doc.md", mmc.Detail.Path)
 }
@@ -78,14 +78,14 @@ func TestContentBlocksToMessages_UnknownType(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 	// Unknown types are treated as text
-	tc, ok := msgs[0].Content.(core.TextContent)
+	tc, ok := msgs[0].Content.(coretypes.TextContent)
 	require.True(t, ok)
 	assert.Equal(t, "foo", tc.Text)
 }
 
 func TestMessagesToContentBlocks_TextContent(t *testing.T) {
-	msgs := []core.Message{
-		core.NewAssistantMessage(core.TextContent{Text: "I can help!"}),
+	msgs := []coretypes.Message{
+		coretypes.NewAssistantMessage(coretypes.TextContent{Text: "I can help!"}),
 	}
 	blocks := MessagesToContentBlocks(msgs)
 	require.Len(t, blocks, 1)
@@ -94,12 +94,12 @@ func TestMessagesToContentBlocks_TextContent(t *testing.T) {
 }
 
 func TestMessagesToContentBlocks_MultiModal(t *testing.T) {
-	msgs := []core.Message{
+	msgs := []coretypes.Message{
 		{
 			ID:   "m1",
 			Role: constants.RoleAssistant,
-			Content: core.MultiModalContent{
-				Detail: core.MultiModalDetail{
+			Content: coretypes.MultiModalContent{
+				Detail: coretypes.MultiModalDetail{
 					Type:   constants.MultiModalTypeImage,
 					Path:   "/tmp/img.png",
 					Base64: "abc123",
@@ -126,7 +126,7 @@ func TestTextToStreamChunks(t *testing.T) {
 }
 
 func TestToolCallToNotification(t *testing.T) {
-	detail := core.ToolCallDetail{
+	detail := coretypes.ToolCallDetail{
 		ID:       "call_1",
 		ToolName: "read_file",
 		Args:     map[string]any{"path": "/tmp/test.txt"},
@@ -140,7 +140,7 @@ func TestToolCallToNotification(t *testing.T) {
 }
 
 func TestToolResultToNotification_Completed(t *testing.T) {
-	result := core.ToolCallResult{
+	result := coretypes.ToolCallResult{
 		ToolCallID: "call_1",
 		ToolName:   "read_file",
 		Outputs:    map[string]any{"content": "file contents here"},
@@ -154,7 +154,7 @@ func TestToolResultToNotification_Completed(t *testing.T) {
 }
 
 func TestToolResultToNotification_Error(t *testing.T) {
-	result := core.ToolCallResult{
+	result := coretypes.ToolCallResult{
 		ToolCallID: "call_err",
 		ToolName:   "bad_tool",
 		Outputs:    map[string]any{"error": "something went wrong"},
@@ -179,7 +179,7 @@ func TestContentBlocksToMessages_Resource(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 
-	tc, ok := msgs[0].Content.(core.TextContent)
+	tc, ok := msgs[0].Content.(coretypes.TextContent)
 	require.True(t, ok)
 	assert.Equal(t, "file contents", tc.Text)
 }
@@ -205,7 +205,7 @@ func TestContentBlocksToMessages_ImageVideoAudio(t *testing.T) {
 			}
 			msgs, err := ContentBlocksToMessages(blocks)
 			require.NoError(t, err)
-			mmc, ok := msgs[0].Content.(core.MultiModalContent)
+			mmc, ok := msgs[0].Content.(coretypes.MultiModalContent)
 			require.True(t, ok)
 			assert.Equal(t, tt.expected, mmc.Detail.Type)
 		})
@@ -213,11 +213,11 @@ func TestContentBlocksToMessages_ImageVideoAudio(t *testing.T) {
 }
 
 func TestMessagesToContentBlocks_ReasoningContent(t *testing.T) {
-	msgs := []core.Message{
+	msgs := []coretypes.Message{
 		{
 			ID:   "m1",
 			Role: constants.RoleAssistant,
-			Content: core.ReasoningContent{
+			Content: coretypes.ReasoningContent{
 				Reasoning: "internal thought",
 			},
 		},
@@ -228,12 +228,12 @@ func TestMessagesToContentBlocks_ReasoningContent(t *testing.T) {
 }
 
 func TestMessagesToContentBlocks_ToolCallContent(t *testing.T) {
-	msgs := []core.Message{
+	msgs := []coretypes.Message{
 		{
 			ID:   "m1",
 			Role: constants.RoleAssistant,
-			Content: core.ToolCallContent{
-				Details: []core.ToolCallDetail{
+			Content: coretypes.ToolCallContent{
+				Details: []coretypes.ToolCallDetail{
 					{ID: "tc_1", ToolName: "read_file", Args: map[string]any{"path": "/f"}},
 				},
 			},
@@ -245,12 +245,12 @@ func TestMessagesToContentBlocks_ToolCallContent(t *testing.T) {
 }
 
 func TestMessagesToContentBlocks_ToolResultContent(t *testing.T) {
-	msgs := []core.Message{
+	msgs := []coretypes.Message{
 		{
 			ID:   "m1",
 			Role: constants.RoleTool,
-			Content: core.ToolResultContent{
-				Results: []core.ToolCallResult{
+			Content: coretypes.ToolResultContent{
+				Results: []coretypes.ToolCallResult{
 					{ToolCallID: "tc_1", ToolName: "read_file", Outputs: map[string]any{"ok": true}},
 				},
 			},
@@ -261,14 +261,14 @@ func TestMessagesToContentBlocks_ToolResultContent(t *testing.T) {
 }
 
 func TestMessagesToContentBlocks_CompositeContent(t *testing.T) {
-	msgs := []core.Message{
+	msgs := []coretypes.Message{
 		{
 			ID:   "m1",
 			Role: constants.RoleAssistant,
-			Content: core.CompositeContent{
-				Parts: []core.Content{
-					core.TextContent{Text: "First part"},
-					core.TextContent{Text: "Second part"},
+			Content: coretypes.CompositeContent{
+				Parts: []coretypes.Content{
+					coretypes.TextContent{Text: "First part"},
+					coretypes.TextContent{Text: "Second part"},
 				},
 			},
 		},
@@ -280,7 +280,7 @@ func TestMessagesToContentBlocks_CompositeContent(t *testing.T) {
 }
 
 func TestMessagesToContentBlocks_NilContent(t *testing.T) {
-	msgs := []core.Message{
+	msgs := []coretypes.Message{
 		{ID: "m1", Role: constants.RoleAssistant, Content: nil},
 	}
 	blocks := MessagesToContentBlocks(msgs)

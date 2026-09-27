@@ -1,7 +1,8 @@
-package core
+package types
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/utils"
@@ -137,7 +138,11 @@ func (m Message) MarshalJSON() ([]byte, error) {
 		FinishReason: m.FinishReason,
 		Usage:        m.Usage,
 	}
-	mj.Content = marshalContent(m.Content)
+	var err error
+	mj.Content, err = marshalContent(m.Content)
+	if err != nil {
+		return nil, err
+	}
 	return json.Marshal(mj)
 }
 
@@ -151,63 +156,78 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	m.Role = constants.RoleType(mj.Role)
 	m.FinishReason = mj.FinishReason
 	m.Usage = mj.Usage
-	m.Content = unmarshalContent(mj.Content)
+	content, err := unmarshalContent(mj.Content)
+	if err != nil {
+		return err
+	}
+	m.Content = content
 	return nil
 }
 
 // marshalContent converts any Content to a type-discriminated JSON wrapper.
-func marshalContent(c Content) contentWrapper {
+func marshalContent(c Content) (contentWrapper, error) {
 	switch ct := c.(type) {
 	case TextContent:
-		return contentWrapper{Type: "text", Text: ct.Text}
+		return contentWrapper{Type: "text", Text: ct.Text}, nil
 	case ReasoningContent:
-		return contentWrapper{Type: "reasoning", Reasoning: ct.Reasoning}
+		return contentWrapper{Type: "reasoning", Reasoning: ct.Reasoning}, nil
 	case ToolCallContent:
-		return contentWrapper{Type: "tool_call", Details: ct.Details}
+		return contentWrapper{Type: "tool_call", Details: ct.Details}, nil
 	case ToolResultContent:
-		return contentWrapper{Type: "tool_result", Results: ct.Results}
+		return contentWrapper{Type: "tool_result", Results: ct.Results}, nil
 	case MultiModalContent:
-		return contentWrapper{Type: "multi_modal", Detail: &ct.Detail}
+		return contentWrapper{Type: "multi_modal", Detail: &ct.Detail}, nil
 	case CompositeContent:
 		parts := make([]json.RawMessage, len(ct.Parts))
 		for i, p := range ct.Parts {
-			w := marshalContent(p)
-			b, _ := json.Marshal(w)
+			w, err := marshalContent(p)
+			if err != nil {
+				return contentWrapper{}, err
+			}
+			b, err := json.Marshal(w)
+			if err != nil {
+				return contentWrapper{}, err
+			}
 			parts[i] = b
 		}
-		return contentWrapper{Type: "composite", Parts: parts}
+		return contentWrapper{Type: "composite", Parts: parts}, nil
 	default:
-		return contentWrapper{Type: "unknown"}
+		return contentWrapper{Type: "unknown"}, nil
 	}
 }
 
 // unmarshalContent reconstructs the concrete Content type from a wrapper.
-func unmarshalContent(w contentWrapper) Content {
+func unmarshalContent(w contentWrapper) (Content, error) {
 	switch w.Type {
 	case "text":
-		return TextContent{Text: w.Text}
+		return TextContent{Text: w.Text}, nil
 	case "reasoning":
-		return ReasoningContent{Reasoning: w.Reasoning}
+		return ReasoningContent{Reasoning: w.Reasoning}, nil
 	case "tool_call":
-		return ToolCallContent{Details: w.Details}
+		return ToolCallContent{Details: w.Details}, nil
 	case "tool_result":
-		return ToolResultContent{Results: w.Results}
+		return ToolResultContent{Results: w.Results}, nil
 	case "multi_modal":
 		if w.Detail != nil {
-			return MultiModalContent{Detail: *w.Detail}
+			return MultiModalContent{Detail: *w.Detail}, nil
 		}
-		return MultiModalContent{}
+		return MultiModalContent{}, nil
 	case "composite":
 		parts := make([]Content, len(w.Parts))
 		for i, raw := range w.Parts {
 			var cw contentWrapper
-			if err := json.Unmarshal(raw, &cw); err == nil {
-				parts[i] = unmarshalContent(cw)
+			if err := json.Unmarshal(raw, &cw); err != nil {
+				return nil, fmt.Errorf("unmarshal composite part: %w", err)
 			}
+			part, err := unmarshalContent(cw)
+			if err != nil {
+				return nil, err
+			}
+			parts[i] = part
 		}
-		return CompositeContent{Parts: parts}
+		return CompositeContent{Parts: parts}, nil
 	default:
-		return nil
+		return nil, nil
 	}
 }
 

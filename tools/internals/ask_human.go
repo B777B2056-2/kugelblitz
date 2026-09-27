@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/tools"
 )
 
@@ -14,8 +15,16 @@ type AskHumanTool struct {
 	Gate core.HumanGate
 }
 
-func (t *AskHumanTool) Definition() core.ToolDefinition {
-	return core.ToolDefinition{
+// NewAskHumanTool returns the ask_human tool bound to the given HumanGate
+// (typically a ReactAgent that implements WaitForHuman). It satisfies
+// infra.HumanToolFactory so the composition root can inject it without
+// coupling the infra layer to this concrete implementation.
+func NewAskHumanTool(gate core.HumanGate) tools.Tool {
+	return &AskHumanTool{Gate: gate}
+}
+
+func (t *AskHumanTool) Definition() coretypes.ToolDefinition {
+	return coretypes.ToolDefinition{
 		Name: "ask_human",
 		Description: "Ask the human user a question and wait for their response. " +
 			"Use this when you need clarification, need approval before proceeding, " +
@@ -47,12 +56,15 @@ func (t *AskHumanTool) Definition() core.ToolDefinition {
 	}
 }
 
-func (t *AskHumanTool) Execute(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+func (t *AskHumanTool) Execute(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	question, err := tools.Arg(detail, "question")
 	if err != nil {
 		return tools.ErrorResult(detail.ID, "ask_human", err)
 	}
-	reason, _ := tools.Arg(detail, "reason")
+	reason, err := tools.OptionalStringErr(detail, "reason")
+	if err != nil {
+		return tools.ErrorResult(detail.ID, "ask_human", err)
+	}
 
 	response, err := t.Gate.WaitForHuman(ctx, reason, question)
 	if err != nil {

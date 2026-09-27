@@ -135,7 +135,9 @@ func NewSessionManager(storageDir string) *SessionManager {
 		sessions:   make(map[string]*ChatSession),
 		storageDir: storageDir,
 	}
-	_ = os.MkdirAll(storageDir, 0755)
+	if err := os.MkdirAll(storageDir, 0755); err != nil {
+		core.Warn("ui: mkdir storage", "dir", storageDir, "err", err)
+	}
 
 	// Load persisted sessions into the in-memory map (lightweight: only metadata)
 	entries, err := os.ReadDir(storageDir)
@@ -191,8 +193,10 @@ func (sm *SessionManager) saveStoredSession(ss *StoredSession) error {
 
 // ═══ Public API ═══
 
-// Create creates a new session and persists an empty record.
-func (sm *SessionManager) Create() *ChatSession {
+// Create creates a new session and persists an empty record. It returns an
+// error if the session record cannot be persisted (U6: persistence failures
+// must be surfaced, not silently dropped).
+func (sm *SessionManager) Create() (*ChatSession, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -201,17 +205,19 @@ func (sm *SessionManager) Create() *ChatSession {
 		ID:     id,
 		hitlCh: make(chan string, 1),
 	}
-	sm.sessions[id] = s
 
 	ss := &StoredSession{
 		ID:        id,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	_ = sm.saveStoredSession(ss)
+	if err := sm.saveStoredSession(ss); err != nil {
+		return nil, fmt.Errorf("create session %q: %w", id, err)
+	}
 
+	sm.sessions[id] = s
 	core.Debug("session created", "id", id)
-	return s
+	return s, nil
 }
 
 // Get returns the session with the given ID, or nil.
@@ -266,21 +272,24 @@ func (sm *SessionManager) Delete(id string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	delete(sm.sessions, id)
-	_ = os.Remove(sm.sessionPath(id))
+	if err := os.Remove(sm.sessionPath(id)); err != nil {
+		core.Warn("ui: remove session", "id", id, "err", err)
+	}
 	core.Info("session deleted", "id", id)
 }
 
 // GetOrCreate returns the session by ID, or creates a new one.
-func (sm *SessionManager) GetOrCreate(id string) *ChatSession {
+func (sm *SessionManager) GetOrCreate(id string) (*ChatSession, error) {
 	s := sm.Get(id)
 	if s == nil {
-		s = sm.Create()
+		return sm.Create()
 	}
-	return s
+	return s, nil
 }
 
-// ArchiveTurn appends a completed turn to the persisted session.
-func (sm *SessionManager) ArchiveTurn(session *ChatSession) {
+// ArchiveTurn appends a completed turn to the persisted session. It returns an
+// error if the updated record cannot be persisted (U6).
+func (sm *SessionManager) ArchiveTurn(session *ChatSession) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -308,7 +317,10 @@ func (sm *SessionManager) ArchiveTurn(session *ChatSession) {
 	ss.TotalUsage.Reasoning += session.turnUsage.Reasoning
 	ss.TotalUsage.Total += session.turnUsage.Total
 
-	_ = sm.saveStoredSession(ss)
+	if err := sm.saveStoredSession(ss); err != nil {
+		return fmt.Errorf("archive turn for session %q: %w", session.ID, err)
+	}
+	return nil
 }
 
 // ═══ SessionListEntry (API response) ═══
@@ -369,23 +381,15 @@ func (s *ChatSession) addTokenReport(report TokenReport) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	isIntent := len(s.tokenReports) == 0
-
+	// Attribute input and output to their own buckets. Previously non-intent
+	// reports folded input into output, double-counting tokens (U2).
+	s.tokenTotal.Input += report.Input
 	s.tokenTotal.Output += report.Output
-	if isIntent {
-		s.tokenTotal.Input += report.Input
-	} else {
-		s.tokenTotal.Output += report.Input
-	}
 	s.tokenTotal.Reasoning += report.Reason
 	s.tokenTotal.Total += report.Total
 
+	s.turnUsage.Input += report.Input
 	s.turnUsage.Output += report.Output
-	if isIntent {
-		s.turnUsage.Input += report.Input
-	} else {
-		s.turnUsage.Output += report.Input
-	}
 	s.turnUsage.Reasoning += report.Reason
 	s.turnUsage.Total += report.Total
 

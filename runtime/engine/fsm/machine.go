@@ -6,8 +6,8 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
-	"github.com/B777B2056-2/kugelblitz/persist"
 )
 
 // Machine orchestrates the finite state machine for plan lifecycle.
@@ -43,7 +43,7 @@ func (m *Machine) registerStates() {
 }
 
 // Run executes the state machine main loop.
-func (m *Machine) Run(ctx context.Context, input core.AgentInput) ([]core.Message, error) {
+func (m *Machine) Run(ctx context.Context, input coretypes.AgentInput) ([]coretypes.Message, error) {
 	fsmCtx := &Context{
 		Ctx:   ctx,
 		Input: input,
@@ -72,7 +72,7 @@ func (m *Machine) Run(ctx context.Context, input core.AgentInput) ([]core.Messag
 		if err != nil {
 			if fsmCtx.Plan != nil {
 				fsmCtx.Plan.State = m.currentState
-				working.PutPlan(fsmCtx.Plan)
+				_ = fsmCtx.Deps.PutPlan(fsmCtx.Plan)
 			}
 			return fsmCtx.Results, err
 		}
@@ -81,20 +81,26 @@ func (m *Machine) Run(ctx context.Context, input core.AgentInput) ([]core.Messag
 		if isTerminal(nextState) && nextState == m.currentState {
 			if fsmCtx.Plan != nil {
 				fsmCtx.Plan.State = nextState
-				working.PutPlan(fsmCtx.Plan)
+				if err := fsmCtx.Deps.PutPlan(fsmCtx.Plan); err != nil {
+					return fsmCtx.Results, err
+				}
 			}
 			return fsmCtx.Results, nil
 		}
 
 		// Non-terminal transition: move to next state and continue loop.
-		m.transition(fsmCtx, nextState)
+		if err := m.transition(fsmCtx, nextState); err != nil {
+			return fsmCtx.Results, err
+		}
 		fsmCtx.StepCount++
 	}
 
 	if fsmCtx.Plan != nil {
-		working.PutPlan(fsmCtx.Plan)
+		if err := fsmCtx.Deps.PutPlan(fsmCtx.Plan); err != nil {
+			return fsmCtx.Results, err
+		}
 	}
-	return fsmCtx.Results, nil
+	return fsmCtx.Results, coretypes.ErrMaxCyclesExceeded
 }
 
 // reset returns the state machine to its initial state.
@@ -119,21 +125,24 @@ func (m *Machine) initialState() constants.PlanState {
 
 // transition updates the state machine to the next state, persists the plan,
 // logs the change, and appends a system message.
-func (m *Machine) transition(ctx *Context, next constants.PlanState) {
+func (m *Machine) transition(ctx *Context, next constants.PlanState) error {
 	m.prevState = m.currentState
 	m.currentState = next
 	if ctx.Plan != nil {
 		ctx.Plan.State = next
-		working.PutPlan(ctx.Plan)
+		if err := ctx.Deps.PutPlan(ctx.Plan); err != nil {
+			return err
+		}
 	}
 	core.Info("planner state machine", "status update",
 		fmt.Sprintf("%s -> %s", string(m.prevState), string(m.currentState)))
 	if ctx.Plan != nil {
-		ctx.Deps.Session.AppendMessage(core.NewSystemMessage(core.TextContent{
+		ctx.Deps.Session.AppendMessage(coretypes.NewSystemMessage(coretypes.TextContent{
 			Text: fmt.Sprintf("[System] Plan %q status: %s → %s.",
 				ctx.Plan.Name, string(m.prevState), string(m.currentState)),
 		}))
 	}
+	return nil
 }
 
 // isTerminal reports whether the given state is terminal (the loop should exit).
@@ -155,7 +164,7 @@ func (m *Machine) handleDrift(ctx *Context, reason string) {
 	}
 	targetVersion := plan.Version - 1
 	var cp working.Checkpoint
-	if err := persist.LoadCheckpointJSON(plan.ID, targetVersion, &cp); err != nil {
+	if err := ctx.Deps.LoadCheckpoint(plan.ID, targetVersion, &cp); err != nil {
 		return
 	}
 
@@ -168,14 +177,12 @@ func (m *Machine) handleDrift(ctx *Context, reason string) {
 	plan.FinishedReason = fmt.Sprintf("drift: %s", reason)
 	_ = plan.Persist()
 
-	ctx.Deps.Session.AppendMessage(core.NewSystemMessage(core.TextContent{
+	ctx.Deps.Session.AppendMessage(coretypes.NewSystemMessage(coretypes.TextContent{
 		Text: fmt.Sprintf("⚠️ 自动审查检测到执行可能偏离目标（%s），计划已回滚至版本 %d。请根据当前任务进度和目标偏差，调整任务计划，完成后系统将进入确认阶段。", reason, targetVersion),
 	}))
 
-	if ctx.Deps.React.EventHooks.OnPlanRollback != nil {
-		ctx.Deps.React.EventHooks.OnPlanRollback(
-			ctx.Deps.React.GetAgentIdentity(),
-			plan.ID, targetVersion, plan.Name,
-		)
-	}
+	ctx.Deps.React.NotifyPlanRollback(
+		ctx.Deps.React.GetAgentIdentity(),
+		plan.ID, targetVersion, plan.Name,
+	)
 }

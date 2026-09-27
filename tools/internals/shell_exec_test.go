@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/tools"
 
 	"github.com/stretchr/testify/assert"
@@ -13,7 +13,7 @@ import (
 
 func TestShellExec_SimpleCommand(t *testing.T) {
 	tool := &ShellExec{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "shell_exec",
 		Args: map[string]any{"command": "echo hello"},
 	})
@@ -25,7 +25,7 @@ func TestShellExec_SimpleCommand(t *testing.T) {
 
 func TestShellExec_CommandNotFound(t *testing.T) {
 	tool := &ShellExec{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "shell_exec",
 		Args: map[string]any{"command": "nonexistent_command_xyz_123"},
 	})
@@ -39,7 +39,7 @@ func TestShellExec_CommandNotFound(t *testing.T) {
 
 func TestShellExec_Stderr(t *testing.T) {
 	tool := &ShellExec{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "shell_exec",
 		Args: map[string]any{"command": "echo error >&2"},
 	})
@@ -53,7 +53,7 @@ func TestShellExec_WorkingDir(t *testing.T) {
 		t.Skip("pwd not available on Windows")
 	}
 	tool := &ShellExec{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "shell_exec",
 		Args: map[string]any{"command": "pwd", "cwd": "/tmp"},
 	})

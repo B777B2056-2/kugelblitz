@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
+	types "github.com/B777B2056-2/kugelblitz/core/types"
 )
 
 // AgentEventHooks holds callbacks for agent-level events. Every callback
@@ -16,14 +17,14 @@ type AgentEventHooks struct {
 	OnReplyChunk    func(identity constants.AgentIdentity, chunk string)
 	OnBlockThinking func(identity constants.AgentIdentity, reasoning string)
 	OnBlockReply    func(identity constants.AgentIdentity, text string)
-	OnFunctionCall  func(identity constants.AgentIdentity, detail ToolCallDetail)
+	OnFunctionCall  func(identity constants.AgentIdentity, detail types.ToolCallDetail)
 	OnModelFinished func(identity constants.AgentIdentity, reason string)
 	OnError         func(identity constants.AgentIdentity, err error)
-	OnUsageUpdated  func(identity constants.AgentIdentity, usage Usage)
+	OnUsageUpdated  func(identity constants.AgentIdentity, usage types.Usage)
 
 	// ── Agent-level hooks (receive AgentIdentity) ──
 
-	OnToolCallEnd        func(identity constants.AgentIdentity, result ToolCallResult)
+	OnToolCallEnd        func(identity constants.AgentIdentity, result types.ToolCallResult)
 	OnWaitForHumanAction func(identity constants.AgentIdentity, reason string, prompt string)
 	OnPlanRollback       func(identity constants.AgentIdentity, planID string, targetVersion int, planName string)
 	OnTaskUpdated        func(identity constants.AgentIdentity, taskID string, goal string, status string, output string)
@@ -33,18 +34,18 @@ type AgentEventHooks struct {
 // IAgent is the interface all agents must implement.
 type IAgent interface {
 	RegisterEventHooks(hooks AgentEventHooks)
-	Execute(ctx context.Context, systemMessage Message, userMessages []Message) (assistantMessages []Message, err error)
+	Execute(ctx context.Context, systemMessage types.Message, userMessages []types.Message) (assistantMessages []types.Message, err error)
 	Interrupt(ctx context.Context) error
 	ResumeWithHumanResponse(ctx context.Context, response string) error
 }
 
-// AsModelEventHandler returns a ModelEventHandler that delegates each callback
+// AsModelEventHandler returns a types.ModelEventHandler that delegates each callback
 // to this AgentEventHooks with the given AgentIdentity.
-func (h *AgentEventHooks) AsModelEventHandler(id constants.AgentIdentity) ModelEventHandler {
+func (h *AgentEventHooks) AsModelEventHandler(id constants.AgentIdentity) types.ModelEventHandler {
 	return &agentEventBridge{hooks: h, identity: id}
 }
 
-// agentEventBridge adapts AgentEventHooks to the ModelEventHandler interface.
+// agentEventBridge adapts AgentEventHooks to the types.ModelEventHandler interface.
 type agentEventBridge struct {
 	hooks    *AgentEventHooks
 	identity constants.AgentIdentity
@@ -70,7 +71,7 @@ func (b *agentEventBridge) OnBlockReply(text string) {
 		b.hooks.OnBlockReply(b.identity, text)
 	}
 }
-func (b *agentEventBridge) OnFunctionCall(detail ToolCallDetail) {
+func (b *agentEventBridge) OnFunctionCall(detail types.ToolCallDetail) {
 	if b.hooks.OnFunctionCall != nil {
 		b.hooks.OnFunctionCall(b.identity, detail)
 	}
@@ -80,7 +81,7 @@ func (b *agentEventBridge) OnFinished(reason string) {
 		b.hooks.OnModelFinished(b.identity, reason)
 	}
 }
-func (b *agentEventBridge) OnUsageUpdated(usage Usage) {
+func (b *agentEventBridge) OnUsageUpdated(usage types.Usage) {
 	if b.hooks.OnUsageUpdated != nil {
 		b.hooks.OnUsageUpdated(b.identity, usage)
 	}

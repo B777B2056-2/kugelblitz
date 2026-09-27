@@ -10,6 +10,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/config"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -108,7 +109,7 @@ func (m *Manager) discoverAndRegister(ctx context.Context, name string, session 
 		mcpTool := tool
 		mcpSession := session
 
-		fn := func(ctx context.Context, detail core.ToolCallDetail) core.ToolCallResult {
+		fn := func(ctx context.Context, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 			return callMCPTool(ctx, mcpSession, srvName, mcpTool.Name, detail)
 		}
 		reg.Register(def, fn)
@@ -138,7 +139,7 @@ func mcpToolName(server, tool string) string {
 }
 
 // convertToolDef converts an MCP Tool to a Kugelblitz ToolDefinition.
-func convertToolDef(regName string, tool *mcp.Tool, serverName string) core.ToolDefinition {
+func convertToolDef(regName string, tool *mcp.Tool, serverName string) coretypes.ToolDefinition {
 	desc := tool.Description
 	if desc == "" {
 		desc = fmt.Sprintf("MCP tool %s from server %s", tool.Name, serverName)
@@ -160,7 +161,7 @@ func convertToolDef(regName string, tool *mcp.Tool, serverName string) core.Tool
 		}
 	}
 
-	return core.ToolDefinition{
+	return coretypes.ToolDefinition{
 		Name:        regName,
 		Description: desc,
 		JSONSchema:  schema,
@@ -168,14 +169,14 @@ func convertToolDef(regName string, tool *mcp.Tool, serverName string) core.Tool
 }
 
 // callMCPTool forwards a tool call to the MCP server and converts the result.
-func callMCPTool(ctx context.Context, session *mcp.ClientSession, serverName, toolName string, detail core.ToolCallDetail) core.ToolCallResult {
+func callMCPTool(ctx context.Context, session *mcp.ClientSession, serverName, toolName string, detail coretypes.ToolCallDetail) coretypes.ToolCallResult {
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      toolName,
 		Arguments: detail.Args,
 	})
 	if err != nil {
 		core.Warn("MCP: tool call failed", "server", serverName, "tool", toolName, "err", err)
-		return core.ToolCallResult{
+		return coretypes.ToolCallResult{
 			ToolCallID: detail.ID,
 			ToolName:   detail.ToolName,
 			Outputs:    core.MakeErrorToolOutputs(fmt.Errorf("mcp call %s/%s: %w", serverName, toolName, err)),
@@ -190,7 +191,7 @@ func callMCPTool(ctx context.Context, session *mcp.ClientSession, serverName, to
 			}
 		}
 		core.Warn("MCP: tool returned error", "server", serverName, "tool", toolName, "msg", errText)
-		return core.ToolCallResult{
+		return coretypes.ToolCallResult{
 			ToolCallID: detail.ID,
 			ToolName:   detail.ToolName,
 			Outputs:    core.MakeErrorToolOutputs(fmt.Errorf("mcp %s/%s: %s", serverName, toolName, errText)),
@@ -214,7 +215,7 @@ func callMCPTool(ctx context.Context, session *mcp.ClientSession, serverName, to
 		}
 	}
 
-	return core.ToolCallResult{
+	return coretypes.ToolCallResult{
 		ToolCallID: detail.ID,
 		ToolName:   detail.ToolName,
 		Outputs:    outputs,

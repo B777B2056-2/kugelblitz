@@ -7,6 +7,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/prompts"
 )
@@ -18,7 +19,7 @@ type Action interface {
 
 // ActionResult holds the output of an Action execution.
 type ActionResult struct {
-	Messages []core.Message
+	Messages []coretypes.Message
 	Data     map[string]any
 }
 
@@ -26,24 +27,28 @@ type ActionResult struct {
 // call LLM → handle context exceeded → append messages.
 type ReactAction struct {
 	State constants.PlanState
-	Input core.AgentInput // user input (text + optional media); use BuildUserMessage()
+	Input coretypes.AgentInput // user input (text + optional media); use BuildUserMessage()
 	Plan  *working.Plan
 }
 
 func (a *ReactAction) Execute(ctx *Context) (*ActionResult, error) {
 	deps := ctx.Deps
 
-	sysMsg := core.NewSystemMessage(core.TextContent{
-		Text: buildPrompt(a.State, a.Plan),
+	prompt, err := buildPrompt(ctx, a.State, a.Plan)
+	if err != nil {
+		return nil, err
+	}
+	sysMsg := coretypes.NewSystemMessage(coretypes.TextContent{
+		Text: prompt,
 	})
 	sessionCtx := core.WithSessionID(ctx.Ctx, deps.Session.SessionID())
 
 	history := deps.Session.GetHistoryMessages()
 
-	tools := ToolsForState(a.State)
+	tools := ToolsForState(a.State, deps.CustomToolNames())
 	stepResult, err := deps.React.ExecuteWithTools(sessionCtx, sysMsg, history, tools)
 
-	if errors.Is(err, core.ErrContextLengthExceeded) {
+	if errors.Is(err, coretypes.ErrContextLengthExceeded) {
 		stepResult, err = handleContextExceeded(ctx, sysMsg, tools)
 	}
 
@@ -53,20 +58,21 @@ func (a *ReactAction) Execute(ctx *Context) (*ActionResult, error) {
 }
 
 // handleContextExceeded compresses session memory and retries the ReAct call.
-func handleContextExceeded(ctx *Context, sysMsg core.Message, tools []string) ([]core.Message, error) {
+func handleContextExceeded(ctx *Context, sysMsg coretypes.Message, tools []string) ([]coretypes.Message, error) {
 	deps := ctx.Deps
 	sessionCtx := core.WithSessionID(ctx.Ctx, deps.Session.SessionID())
 
 	for i := 0; i < deps.Config.CompressMaxAttempts; i++ {
-		_, _ = deps.Session.Compress(ctx.Ctx, deps.Compressor, 4, 1)
+		deps.React.NotifyBeforeCompress(deps.React.GetAgentIdentity())
+		_, _ = deps.Session.Compress(ctx.Ctx, deps.Summarizer, deps.Config.KeepLastN, deps.Config.MinMessagesToCompress)
 
 		history := deps.Session.GetHistoryMessages()
 		result, err := deps.React.ExecuteWithTools(sessionCtx, sysMsg, history, tools)
-		if err == nil || !errors.Is(err, core.ErrContextLengthExceeded) {
+		if err == nil || !errors.Is(err, coretypes.ErrContextLengthExceeded) {
 			return result, err
 		}
 	}
-	return nil, core.ErrContextLengthExceeded
+	return nil, coretypes.ErrContextLengthExceeded
 }
 
 // DAGAction executes a DAG batch and handles drift review in the failure callback.
@@ -80,7 +86,7 @@ func (a *DAGAction) Execute(ctx *Context) (*ActionResult, error) {
 	r := deps.DAG.ExecuteBatch(ctx.Ctx, a.Plan, func(taskID, goal, reason string) {
 		ctx.TaskFails++
 		if shouldReview(ctx) {
-			plan, _ := working.GetPlan(ctx.PlanID)
+			plan, _ := deps.GetPlan(ctx.PlanID)
 			if plan != nil {
 				summary := fmtPlanSummary(plan)
 				reviewResult := deps.Reviewer.Review(ctx.Ctx, ctx.Input.Text, summary, reason)
@@ -108,27 +114,91 @@ func (a *NoOpAction) Execute(ctx *Context) (*ActionResult, error) {
 }
 
 // buildPrompt builds the system prompt for a given state and plan.
-func buildPrompt(status constants.PlanState, plan *working.Plan) string {
+func buildPrompt(ctx *Context, status constants.PlanState, plan *working.Plan) (string, error) {
+	deps := ctx.Deps
 	var sb strings.Builder
 
-	if agentCtx := core.LoadAgentContext(); agentCtx != "" {
+	if agentCtx := deps.LoadAgentContext(); agentCtx != "" {
 		sb.WriteString(agentCtx)
 		sb.WriteString("\n\n")
 	}
 
 	if plan != nil {
+		var rendered string
+		var err error
 		if status == constants.PlanStateConfirmed {
-			sb.WriteString(prompts.DefaultFactory.MustRender(
-				prompts.TypePlanConfirm, prompts.BuildPlanConfirmParams(plan)))
+			rendered, err = deps.RenderPlanPrompt(
+				prompts.TypePlanConfirm, buildPlanConfirmParams(plan))
 		} else {
-			sb.WriteString(prompts.DefaultFactory.MustRender(
-				prompts.TypePlanStatus, prompts.BuildPlanStatusParams(plan)))
+			rendered, err = deps.RenderPlanPrompt(
+				prompts.TypePlanStatus, buildPlanStatusParams(plan))
 		}
+		if err != nil {
+			return "", fmt.Errorf("render plan prompt: %w", err)
+		}
+		sb.WriteString(rendered)
 		sb.WriteString("\n\n")
 	}
 
 	sb.WriteString(prompts.PlannerPrompt(status))
-	return sb.String()
+	return sb.String(), nil
+}
+
+// buildPlanConfirmParams converts a Plan to prompts.PlanConfirmParams for rendering.
+// Lives here (not in prompts) so the prompts package stays a leaf with no
+// dependency on the working-memory domain model.
+func buildPlanConfirmParams(plan *working.Plan) prompts.PlanConfirmParams {
+	tasks := make([]prompts.PlanConfirmTaskParams, len(plan.SubTasks))
+	for i, t := range plan.SubTasks {
+		deps := t.ParentTaskID
+		if deps == "" {
+			deps = "none"
+		}
+		tasks[i] = prompts.PlanConfirmTaskParams{
+			Index:  i + 1,
+			ID:     t.ID,
+			Goal:   t.Goal,
+			Action: t.Action,
+			Deps:   deps,
+		}
+	}
+	return prompts.PlanConfirmParams{
+		Name:  plan.Name,
+		ID:    plan.ID,
+		Tasks: tasks,
+	}
+}
+
+// buildPlanStatusParams converts a Plan to prompts.PlanStatusParams for rendering.
+func buildPlanStatusParams(plan *working.Plan) prompts.PlanStatusParams {
+	done, failed := 0, 0
+	var failedTasks []prompts.PlanFailedTaskParams
+	for _, t := range plan.SubTasks {
+		if t.Status == working.TaskStatusDone {
+			done++
+		}
+		if t.Status == working.TaskStatusFailed {
+			failed++
+			reason := t.FinishedReason
+			if reason == "" {
+				reason = "(no reason)"
+			}
+			if len(reason) > 200 {
+				reason = reason[:200] + "..."
+			}
+			failedTasks = append(failedTasks, prompts.PlanFailedTaskParams{
+				ID: t.ID, Goal: t.Goal, Reason: reason,
+			})
+		}
+	}
+	return prompts.PlanStatusParams{
+		Name:        plan.Name,
+		Status:      string(plan.State),
+		Done:        done,
+		Total:       len(plan.SubTasks),
+		Failed:      failed,
+		FailedTasks: failedTasks,
+	}
 }
 
 // shouldReview checks whether a drift review should be triggered.
@@ -136,7 +206,7 @@ func shouldReview(ctx *Context) bool {
 	if ctx.Deps.Reviewer == nil {
 		return false
 	}
-	if ctx.Deps.Config.ReviewInterval > 0 && ctx.StepCount%ctx.Deps.Config.ReviewInterval == 0 {
+	if ctx.Deps.Config.ReviewInterval > 0 && ctx.TaskFails%ctx.Deps.Config.ReviewInterval == 0 {
 		return true
 	}
 	if ctx.Deps.Config.MaxFailuresBeforeReview > 0 && ctx.TaskFails >= ctx.Deps.Config.MaxFailuresBeforeReview {

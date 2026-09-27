@@ -6,12 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/llm"
 	"github.com/B777B2056-2/kugelblitz/memory"
 	"github.com/B777B2056-2/kugelblitz/runtime"
+	"go.opentelemetry.io/otel"
 )
 
 // handleChat processes a chat request via SSE streaming.
@@ -39,15 +43,24 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	core.Info("chat started", "session", req.SessionID, "goal", goalPreview)
 
-	session := s.sessions.GetOrCreate(req.SessionID)
+	session, err := s.sessions.GetOrCreate(req.SessionID)
+	if err != nil {
+		core.Warn("get or create session failed", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to initialize session"})
+		return
+	}
+	// Reset per-turn state under the session lock so a concurrent turn's hooks
+	// never observe a half-reset session (U5).
+	session.mu.Lock()
 	session.Goal = req.Goal
 	session.hitlCh = make(chan string, 1)
 	session.tokenReports = nil
 	session.tokenTotal = TokenTotals{}
-	session.turnMessages = nil
+	session.turnMessages = []StoredMessage{{Role: "user", Content: req.Goal}}
 	session.turnPlans = nil
 	session.turnUsage = StoredUsage{}
 	session.currentPlan = nil
+	session.mu.Unlock()
 
 	// Set up AgentLoop — reuse framework session across turns via WithExistingSessionID
 	opts := []runtime.AgentLoopOption{}
@@ -55,11 +68,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		opts = append(opts, runtime.WithExistingSessionID(session.FrameworkSessionID))
 	}
 	// ── Media preprocessing ──
-	var inputMedia []core.MultiModalDetail
+	var inputMedia []coretypes.MultiModalDetail
 	if len(req.Media) > 0 {
 		preprocessor := core.NewMediaPreprocessor(core.NewDefaultRegistry())
 
-		var imageProv, audioProv core.ILMProvider
+		var imageProv, audioProv coretypes.ILMProvider
 		if appCfg.Multimodal.AutoDescribeMedia {
 			if appCfg.Multimodal.ImageModel != nil {
 				imageProv = appCfg.Multimodal.ImageModel.Provider
@@ -68,7 +81,14 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				audioProv = appCfg.Multimodal.AudioModel.Provider
 			}
 		}
-		describer := memory.NewMediaDescriber(imageProv, audioProv)
+		var imageCaller, audioCaller *llm.Caller
+		if imageProv != nil {
+			imageCaller = llm.NewCaller(imageProv, otel.Tracer("kugelblitz"))
+		}
+		if audioProv != nil {
+			audioCaller = llm.NewCaller(audioProv, otel.Tracer("kugelblitz"))
+		}
+		describer := memory.NewMediaDescriber(imageCaller, audioCaller)
 
 		for _, m := range req.Media {
 			mediaType := constants.MultiModalTypeImage
@@ -76,7 +96,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				mediaType = constants.MultiModalTypeAudio
 			}
 
-			detail, err := preprocessor.Normalize(r.Context(), core.MultiModalDetail{
+			detail, err := preprocessor.Normalize(r.Context(), coretypes.MultiModalDetail{
 				Type:     mediaType,
 				Base64:   m.Base64,
 				MimeType: m.MimeType,
@@ -101,7 +121,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	loop := runtime.NewAgentLoop(appCfg, opts...)
+	loop, err := runtime.NewAgentLoop(appCfg, opts...)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "init agent: " + err.Error()})
+		return
+	}
 
 	// ── Cancellable context ──
 	chatCtx, chatCancel := context.WithCancel(r.Context())
@@ -127,7 +151,8 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var sseMu sync.Mutex
-	var capturedToolCalls []core.ToolCallDetail
+	var capturedToolCalls []coretypes.ToolCallDetail
+	var assistantReply strings.Builder
 
 	// ── Register hooks with inline callbacks (no sseModelHandler) ──
 	loop.RegisterEventHooks(core.AgentEventHooks{
@@ -139,6 +164,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		OnReplyChunk: func(id constants.AgentIdentity, chunk string) {
 			sseMu.Lock()
 			defer sseMu.Unlock()
+			assistantReply.WriteString(chunk)
 			writeSSEEvent(w, flusher, SSEEvent{Event: "reply", Data: map[string]any{"text": chunk, "identity": string(id)}})
 		},
 		OnBlockThinking: func(id constants.AgentIdentity, reasoning string) {
@@ -149,12 +175,13 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		OnBlockReply: func(id constants.AgentIdentity, text string) {
 			sseMu.Lock()
 			defer sseMu.Unlock()
+			assistantReply.WriteString(text)
 			writeSSEEvent(w, flusher, SSEEvent{Event: "reply", Data: map[string]any{"text": text, "identity": string(id)}})
 		},
-		OnFunctionCall: func(id constants.AgentIdentity, detail core.ToolCallDetail) {
-			capturedToolCalls = append(capturedToolCalls, detail)
+		OnFunctionCall: func(id constants.AgentIdentity, detail coretypes.ToolCallDetail) {
 			sseMu.Lock()
 			defer sseMu.Unlock()
+			capturedToolCalls = append(capturedToolCalls, detail)
 			writeSSEEvent(w, flusher, SSEEvent{Event: "tool_call", Data: map[string]any{
 				"tool_call_id": detail.ID,
 				"tool_name":    detail.ToolName,
@@ -166,7 +193,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			defer sseMu.Unlock()
 			writeSSEEvent(w, flusher, SSEEvent{Event: "finished", Data: map[string]string{"reason": reason}})
 		},
-		OnUsageUpdated: func(id constants.AgentIdentity, usage core.Usage) {
+		OnUsageUpdated: func(id constants.AgentIdentity, usage coretypes.Usage) {
 			core.Debug("sse usage updated", "id", id, "total", usage.TotalTokens)
 			session.addTokenReport(TokenReport{
 				Identity: string(id),
@@ -191,7 +218,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			defer sseMu.Unlock()
 			writeSSEEvent(w, flusher, SSEEvent{Event: "error", Data: map[string]string{"message": err.Error()}})
 		},
-		OnToolCallEnd: func(id constants.AgentIdentity, result core.ToolCallResult) {
+		OnToolCallEnd: func(id constants.AgentIdentity, result coretypes.ToolCallResult) {
 			sseMu.Lock()
 			defer sseMu.Unlock()
 			writeSSEEvent(w, flusher, SSEEvent{Event: "tool_result", Data: map[string]any{
@@ -207,6 +234,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			}
 		},
 		OnWaitForHumanAction: func(id constants.AgentIdentity, reason, prompt string) {
+			sseMu.Lock()
 			toolCallID := ""
 			for _, tc := range capturedToolCalls {
 				if tc.ToolName == "ask_human" {
@@ -214,12 +242,14 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 			}
+			capturedToolCalls = nil
+			sseMu.Unlock()
+
+			session.mu.Lock()
 			hitlSource := "generic"
 			if session.currentPlan != nil {
 				hitlSource = "planner_confirm"
 			}
-
-			session.mu.Lock()
 			session.hitlWaiting = true
 			session.hitlInfo = &HitlInfo{
 				ToolCallID: toolCallID, Question: prompt, Reason: reason,
@@ -241,7 +271,6 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				"reason":       reason,
 				"source":       hitlSource,
 			}})
-			capturedToolCalls = nil
 		},
 		OnPlanRollback: func(id constants.AgentIdentity, planID string, targetVersion int, planName string) {
 			sseMu.Lock()
@@ -266,7 +295,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// ── Run AgentLoop ──
-	loop.Run(chatCtx, core.AgentInput{Text: req.Goal, Media: inputMedia})
+	loop.Run(chatCtx, coretypes.AgentInput{Text: req.Goal, Media: inputMedia})
 
 	// ── HITL / Done event loop ──
 	for {
@@ -310,7 +339,13 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				session.addTurnPlan(session.currentPlan.toStored())
 			}
 
-			s.sessions.ArchiveTurn(session)
+			if assistantReply.Len() > 0 {
+				session.addTurnMessage(StoredMessage{Role: "assistant", Content: assistantReply.String()})
+			}
+
+			if err := s.sessions.ArchiveTurn(session); err != nil {
+				core.Warn("archive turn failed", "id", session.ID, "err", err)
+			}
 
 			core.Info("chat completed", "session", session.ID, "total_tokens", tt.Total)
 			return
@@ -323,7 +358,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 // ── Plan derivation (from tool results, zero memory/working dependency) ──
 
-func (s *Server) derivePlanUpdate(session *ChatSession, result core.ToolCallResult) *PlanUpdate {
+func (s *Server) derivePlanUpdate(session *ChatSession, result coretypes.ToolCallResult) *PlanUpdate {
 	switch result.ToolName {
 	case "plan_create":
 		planID, _ := result.Outputs["id"].(string)

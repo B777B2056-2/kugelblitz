@@ -5,8 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"unicode/utf8"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,7 +30,7 @@ func TestWebFetch_StaticMarkdown(t *testing.T) {
 	defer srv.Close()
 
 	tool := &WebFetch{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID:   "t1",
 		Args: map[string]any{"url": srv.URL},
 	})
@@ -56,7 +57,7 @@ func TestWebFetch_StaticMarkdown(t *testing.T) {
 
 func TestWebFetch_MissingURL(t *testing.T) {
 	tool := &WebFetch{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID:   "t2",
 		Args: map[string]any{},
 	})
@@ -66,7 +67,7 @@ func TestWebFetch_MissingURL(t *testing.T) {
 
 func TestWebFetch_BadURL(t *testing.T) {
 	tool := &WebFetch{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID:   "t3",
 		Args: map[string]any{"url": "not-a-valid-url"},
 	})
@@ -87,7 +88,7 @@ func TestWebFetch_Truncation(t *testing.T) {
 	defer srv.Close()
 
 	tool := &WebFetch{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID:   "t5",
 		Args: map[string]any{"url": srv.URL},
 	})
@@ -105,7 +106,7 @@ func TestWebFetch_PlainText(t *testing.T) {
 	defer srv.Close()
 
 	tool := &WebFetch{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID:   "t4",
 		Args: map[string]any{"url": srv.URL},
 	})
@@ -122,7 +123,7 @@ func TestWebFetch_StatusCodeError(t *testing.T) {
 	defer srv.Close()
 
 	tool := &WebFetch{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID:   "t6",
 		Args: map[string]any{"url": srv.URL},
 	})
@@ -134,7 +135,7 @@ func TestWebFetch_RenderJS_Fallback(t *testing.T) {
 	// Chromedp requires Chrome installed; if not available, we expect an error.
 	// This test just ensures the code path doesn't panic.
 	tool := &WebFetch{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID:   "t7",
 		Args: map[string]any{"url": "https://example.com", "render_js": true},
 	})
@@ -163,7 +164,7 @@ func TestWebSearch_DuckDuckGo(t *testing.T) {
 	def := tool.Definition()
 	assert.Equal(t, "web_search", def.Name)
 
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID:   "ws1",
 		Args: map[string]any{"query": "Go programming language"},
 	})
@@ -184,7 +185,7 @@ func TestWebSearch_DuckDuckGo(t *testing.T) {
 
 func TestWebSearch_LimitClamp(t *testing.T) {
 	tool := newWebSearch(nil)
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID:   "ws2",
 		Args: map[string]any{"query": "test", "limit": float64(100)},
 	})
@@ -206,4 +207,20 @@ func TestDecodeEntities(t *testing.T) {
 	input := "A &amp; B &lt; C &gt; D"
 	output := decodeEntities(input)
 	assert.Equal(t, "A & B < C > D", output)
+}
+
+func TestTruncateUTF8(t *testing.T) {
+	assert.Equal(t, "héllo", truncateUTF8("héllo", 100))
+	assert.Equal(t, "héllo", truncateUTF8("héllo", 6))
+	assert.Equal(t, "hé", truncateUTF8("héllo", 3))
+	// Cut mid-rune: the trailing lead byte of 'é' must be dropped (T2).
+	assert.Equal(t, "h", truncateUTF8("héllo", 2))
+	assert.True(t, utf8.ValidString(truncateUTF8("héllo", 2)))
+	assert.True(t, utf8.ValidString(truncateUTF8("héllo", 3)))
+}
+
+func TestFindAfter_NegativeStart(t *testing.T) {
+	// A negative start must clamp to 0 instead of panicking (T6).
+	idx := findAfter("hello world", "hello", -100)
+	assert.Equal(t, 0, idx)
 }

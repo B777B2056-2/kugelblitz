@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,7 +33,7 @@ func TestAskHumanTool_Execute_ReturnsHumanResponse(t *testing.T) {
 	}
 	tool := &AskHumanTool{Gate: gate}
 
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID:       "tc-1",
 		ToolName: "ask_human",
 		Args:     map[string]any{"question": "shall we continue?", "reason": "need approval"},
@@ -52,7 +52,7 @@ func TestAskHumanTool_Execute_WaitForHumanError(t *testing.T) {
 	}
 	tool := &AskHumanTool{Gate: gate}
 
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID:       "tc-1",
 		ToolName: "ask_human",
 		Args:     map[string]any{"question": "ok?"},
@@ -71,7 +71,7 @@ func TestAskHumanTool_Execute_ContextCanceled(t *testing.T) {
 	}
 	tool := &AskHumanTool{Gate: gate}
 
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID:       "tc-1",
 		ToolName: "ask_human",
 		Args:     map[string]any{"question": "ok?"},
@@ -86,7 +86,7 @@ func TestAskHumanTool_Execute_MissingQuestion(t *testing.T) {
 	gate := &mockHumanGate{}
 	tool := &AskHumanTool{Gate: gate}
 
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID:       "tc-1",
 		ToolName: "ask_human",
 		Args:     map[string]any{},

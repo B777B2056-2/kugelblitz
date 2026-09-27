@@ -7,11 +7,18 @@ import (
 	"github.com/B777B2056-2/kugelblitz/config"
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/llm"
 	"github.com/B777B2056-2/kugelblitz/memory"
+	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/observability"
+	"github.com/B777B2056-2/kugelblitz/persist"
+	"github.com/B777B2056-2/kugelblitz/prompts"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/dag"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/fsm"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
+	"github.com/B777B2056-2/kugelblitz/runtime/engine/worker"
+	"github.com/B777B2056-2/kugelblitz/tools/internals"
 	"go.opentelemetry.io/otel"
 )
 
@@ -40,26 +47,38 @@ func NewKernel(
 	if cfg.Model.EnableThinking {
 		mainReact.SetThinking(true, cfg.Model.ReasoningEffort)
 	}
+	mainReact.SetHumanToolFactory(internals.NewAskHumanTool)
 	mainReact.EnableHumanInTheLoop()
 
 	tracer := otel.Tracer("kugelblitz")
-	compressor := memory.NewCompressor(cfg.Model.Provider, tracer)
-	dagExec := dag.NewDAGTaskExecutor(cfg.Model.Provider, cfg.Model.StreamMode)
-	reviewer := infra.NewReviewer(cfg.Model.Provider, tracer)
+	compressor := memory.NewCompressor(llm.NewCaller(cfg.Model.Provider, tracer))
+	dagExec := dag.NewDAGTaskExecutor(cfg.Model.Provider, cfg.Model.StreamMode,
+		func(p coretypes.ILMProvider, s bool) worker.Worker { return infra.NewWorkerAgent(p, s) },
+		infra.NewPauseGate())
+	dagExec.SetHumanToolFactory(internals.NewAskHumanTool)
+	reviewer := infra.NewReviewer(llm.NewCaller(cfg.Model.Provider, tracer))
 
 	machine := fsm.NewMachine(fsm.Dependencies{
 		React:      mainReact,
 		DAG:        dagExec,
 		Reviewer:   reviewer,
 		Session:    sessionMem,
-		Compressor: compressor,
+		Summarizer: compressor,
 		Config: fsm.MachineConfig{
 			MaxCycles:               cfg.Runtime.MaxStateMachineCycles,
 			CompressMaxAttempts:     cfg.ContextCompress.MaxAttempts,
+			KeepLastN:               cfg.ContextCompress.KeepLastN,
+			MinMessagesToCompress:   cfg.ContextCompress.MinMessagesToCompress,
 			ReviewInterval:          cfg.TargetDrift.ReviewInterval,
 			MaxFailuresBeforeReview: cfg.TargetDrift.MaxFailuresBeforeReview,
 			ForceMode:               cfg.Runtime.ForceMode,
 		},
+		GetPlan:          working.GetPlan,
+		PutPlan:          working.PutPlan,
+		LoadCheckpoint:   persist.LoadCheckpointJSON,
+		CustomToolNames:  func() []string { return core.GetToolRegistry().CustomToolNames() },
+		LoadAgentContext: core.LoadAgentContext,
+		RenderPlanPrompt: prompts.DefaultFactory.Render,
 	})
 
 	return &Kernel{
@@ -87,8 +106,18 @@ func (sm *Kernel) Compressor() *memory.Compressor {
 	return sm.compressor
 }
 
+// CompressContext manually compresses the session history into a summary,
+// freeing context-window space. It applies the configured KeepLastN /
+// MinMessagesToCompress policy and returns the LLM token usage of the
+// summarization call. OnBeforeCompress fires before the compression so
+// observers (e.g. long-term memory extraction) can run first.
+func (sm *Kernel) CompressContext(ctx context.Context) (*coretypes.Usage, error) {
+	sm.mainReact.NotifyBeforeCompress(constants.AgentMain)
+	return sm.sessionMem.Compress(ctx, sm.compressor, sm.cfg.ContextCompress.KeepLastN, sm.cfg.ContextCompress.MinMessagesToCompress)
+}
+
 // Run executes the state machine main loop.
-func (sm *Kernel) Run(ctx context.Context, input core.AgentInput) ([]core.Message, error) {
+func (sm *Kernel) Run(ctx context.Context, input coretypes.AgentInput) ([]coretypes.Message, error) {
 	return sm.machine.Run(ctx, input)
 }
 
@@ -100,7 +129,7 @@ func (sm *Kernel) SetStepTracer(st *observability.StepTracer) {
 
 // SetProvider replaces the LLM provider for the main ReAct loop, DAG workers,
 // and reviewer. Call before Run() to dynamically switch models per input type.
-func (sm *Kernel) SetProvider(p core.ILMProvider) {
+func (sm *Kernel) SetProvider(p coretypes.ILMProvider) {
 	sm.mainReact.SetProvider(p)
 	sm.dagExec.SetProvider(p)
 	sm.reviewer.SetProvider(p)

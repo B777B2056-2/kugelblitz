@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/tools"
 
 	"github.com/stretchr/testify/assert"
@@ -26,7 +27,7 @@ func TestFileRead_ReadsContent(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte("hello world"), 0644))
 
 	tool := &FileRead{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "file_read",
 		Args: map[string]any{"path": path},
 	})
@@ -36,7 +37,7 @@ func TestFileRead_ReadsContent(t *testing.T) {
 
 func TestFileRead_FileNotFound(t *testing.T) {
 	tool := &FileRead{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "file_read",
 		Args: map[string]any{"path": "/nonexistent/file.txt"},
 	})
@@ -49,7 +50,7 @@ func TestFileWrite_WritesContent(t *testing.T) {
 	path := filepath.Join(dir, "output.txt")
 
 	tool := &FileWrite{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "file_write",
 		Args: map[string]any{"path": path, "content": "hello go"},
 	})
@@ -65,7 +66,7 @@ func TestFileWrite_CreatesParentDirs(t *testing.T) {
 	path := filepath.Join(dir, "nested", "sub", "file.txt")
 
 	tool := &FileWrite{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "file_write",
 		Args: map[string]any{"path": path, "content": "deep"},
 	})
@@ -83,7 +84,7 @@ func TestFileCopy_CopiesFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(src, []byte("original"), 0644))
 
 	tool := &FileCopy{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "file_copy",
 		Args: map[string]any{"source": src, "destination": dst},
 	})
@@ -101,7 +102,7 @@ func TestFileCopy_MovesFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(src, []byte("move me"), 0644))
 
 	tool := &FileCopy{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "file_copy",
 		Args: map[string]any{"source": src, "destination": dst, "move": true},
 	})
@@ -116,7 +117,7 @@ func TestDirCreate_CreatesDirectory(t *testing.T) {
 	newDir := filepath.Join(dir, "newdir")
 
 	tool := &DirCreate{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "dir_create",
 		Args: map[string]any{"path": newDir},
 	})
@@ -137,7 +138,7 @@ func TestDirCopy_CopiesDirectory(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(src, "sub", "b.txt"), []byte("B"), 0644))
 
 	tool := &DirCopy{}
-	result := tool.Execute(context.Background(), core.ToolCallDetail{
+	result := tool.Execute(context.Background(), coretypes.ToolCallDetail{
 		ID: "t1", ToolName: "dir_copy",
 		Args: map[string]any{"source": src, "destination": dst},
 	})

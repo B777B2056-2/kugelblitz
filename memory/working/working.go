@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/B777B2056-2/kugelblitz/constants"
-	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/persist"
 )
 
@@ -29,13 +29,13 @@ const (
 
 // Task is a single subtask within a plan.
 type Task struct {
-	ID             string      `json:"id"`
-	ParentTaskID   string      `json:"parent_task_id,omitempty"`
-	Goal           string      `json:"goal"`
-	Status         TaskStatus  `json:"status"`
-	FinishedReason string      `json:"finished_reason,omitempty"`
-	Action         string      `json:"action,omitempty"`
-	Usage          *core.Usage `json:"usage,omitempty"`
+	ID             string           `json:"id"`
+	ParentTaskID   string           `json:"parent_task_id,omitempty"`
+	Goal           string           `json:"goal"`
+	Status         TaskStatus       `json:"status"`
+	FinishedReason string           `json:"finished_reason,omitempty"`
+	Action         string           `json:"action,omitempty"`
+	Usage          *coretypes.Usage `json:"usage,omitempty"`
 }
 
 // Plan is a versioned plan with subtasks, persisted as JSONL.
@@ -89,13 +89,14 @@ func GetPlan(id string) (*Plan, bool) {
 }
 
 // PutPlan stores a plan in memory and persists it with a checkpoint.
-func PutPlan(p *Plan) { putPlanWithReason(p, "") }
+// A non-nil error means persistence failed and the caller should surface it.
+func PutPlan(p *Plan) error { return putPlanWithReason(p, "") }
 
-func putPlanWithReason(p *Plan, reason string) { saveCheckpoint(p, reason) }
+func putPlanWithReason(p *Plan, reason string) error { return saveCheckpoint(p, reason) }
 
-func saveCheckpoint(p *Plan, reason string) {
+func saveCheckpoint(p *Plan, reason string) error {
 	if p == nil {
-		return
+		return nil
 	}
 
 	p.mu.Lock()
@@ -108,7 +109,7 @@ func saveCheckpoint(p *Plan, reason string) {
 		ID:                        p.ID,
 		SessionID:                 p.SessionID,
 		Name:                      p.Name,
-		SubTasks:                  append([]Task{}, p.SubTasks...),
+		SubTasks:                  copyTasks(p.SubTasks),
 		CurrentActivateSubTaskIDs: append([]string{}, p.CurrentActivateSubTaskIDs...),
 		State:                     p.State,
 		FinishedReason:            p.FinishedReason,
@@ -125,8 +126,27 @@ func saveCheckpoint(p *Plan, reason string) {
 	planStore[p.ID] = p
 	planStoreMu.Unlock()
 
-	_ = p.Persist()
-	_ = persist.SaveCheckpointJSON(p.ID, cp.Version, cp)
+	if err := p.Persist(); err != nil {
+		return fmt.Errorf("persist plan %s: %w", p.ID, err)
+	}
+	if err := persist.SaveCheckpointJSON(p.ID, cp.Version, cp); err != nil {
+		return fmt.Errorf("persist checkpoint %s@%d: %w", p.ID, cp.Version, err)
+	}
+	return nil
+}
+
+// copyTasks deep-copies tasks so checkpoint snapshots do not share the
+// *coretypes.Usage pointer with the live plan (B20).
+func copyTasks(tasks []Task) []Task {
+	out := make([]Task, len(tasks))
+	for i, t := range tasks {
+		out[i] = t
+		if t.Usage != nil {
+			u := *t.Usage
+			out[i].Usage = &u
+		}
+	}
+	return out
 }
 
 // ListPlans returns all plans in memory.

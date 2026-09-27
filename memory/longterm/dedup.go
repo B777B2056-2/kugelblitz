@@ -1,11 +1,15 @@
 package longterm
 
-import "strings"
+import (
+	"strings"
+
+	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
+)
 
 // DedupResult is the output of fact deduplication.
 type DedupResult struct {
-	Accepted []MemoryItem // All after dedup (ready to store)
-	Rejected int          // All dropped (near-duplicates)
+	Accepted []memorytypes.MemoryItem // All after dedup (ready to store)
+	Rejected int                      // All dropped (near-duplicates)
 }
 
 // Deduplicator performs semantic dedup on extracted items against
@@ -21,8 +25,8 @@ func NewDeduplicator(ltm *LongTermMemory) *Deduplicator {
 
 // DedupItems deduplicates items against existing LTM items and
 // within the batch. Returns accepted items ready to store.
-func (d *Deduplicator) DedupItems(items []MemoryItem) *DedupResult {
-	var accepted []MemoryItem
+func (d *Deduplicator) DedupItems(items []memorytypes.MemoryItem) *DedupResult {
+	var accepted []memorytypes.MemoryItem
 	rejected := 0
 
 	for _, f := range items {
@@ -40,7 +44,7 @@ func (d *Deduplicator) DedupItems(items []MemoryItem) *DedupResult {
 }
 
 // isExistingDuplicate checks if a fact is semantically equivalent to an existing one.
-func (d *Deduplicator) isExistingDuplicate(f MemoryItem) bool {
+func (d *Deduplicator) isExistingDuplicate(f memorytypes.MemoryItem) bool {
 	existing, exists := d.ltm.Get(f.Section, f.Key)
 	if !exists {
 		return false
@@ -52,7 +56,7 @@ func (d *Deduplicator) isExistingDuplicate(f MemoryItem) bool {
 }
 
 // isBatchDuplicate checks for duplicates within the current batch.
-func (d *Deduplicator) isBatchDuplicate(f MemoryItem, accepted []MemoryItem) bool {
+func (d *Deduplicator) isBatchDuplicate(f memorytypes.MemoryItem, accepted []memorytypes.MemoryItem) bool {
 	for _, a := range accepted {
 		if a.Section == f.Section && a.Key == f.Key {
 			return true

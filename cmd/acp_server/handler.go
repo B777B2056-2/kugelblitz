@@ -7,6 +7,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
+	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 )
 
 // Handler processes ACP JSON-RPC method calls and routes them to the
@@ -16,7 +17,7 @@ type Handler struct {
 	transport  *Transport
 	sessions   *SessionManager
 	agent      core.IAgent
-	provider   core.ILMProvider
+	provider   coretypes.ILMProvider
 	serverInfo ServerInfo
 }
 
@@ -48,7 +49,10 @@ func (h *Handler) Dispatch(ctx context.Context, msg *JSONRPCMessage) error {
 		})
 
 	case "session/prompt":
-		h.invoke(ctx, id, msg.Params, func(p json.RawMessage) (any, error) {
+		// Run asynchronously so the read loop keeps processing messages
+		// (e.g. session/cancel) while the agent executes. Transport writes are
+		// serialized by its own mutex, so concurrent streaming is safe (A2).
+		go h.invoke(ctx, id, msg.Params, func(p json.RawMessage) (any, error) {
 			var params SessionPromptParams
 			if err := json.Unmarshal(p, &params); err != nil {
 				return nil, fmt.Errorf("invalid params: %w", err)
@@ -104,15 +108,16 @@ func (h *Handler) invoke(ctx context.Context, id json.RawMessage, rawParams json
 		h.writeError(id, ErrCodeInternalError, err.Error(), nil)
 		return
 	}
-	if result != nil {
-		resp, marshalErr := NewResponse(id, result)
-		if marshalErr != nil {
-			core.Error("ACP: marshal error", "err", marshalErr)
-			h.writeError(id, ErrCodeInternalError, marshalErr.Error(), nil)
-			return
-		}
-		_ = h.transport.WriteMessage(resp)
+	// Always write a response for a request, even when result is nil (JSON-RPC
+	// null result). Methods like session/cancel and session/delete return nil
+	// on success and would otherwise never send a response (A1).
+	resp, marshalErr := NewResponse(id, result)
+	if marshalErr != nil {
+		core.Error("ACP: marshal error", "err", marshalErr)
+		h.writeError(id, ErrCodeInternalError, marshalErr.Error(), nil)
+		return
 	}
+	h.writeMessage(resp)
 }
 
 // handleNotification processes JSON-RPC notifications (no response expected).
@@ -181,10 +186,10 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 		return nil, fmt.Errorf("failed to convert prompt: %w", err)
 	}
 
-	systemMsg := core.Message{
+	systemMsg := coretypes.Message{
 		ID:   "system",
 		Role: "system",
-		Content: core.TextContent{
+		Content: coretypes.TextContent{
 			Text: fmt.Sprintf("You are an AI coding agent. Working directory: %s", session.Cwd),
 		},
 	}
@@ -193,23 +198,23 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 	sid := params.SessionID
 	hooks := core.AgentEventHooks{
 		OnReplyChunk: func(id constants.AgentIdentity, chunk string) {
-			_ = h.transport.SendNotification("session/update", SessionUpdateParams{
+			h.notify("session/update", SessionUpdateParams{
 				SessionID: sid, Update: NewAgentMessageChunk(chunk),
 			})
 		},
 		OnBlockReply: func(id constants.AgentIdentity, text string) {
-			_ = h.transport.SendNotification("session/update", SessionUpdateParams{
+			h.notify("session/update", SessionUpdateParams{
 				SessionID: sid, Update: NewAgentMessageChunk(text),
 			})
 		},
-		OnFunctionCall: func(id constants.AgentIdentity, detail core.ToolCallDetail) {
+		OnFunctionCall: func(id constants.AgentIdentity, detail coretypes.ToolCallDetail) {
 			core.Debug("ACP: tool call", "session", sid, "tool", detail.ToolName, "tool_call_id", detail.ID)
 			notif := NewToolCallNotification(detail.ID, detail.ToolName, detail.Args)
-			_ = h.transport.SendNotification("session/update", SessionUpdateParams{
+			h.notify("session/update", SessionUpdateParams{
 				SessionID: sid, Update: notif,
 			})
 		},
-		OnToolCallEnd: func(id constants.AgentIdentity, result core.ToolCallResult) {
+		OnToolCallEnd: func(id constants.AgentIdentity, result coretypes.ToolCallResult) {
 			status := ToolCallStatusCompleted
 			if _, hasErr := result.Outputs["error"]; hasErr {
 				status = ToolCallStatusError
@@ -217,7 +222,7 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 			}
 			core.Debug("ACP: tool call end", "session", params.SessionID, "tool", result.ToolName, "status", status)
 			notif := NewToolCallUpdateNotification(result.ToolCallID, status, result.Outputs)
-			_ = h.transport.SendNotification("session/update", SessionUpdateParams{
+			h.notify("session/update", SessionUpdateParams{
 				SessionID: params.SessionID,
 				Update:    notif,
 			})
@@ -226,10 +231,12 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 		OnWaitForHumanAction: func(id constants.AgentIdentity, reason, prompt string) {
 			core.Info("ACP: hitl auto-resume", "session", sid, "reason", reason)
 			go func() {
-				_ = session.Agent.ResumeWithHumanResponse(promptCtx, "proceed")
+				if err := session.Agent.ResumeWithHumanResponse(promptCtx, "proceed"); err != nil {
+					core.Warn("ACP: hitl resume failed", "session", sid, "err", err)
+				}
 			}()
 		},
-		OnUsageUpdated: func(id constants.AgentIdentity, usage core.Usage) {
+		OnUsageUpdated: func(id constants.AgentIdentity, usage coretypes.Usage) {
 			core.Debug("ACP: usage", "session", sid, "identity", string(id), "total", usage.TotalTokens)
 		},
 		OnError: func(id constants.AgentIdentity, err error) {
@@ -242,7 +249,7 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 	assistantMessages, err := session.Agent.Execute(promptCtx, systemMsg, userMessages)
 	if err != nil {
 		core.Error("ACP: prompt execution error", "session", params.SessionID, "err", err)
-		_ = h.transport.SendNotification("session/update", SessionUpdateParams{
+		h.notify("session/update", SessionUpdateParams{
 			SessionID: params.SessionID,
 			Update:    NewAgentMessageChunk(fmt.Sprintf("Error: %v", err)),
 		})
@@ -250,10 +257,14 @@ func (h *Handler) handleSessionPrompt(ctx context.Context, params SessionPromptP
 	}
 
 	for _, msg := range userMessages {
-		_ = h.sessions.AppendMessage(params.SessionID, msg)
+		if err := h.sessions.AppendMessage(params.SessionID, msg); err != nil {
+			core.Warn("ACP: append message", "session", params.SessionID, "err", err)
+		}
 	}
 	for _, msg := range assistantMessages {
-		_ = h.sessions.AppendMessage(params.SessionID, msg)
+		if err := h.sessions.AppendMessage(params.SessionID, msg); err != nil {
+			core.Warn("ACP: append message", "session", params.SessionID, "err", err)
+		}
 	}
 
 	core.Info("ACP: prompt completed", "session", params.SessionID, "stop_reason", StopReasonEndTurn)
@@ -276,7 +287,7 @@ func (h *Handler) handleSessionLoad(_ context.Context, params SessionLoadParams)
 	core.Info("ACP: session load", "session", params.SessionID, "messages", len(session.Messages))
 	blocks := MessagesToContentBlocks(session.Messages)
 	for _, block := range blocks {
-		_ = h.transport.SendNotification("session/update", SessionUpdateParams{
+		h.notify("session/update", SessionUpdateParams{
 			SessionID: params.SessionID,
 			Update:    block,
 		})
@@ -300,6 +311,19 @@ func (h *Handler) handleSessionDelete(_ context.Context, params SessionDeletePar
 
 // writeError sends a JSON-RPC error response.
 func (h *Handler) writeError(id json.RawMessage, code int, message string, data any) {
-	resp := NewErrorResponse(id, code, message, data)
-	_ = h.transport.WriteMessage(resp)
+	h.writeMessage(NewErrorResponse(id, code, message, data))
+}
+
+// notify sends a notification, logging (not failing) on write errors.
+func (h *Handler) notify(method string, params any) {
+	if err := h.transport.SendNotification(method, params); err != nil {
+		core.Warn("ACP: notify failed", "method", method, "err", err)
+	}
+}
+
+// writeMessage writes a response message, logging (not failing) on write errors.
+func (h *Handler) writeMessage(msg *JSONRPCMessage) {
+	if err := h.transport.WriteMessage(msg); err != nil {
+		core.Warn("ACP: write failed", "err", err)
+	}
 }

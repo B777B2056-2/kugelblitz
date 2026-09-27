@@ -284,18 +284,42 @@ When confidence gap is narrow, the conflict is queued for human review via
 MEMORY.md at startup (`RebuildIfStale`) and async after every write (`Rebuild`).
 See `memory/longterm/index.go`.
 
-**Dreaming** (background consolidation): a `DreamScheduler` runs on a background
-goroutine, polling every 30 minutes. It only triggers a dream cycle when the
-agent has been **idle** (no `Execute` calls for 5 minutes) and the **cooldown**
-has elapsed (6 hours since last dream). The cycle reads existing memories,
-scores them by value, consolidates high-value items, and extracts cross-cutting
-insights. Results are written to `DREAMS.md`. Three phases:
+**Dreaming** (background consolidation): like human sleep, memory is consolidated
+in the background while the agent is otherwise idle. A scheduler polls every 30
+minutes and runs a cycle only when two conditions both hold: the agent has been
+**idle** (no requests for 5 minutes) and the **cooldown** has elapsed (6 hours
+since the last dream). The whole feature is gated by `auto_dream_enabled`, which
+is **opt-in (default off)** — set `auto_dream_enabled: true` in `kugelblitz.yaml`
+to enable it; when disabled, the scheduler is never created.
 
-1. **Light Sleep** — collect all `MemoryItem`s, enrich with graph degree
-2. **Deep Sleep** — LLM scores each item (1–10); high scores get confidence bump
-3. **REM** — LLM extracts patterns and themes from top items → `insights` section
+Each cycle reads the current long-term memories and processes them in three
+phases, at a cost of at most **two LLM calls**. The first two phases are
+read-only; **Deep Sleep is the sole writer**:
 
-See `memory/longterm/dream.go`.
+1. **Light Sleep — collection & enrichment** *(no LLM call)*. Every memory item
+   is gathered as a candidate and tagged with its **graph degree**: how many
+   relationships its key participates in as an entity in the knowledge graph.
+   This gives later scoring a signal for how central each memory is. If no graph
+   is mounted, every degree is simply 0.
+
+2. **REM — reflection** *(one LLM call)*. All candidates are distilled into
+   cross-cutting **insights** — new, higher-level memory entries — plus a
+   one-sentence summary of what the agent is currently focused on.
+
+3. **Deep Sleep — scoring & writing** *(one LLM call)*. Each item receives a
+   hybrid 0–1 value score blending four weighted signals: the LLM's intrinsic
+   value rating (weight 0.50, dominant — it is the most reliable relevance proxy
+   until read-side tracking lands), graph connectivity (0.20), update frequency
+   (0.15), and recency (0.15). The score drives a threshold rule: high scores →
+   *consolidate* (confidence raised, version bumped); low scores → *forget*
+   (removed); and the REM insights are *promoted* back into long-term memory.
+   Moderate scores are left unchanged.
+
+The outcome is written to `DREAMS.md` as a human-readable diary: how many items
+were examined, consolidated, forgotten, and promoted, plus the insights and
+summary.
+
+See `memory/longterm/dream/`.
 
 **Entity-Relationship Graph**: the extraction pipeline also produces entities
 and relationships (`EntityCandidate` / `RelCandidate`), stored in a local
@@ -806,18 +830,25 @@ kugelblitz/
 ├── core/              # Interfaces: ILMProvider, Observer, Span, Message, Tool, IAgent
 ├── config/            # Configuration structs (Model, Runtime, Compress, Drift)
 ├── constants/         # Enums: PlanState, RoleType, MultiModalType
+├── llm/               # Unified single-shot LLM caller (Caller + output-mode enum)
 ├── runtime/           # Agent execution runtime
 │   ├── agent_loop.go  #   AgentLoop — main entry point
 │   └── engine/
 │       ├── kernel.go  #   Kernel — public facade
 │       ├── fsm/       #   State machine (State + Action + Machine)
 │       ├── dag/       #   DAG task executor (topological batch execution)
-│       └── infra/     #   Infrastructure (ReactAgent, Reviewer, WorkerAgent)
+│       ├── infra/     #   Infrastructure (ReactAgent, Reviewer, WorkerAgent)
+│       ├── types/     #   Engine value types (BatchResult, ReviewResult)
+│       └── worker/    #   Worker execution contract (DAG ↔ infra decoupling)
 ├── memory/
 │   ├── session_memory.go  # SessionMemory — conversation history + auto-compress
 │   ├── compressor.go      # LLM-based context summarization
 │   ├── working/           # Working Memory (Plan + Task + Checkpoint)
+│   ├── types/             # Memory value types (MemoryItem, PipelineResult, …)
+│   ├── pipeline/          # Memory write pipeline (ordered-step primitive)
 │   └── longterm/          # Long-Term Memory (MEMORY.md + ChromaDB + Graph + Dream)
+│       ├── dream/         #   Dream subsystem (reflection → DREAMS.md)
+│       └── write/         #   Long-term write pipeline (Extract → Store)
 ├── prompts/           # System prompt templates
 ├── observability/     # OpenTelemetry tracing + StepTracer instrumentation
 ├── tools/

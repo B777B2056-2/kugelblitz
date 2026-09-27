@@ -128,3 +128,79 @@ const planStatusTmpl = `## Current Plan
 {{range .FailedTasks}}- {{.ID}} (goal: {{.Goal}}): {{.Reason}}
 {{end}}{{end}}
 Continue from the current state above.`
+
+const summarizeTmpl = `{{if .ExistingSummary}}You are maintaining a running summary of an ongoing conversation.
+
+EXISTING SUMMARY:
+{{.ExistingSummary}}
+
+Below are NEW messages that continue the conversation. Produce a single CONSOLIDATED summary that:
+- Incorporates key facts from both the existing summary and the new messages
+- If new information contradicts the existing summary, PREFER the new information
+- Removes outdated or superseded facts
+- Is concise (under 500 words)
+
+{{else}}Summarize the following conversation segment. Extract key facts, decisions, tool call results, and important context. Be concise but complete (under 500 words).
+
+{{end}}--- Messages ---
+
+{{.Messages}}
+--- End of messages ---
+Provide the consolidated summary (under 500 words):`
+
+const memoryScoreTmpl = `You are a memory scoring system. Rate each memory item from 1-10 by its INTRINSIC value only:
+- 1-3: low value (one-time event, outdated, already well-known)
+- 4-6: moderate (useful but not critical)
+- 7-10: high value (recurring theme, important preference, actionable insight)
+
+Rate only the intrinsic/qualitative value. Do NOT consider recency, update frequency, or graph connectivity — those are computed separately by the system.
+
+Output ONLY valid JSON:
+{"scores": [{"section":"...","key":"...","score":N,"reason":"brief justification"}]}
+
+Items:
+{{.Items}}`
+
+const memoryReflectTmpl = `You are a memory reflection system. Analyze these high-value memories and extract cross-cutting insights.
+
+Output ONLY valid JSON:
+{"insights": [{"section":"insights","key":"short_label","value":"detailed insight"}], "summary":"one-sentence summary of what the user is focused on"}
+
+High-value memories:
+{{.Items}}`
+
+const extractTmpl = `You are a memory extraction system. From the conversation, extract long-term memories AND entity relationships.
+
+Output ONLY valid JSON:
+{
+  "items": [
+    {"section":"...","key":"...","value":"...","source_evidence":"...","suggested_confidence":0.9}
+  ],
+  "entities": [
+    {"name":"EntityName","type":"language|file|concept|person|project|bug|tool","labels":["tag1","tag2"]}
+  ],
+  "relationships": [
+    {"from":"EntityName","to":"OtherEntity","type":"uses|depends_on|mentions|causes|contains|implements","weight":1.0}
+  ]
+}
+
+Sections for items: user_preferences, project_facts, episodic, lessons, patterns
+Entity types: language, file, concept, person, project, bug, tool
+Relationship weight: 1.0 = explicitly stated; < 1.0 = inferred
+
+Rules:
+- Be concise. Only include things clearly stated. Do not fabricate.
+- key = short label; value = detailed content
+{{if .SessionSummary}}
+## Session Context (summary)
+{{.SessionSummary}}
+{{end}}{{if .ExistingItems}}
+## Existing Memories (avoid duplicates)
+{{.ExistingItems}}{{end}}{{if .CheckpointGoals}}
+## Active Plan Goals
+{{.CheckpointGoals}}{{end}}{{if .UserMessage}}
+## User Request
+{{.UserMessage}}
+{{end}}
+## Conversation
+{{.Conversation}}`

@@ -19,6 +19,12 @@ func TestDefaultConfig(t *testing.T) {
 	assert.Equal(t, 30, cfg.Runtime.MaxStateMachineCycles)
 	assert.Equal(t, "", cfg.Runtime.ForceMode)
 	assert.Nil(t, cfg.MCP)
+
+	// Dreaming is opt-in: disabled by default.
+	assert.False(t, cfg.AutoDream.Enabled)
+	assert.Equal(t, 1800, cfg.AutoDream.CheckIntervalSec)
+	assert.Equal(t, 21600, cfg.AutoDream.CooldownSec)
+	assert.Equal(t, 300, cfg.AutoDream.IdleThresholdSec)
 }
 
 func TestNewProvider_DeepSeek(t *testing.T) {

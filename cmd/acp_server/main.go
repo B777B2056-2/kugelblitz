@@ -28,6 +28,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/runtime"
+	"github.com/B777B2056-2/kugelblitz/tools/mcp"
 )
 
 func main() {
@@ -37,7 +38,9 @@ func main() {
 	if *workspaceDir != "" {
 		core.GetWorkspace().SetDir(*workspaceDir)
 	}
-	_ = core.GetWorkspace().MkdirAll()
+	if err := core.GetWorkspace().MkdirAll(); err != nil {
+		core.Warn("workspace init", "err", err)
+	}
 
 	initLogging("acp_server")
 
@@ -54,9 +57,17 @@ func main() {
 		core.Warn("otel init failed", "err", err)
 	}
 	defer shutdown()
+	defer func() { _ = mcp.ShutdownGlobal(context.Background()) }()
 
 	// AgentLoop wires up MCP, skills, LTM, session — same as Web UI.
-	loop := runtime.NewAgentLoop(cfg)
+	loop, err := runtime.NewAgentLoop(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: init agent: %v\n", err)
+		os.Exit(1)
+	}
+	// NOTE: the ACP server hands the raw ReactAgent to the ACP server via
+	// loop.Agent() and never calls AgentLoop.Run, so the auto-dreaming
+	// scheduler (which is Start()ed inside Run) is intentionally inactive here.
 	srv := NewServer(loop.Agent(), cfg.Model.Provider)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
