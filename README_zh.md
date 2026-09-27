@@ -282,7 +282,7 @@ Kugelblitz 提供三层记忆架构：**会话记忆**（短期，对话历史�
 2. **深睡（Deep Sleep）** — LLM 逐条评分（1-10）；高分 → 置信度提升
 3. **REM** — LLM 从高分条目中提炼跨域模式 → `insights` section
 
-实现见 `memory/longterm/dream.go`。
+实现见 `memory/longterm/dream/`。
 
 **实体关系图谱**：提取管道同时产出实体和关系（`EntityCandidate` / `RelCandidate`），
 存入本地内存图（`memory/longterm/graph.go`）并以 JSONL 持久化。自动生成 Mermaid 可视化
@@ -775,18 +775,25 @@ kugelblitz/
 ├── core/              # 接口定义：ILMProvider, Observer, Span, Message, Tool, IAgent
 ├── config/            # 配置结构体（Model, Runtime, Compress, Drift）
 ├── constants/         # 枚举：PlanState, RoleType, MultiModalType
+├── llm/               # 统一单次 LLM 调用器（Caller + 输出形态枚举）
 ├── runtime/           # Agent 运行时
 │   ├── agent_loop.go  #   AgentLoop — 主入口
 │   └── engine/
 │       ├── kernel.go  #   Kernel — 公共 API 门面
 │       ├── fsm/       #   状态机（State + Action + Machine）
 │       ├── dag/       #   DAG 任务执行器（拓扑批次并发）
-│       └── infra/     #   基础设施（ReactAgent, Reviewer, WorkerAgent）
+│       ├── infra/     #   基础设施（ReactAgent, Reviewer, WorkerAgent）
+│       ├── types/     #   引擎值类型（BatchResult, ReviewResult）
+│       └── worker/    #   Worker 执行契约（DAG ↔ infra 解耦）
 ├── memory/
 │   ├── session_memory.go  # SessionMemory — 对话历史 + 自动压缩
 │   ├── compressor.go      # LLM 上下文压缩
 │   ├── working/           # 工作记忆（Plan + Task + Checkpoint）
+│   ├── types/             # 记忆值类型（MemoryItem, PipelineResult 等）
+│   ├── pipeline/          # 记忆写流水线（有序步骤原语）
 │   └── longterm/          # 长期记忆（MEMORY.md + ChromaDB + Graph + Dream）
+│       ├── dream/         #   Dream 子系统（反思 → DREAMS.md）
+│       └── write/         #   长期记忆写流水线（Extract → Store）
 ├── prompts/           # 系统提示词模板
 ├── observability/     # OTel Span 层级 + OTel SDK, PlannerInstrument
 ├── tools/

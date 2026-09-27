@@ -295,7 +295,7 @@ insights. Results are written to `DREAMS.md`. Three phases:
 2. **Deep Sleep** — LLM scores each item (1–10); high scores get confidence bump
 3. **REM** — LLM extracts patterns and themes from top items → `insights` section
 
-See `memory/longterm/dream.go`.
+See `memory/longterm/dream/`.
 
 **Entity-Relationship Graph**: the extraction pipeline also produces entities
 and relationships (`EntityCandidate` / `RelCandidate`), stored in a local
@@ -806,18 +806,25 @@ kugelblitz/
 ├── core/              # Interfaces: ILMProvider, Observer, Span, Message, Tool, IAgent
 ├── config/            # Configuration structs (Model, Runtime, Compress, Drift)
 ├── constants/         # Enums: PlanState, RoleType, MultiModalType
+├── llm/               # Unified single-shot LLM caller (Caller + output-mode enum)
 ├── runtime/           # Agent execution runtime
 │   ├── agent_loop.go  #   AgentLoop — main entry point
 │   └── engine/
 │       ├── kernel.go  #   Kernel — public facade
 │       ├── fsm/       #   State machine (State + Action + Machine)
 │       ├── dag/       #   DAG task executor (topological batch execution)
-│       └── infra/     #   Infrastructure (ReactAgent, Reviewer, WorkerAgent)
+│       ├── infra/     #   Infrastructure (ReactAgent, Reviewer, WorkerAgent)
+│       ├── types/     #   Engine value types (BatchResult, ReviewResult)
+│       └── worker/    #   Worker execution contract (DAG ↔ infra decoupling)
 ├── memory/
 │   ├── session_memory.go  # SessionMemory — conversation history + auto-compress
 │   ├── compressor.go      # LLM-based context summarization
 │   ├── working/           # Working Memory (Plan + Task + Checkpoint)
+│   ├── types/             # Memory value types (MemoryItem, PipelineResult, …)
+│   ├── pipeline/          # Memory write pipeline (ordered-step primitive)
 │   └── longterm/          # Long-Term Memory (MEMORY.md + ChromaDB + Graph + Dream)
+│       ├── dream/         #   Dream subsystem (reflection → DREAMS.md)
+│       └── write/         #   Long-term write pipeline (Extract → Store)
 ├── prompts/           # System prompt templates
 ├── observability/     # OpenTelemetry tracing + StepTracer instrumentation
 ├── tools/
