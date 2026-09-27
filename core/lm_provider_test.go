@@ -34,7 +34,7 @@ func (h *testEventHandler) OnFinished(reason string) {
 	h.finishReasons = append(h.finishReasons, reason)
 }
 func (h *testEventHandler) OnUsageUpdated(usage types.Usage) { h.usages = append(h.usages, usage) }
-func (h *testEventHandler) OnError(err error)          { h.errors = append(h.errors, err) }
+func (h *testEventHandler) OnError(err error)                { h.errors = append(h.errors, err) }
 
 var _ types.ModelEventHandler = (*testEventHandler)(nil)
 

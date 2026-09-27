@@ -131,7 +131,7 @@ func TestFileCopy_MoveFallback_RemoveErrorSurfaced(t *testing.T) {
 	src := filepath.Join(srcDir, "a.txt")
 	require.NoError(t, os.WriteFile(src, []byte("hello"), 0644))
 	require.NoError(t, os.Chmod(srcDir, 0555))
-	defer os.Chmod(srcDir, 0755)
+	defer func() { _ = os.Chmod(srcDir, 0755) }()
 
 	dst := filepath.Join(t.TempDir(), "b.txt")
 	result := (&FileCopy{}).Execute(context.Background(), coretypes.ToolCallDetail{
@@ -153,7 +153,7 @@ func TestDirCopy_MoveFallback_RemoveErrorSurfaced(t *testing.T) {
 	require.NoError(t, os.MkdirAll(src, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(src, "f.txt"), []byte("x"), 0644))
 	require.NoError(t, os.Chmod(srcParent, 0555))
-	defer os.Chmod(srcParent, 0755)
+	defer func() { _ = os.Chmod(srcParent, 0755) }()
 
 	dst := filepath.Join(t.TempDir(), "dst")
 	result := (&DirCopy{}).Execute(context.Background(), coretypes.ToolCallDetail{

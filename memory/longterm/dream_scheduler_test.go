@@ -55,7 +55,7 @@ func (p *flagProvider) Generate(_ context.Context, _ coretypes.GenerateParams) (
 func TestDreamScheduler_NoDreamWhenActive(t *testing.T) {
 	_, d := newSchedulerTestDreamer(t)
 	ds := NewDreamSchedulerWithIntervals(d, time.Hour, time.Hour, 5*time.Minute)
-	ds.lastActivity = time.Now()  // idle ≈ 0 < 5min
+	ds.lastActivity = time.Now() // idle ≈ 0 < 5min
 	ds.lastDreamed = time.Time{} // cooldown satisfied
 
 	ds.maybeDream()

@@ -11,12 +11,12 @@ import (
 
 // ExtractionContext bundles all information the LLM needs for fact extraction.
 type ExtractionContext struct {
-	SessionID       string         // Current session identifier
-	UserMessage     string         // Original user goal/request
+	SessionID       string              // Current session identifier
+	UserMessage     string              // Original user goal/request
 	Conversation    []coretypes.Message // Full conversation including tool calls and results
-	SessionSummary  string         // Current session summary (from SessionMemory)
-	ExistingItems   []MemoryItem   // Existing LTM items for dedup/conflict awareness
-	CheckpointGoals []string       // Active plan goals from checkpoints
+	SessionSummary  string              // Current session summary (from SessionMemory)
+	ExistingItems   []MemoryItem        // Existing LTM items for dedup/conflict awareness
+	CheckpointGoals []string            // Active plan goals from checkpoints
 }
 
 // MemoryItemCandidate is a raw fact produced by the LLM before conflict resolution.

@@ -2,6 +2,7 @@ version: "2"
 
 linters:
   enable:
+    - depguard
     - errcheck
     - govet
     - ineffassign
@@ -13,6 +14,52 @@ linters:
     - unused
 
   settings:
+    depguard:
+      rules:
+        control-plane-not-import-data-plane:
+          list-mode: lax
+          files:
+            - "**/runtime/engine/fsm/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: github.com/B777B2056-2/kugelblitz/runtime/engine/infra
+              desc: control plane (fsm) must depend on contracts, not execution infra
+            - pkg: github.com/B777B2056-2/kugelblitz/runtime/engine/dag
+              desc: control plane (fsm) must not depend on DAG execution
+        dag-not-import-concrete-infra:
+          list-mode: lax
+          files:
+            - "**/runtime/engine/dag/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: github.com/B777B2056-2/kugelblitz/runtime/engine/infra
+              desc: DAG orchestration must depend on the worker contract, not concrete infra
+        infra-not-import-control-plane:
+          list-mode: lax
+          files:
+            - "**/runtime/engine/infra/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: github.com/B777B2056-2/kugelblitz/runtime/engine/fsm
+              desc: execution infra must not reach up into the control plane (fsm)
+            - pkg: github.com/B777B2056-2/kugelblitz/runtime/engine/dag
+              desc: execution infra must not reach up into DAG orchestration
+        foundation-not-import-engine:
+          list-mode: lax
+          files:
+            - "**/core/**"
+            - "**/constants/**"
+            - "**/memory/**"
+            - "**/persist/**"
+            - "**/prompts/**"
+            - "**/provider/**"
+            - "**/tools/**"
+            - "**/observability/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: github.com/B777B2056-2/kugelblitz/runtime/engine
+              desc: foundation/data-plane packages must not import the engine runtime
+
     staticcheck:
       checks:
         - all

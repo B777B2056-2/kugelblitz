@@ -1,0 +1,4 @@
+# Go files must use LF line endings: gofmt/golangci-lint reject CRLF. With
+# core.autocrlf=true on Windows, Git otherwise checks out CRLF and the gofmt
+# check flags every affected file.
+*.go text eol=lf

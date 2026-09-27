@@ -16,6 +16,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/dag"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/fsm"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
+	"github.com/B777B2056-2/kugelblitz/runtime/engine/worker"
 	"github.com/B777B2056-2/kugelblitz/tools/internals"
 	"go.opentelemetry.io/otel"
 )
@@ -50,7 +51,9 @@ func NewKernel(
 
 	tracer := otel.Tracer("kugelblitz")
 	compressor := memory.NewCompressor(cfg.Model.Provider, tracer)
-	dagExec := dag.NewDAGTaskExecutor(cfg.Model.Provider, cfg.Model.StreamMode, infra.NewWorkerAgent, infra.NewPauseGate())
+	dagExec := dag.NewDAGTaskExecutor(cfg.Model.Provider, cfg.Model.StreamMode,
+		func(p coretypes.ILMProvider, s bool) worker.Worker { return infra.NewWorkerAgent(p, s) },
+		infra.NewPauseGate())
 	dagExec.SetHumanToolFactory(internals.NewAskHumanTool)
 	reviewer := infra.NewReviewer(cfg.Model.Provider, tracer)
 

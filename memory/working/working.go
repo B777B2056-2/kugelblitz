@@ -29,12 +29,12 @@ const (
 
 // Task is a single subtask within a plan.
 type Task struct {
-	ID             string      `json:"id"`
-	ParentTaskID   string      `json:"parent_task_id,omitempty"`
-	Goal           string      `json:"goal"`
-	Status         TaskStatus  `json:"status"`
-	FinishedReason string      `json:"finished_reason,omitempty"`
-	Action         string      `json:"action,omitempty"`
+	ID             string           `json:"id"`
+	ParentTaskID   string           `json:"parent_task_id,omitempty"`
+	Goal           string           `json:"goal"`
+	Status         TaskStatus       `json:"status"`
+	FinishedReason string           `json:"finished_reason,omitempty"`
+	Action         string           `json:"action,omitempty"`
 	Usage          *coretypes.Usage `json:"usage,omitempty"`
 }
 

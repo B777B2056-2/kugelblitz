@@ -414,7 +414,7 @@ func (h *testEventHandler) OnFinished(reason string) {
 	h.finishReasons = append(h.finishReasons, reason)
 }
 func (h *testEventHandler) OnUsageUpdated(usage coretypes.Usage) { h.usages = append(h.usages, usage) }
-func (h *testEventHandler) OnError(err error)               { h.errors = append(h.errors, err) }
+func (h *testEventHandler) OnError(err error)                    { h.errors = append(h.errors, err) }
 
 func TestEnableHumanInTheLoop_SetsUpLocalTool(t *testing.T) {
 	agent := NewReactAgent(nil, false)

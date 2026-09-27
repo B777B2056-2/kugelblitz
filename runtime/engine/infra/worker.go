@@ -11,6 +11,7 @@ import (
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/prompts"
+	"github.com/B777B2056-2/kugelblitz/runtime/engine/worker"
 )
 
 // WorkerAgent is a lightweight agent that executes a single task with a
@@ -33,14 +34,14 @@ var workerTools = []string{
 }
 
 type WorkerAgent struct {
-	provider   coretypes.ILMProvider
-	streamMode bool
-	maxSteps   int                                            // safety limit on ReAct loop iterations
-	hooks      core.AgentEventHooks                           // set by DAG executor; relayed to worker's ReactAgent
-	pauseGate  *PauseGate                                     // shared DAG pause gate; nil = no pausing
-	onHITL     func(agent *ReactAgent, reason, prompt string) // fire on worker HITL
-	stepTracer *observability.StepTracer                      // per-step OTel instrumentation (shared from DAG)
-	humanToolFactory HumanToolFactory                         // builds ask_human tool; nil = omit (set by DAG)
+	provider         coretypes.ILMProvider
+	streamMode       bool
+	maxSteps         int                                                 // safety limit on ReAct loop iterations
+	hooks            core.AgentEventHooks                                // set by DAG executor; relayed to worker's ReactAgent
+	pauseGate        worker.PauseGate                                    // shared DAG pause gate; nil = no pausing
+	onHITL           func(agent worker.HitlAgent, reason, prompt string) // fire on worker HITL
+	stepTracer       *observability.StepTracer                           // per-step OTel instrumentation (shared from DAG)
+	humanToolFactory worker.HumanToolFactory                             // builds ask_human tool; nil = omit (set by DAG)
 }
 
 // NewWorkerAgent creates a WorkerAgent with built-in execution tools plus custom tools.
@@ -56,7 +57,7 @@ func NewWorkerAgent(provider coretypes.ILMProvider, streamMode bool) *WorkerAgen
 func (w *WorkerAgent) SetHooks(hooks core.AgentEventHooks) { w.hooks = hooks }
 
 // SetPauseGate sets the shared DAG pause gate.
-func (w *WorkerAgent) SetPauseGate(g *PauseGate) { w.pauseGate = g }
+func (w *WorkerAgent) SetPauseGate(g worker.PauseGate) { w.pauseGate = g }
 
 // SetProvider replaces the LLM provider used for subsequent task execution.
 func (w *WorkerAgent) SetProvider(p coretypes.ILMProvider) { w.provider = p }
@@ -65,11 +66,13 @@ func (w *WorkerAgent) SetProvider(p coretypes.ILMProvider) { w.provider = p }
 func (w *WorkerAgent) SetStepTracer(st *observability.StepTracer) { w.stepTracer = st }
 
 // SetOnHITL sets the callback fired when the worker enters HITL.
-func (w *WorkerAgent) SetOnHITL(fn func(agent *ReactAgent, reason, prompt string)) { w.onHITL = fn }
+func (w *WorkerAgent) SetOnHITL(fn func(agent worker.HitlAgent, reason, prompt string)) {
+	w.onHITL = fn
+}
 
 // SetHumanToolFactory injects the factory used to build the worker's local
 // ask_human tool. When nil, EnableHumanInTheLoop registers no tool.
-func (w *WorkerAgent) SetHumanToolFactory(f HumanToolFactory) { w.humanToolFactory = f }
+func (w *WorkerAgent) SetHumanToolFactory(f worker.HumanToolFactory) { w.humanToolFactory = f }
 
 // workerResult collects the WorkerAgent's output and usage safely from callbacks.
 type workerResult struct {

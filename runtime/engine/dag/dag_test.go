@@ -10,9 +10,18 @@ import (
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
+	"github.com/B777B2056-2/kugelblitz/runtime/engine/worker"
 
 	"github.com/stretchr/testify/assert"
 )
+
+// testWorkerFactory wraps infra.NewWorkerAgent into a worker.WorkerFactory so the
+// DAG integration tests can still spawn the concrete worker.
+func testWorkerFactory() worker.WorkerFactory {
+	return func(p coretypes.ILMProvider, s bool) worker.Worker {
+		return infra.NewWorkerAgent(p, s)
+	}
+}
 
 // mockProvider implements coretypes.ILMProvider for testing.
 type mockProvider struct {
@@ -27,7 +36,7 @@ func (m *mockProvider) Generate(ctx context.Context, params coretypes.GeneratePa
 }
 
 func TestDAGTaskExecutor_ExecuteBatch_NoReadyTasks(t *testing.T) {
-	dag := NewDAGTaskExecutor(nil, false, infra.NewWorkerAgent, infra.NewPauseGate())
+	dag := NewDAGTaskExecutor(nil, false, testWorkerFactory(), infra.NewPauseGate())
 	plan := &working.Plan{ID: "p1", SubTasks: []working.Task{
 		{ID: "t1", Status: working.TaskStatusDone},
 	}}
@@ -47,7 +56,7 @@ func TestDAGTaskExecutor_ExecuteBatch_SingleTask(t *testing.T) {
 			return &msg, nil
 		},
 	}
-	dag := NewDAGTaskExecutor(prov, false, infra.NewWorkerAgent, infra.NewPauseGate())
+	dag := NewDAGTaskExecutor(prov, false, testWorkerFactory(), infra.NewPauseGate())
 
 	plan := &working.Plan{ID: "p1", SubTasks: []working.Task{
 		{ID: "t1", Status: working.TaskStatusPending, Goal: "test", Action: "echo hi"},
@@ -65,7 +74,7 @@ func TestDAGTaskExecutor_ExecuteBatch_TaskFailed(t *testing.T) {
 			return nil, errors.New("cmd not found")
 		},
 	}
-	dag := NewDAGTaskExecutor(prov, false, infra.NewWorkerAgent, infra.NewPauseGate())
+	dag := NewDAGTaskExecutor(prov, false, testWorkerFactory(), infra.NewPauseGate())
 
 	plan := &working.Plan{ID: "p1", SubTasks: []working.Task{
 		{ID: "t1", Status: working.TaskStatusPending, Goal: "test", Action: "bad cmd"},
@@ -84,7 +93,7 @@ func TestDAGTaskExecutor_ExecuteBatch_DAGOrder(t *testing.T) {
 			return &msg, nil
 		},
 	}
-	dag := NewDAGTaskExecutor(prov, false, infra.NewWorkerAgent, infra.NewPauseGate())
+	dag := NewDAGTaskExecutor(prov, false, testWorkerFactory(), infra.NewPauseGate())
 
 	plan := &working.Plan{ID: "p1", SubTasks: []working.Task{
 		{ID: "A", Status: working.TaskStatusPending, Goal: "A"},
@@ -116,7 +125,7 @@ func TestDAGTaskExecutor_ExecuteBatch_MultiBatchAutoLoop(t *testing.T) {
 			return &msg, nil
 		},
 	}
-	dag := NewDAGTaskExecutor(prov, false, infra.NewWorkerAgent, infra.NewPauseGate())
+	dag := NewDAGTaskExecutor(prov, false, testWorkerFactory(), infra.NewPauseGate())
 
 	plan := &working.Plan{ID: "p1", SubTasks: []working.Task{
 		{ID: "A", Status: working.TaskStatusPending, Goal: "A", Action: "A-action"},
@@ -138,7 +147,7 @@ func TestDAGTaskExecutor_Cancel(t *testing.T) {
 			return &msg, nil
 		},
 	}
-	dag := NewDAGTaskExecutor(prov, false, infra.NewWorkerAgent, infra.NewPauseGate())
+	dag := NewDAGTaskExecutor(prov, false, testWorkerFactory(), infra.NewPauseGate())
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -151,7 +160,7 @@ func TestDAGTaskExecutor_Cancel(t *testing.T) {
 }
 
 func TestDAGTaskExecutor_AllDone(t *testing.T) {
-	dag := NewDAGTaskExecutor(nil, false, infra.NewWorkerAgent, infra.NewPauseGate())
+	dag := NewDAGTaskExecutor(nil, false, testWorkerFactory(), infra.NewPauseGate())
 	plan := &working.Plan{ID: "p1", SubTasks: []working.Task{
 		{ID: "t1", Status: working.TaskStatusDone},
 		{ID: "t2", Status: working.TaskStatusFailed},
@@ -160,7 +169,7 @@ func TestDAGTaskExecutor_AllDone(t *testing.T) {
 }
 
 func TestDAGTaskExecutor_NotDone(t *testing.T) {
-	dag := NewDAGTaskExecutor(nil, false, infra.NewWorkerAgent, infra.NewPauseGate())
+	dag := NewDAGTaskExecutor(nil, false, testWorkerFactory(), infra.NewPauseGate())
 	plan := &working.Plan{ID: "p1", SubTasks: []working.Task{
 		{ID: "t1", Status: working.TaskStatusDone},
 		{ID: "t2", Status: working.TaskStatusPending},
@@ -181,7 +190,7 @@ func TestDAGTaskExecutor_ContextCancelledDuringExecution(t *testing.T) {
 			return &msg, nil
 		},
 	}
-	dag := NewDAGTaskExecutor(prov, false, infra.NewWorkerAgent, infra.NewPauseGate())
+	dag := NewDAGTaskExecutor(prov, false, testWorkerFactory(), infra.NewPauseGate())
 	ctx, cancel := context.WithCancel(context.Background())
 
 	plan := &working.Plan{ID: "p1", SubTasks: []working.Task{
@@ -206,7 +215,7 @@ func TestDAGTaskExecutor_InjectsWorkerFactoryAndPauseGate(t *testing.T) {
 		},
 	}
 	var factoryCalls int32
-	factory := func(p coretypes.ILMProvider, stream bool) *infra.WorkerAgent {
+	factory := func(p coretypes.ILMProvider, stream bool) worker.Worker {
 		atomic.AddInt32(&factoryCalls, 1)
 		return infra.NewWorkerAgent(p, stream)
 	}

@@ -11,8 +11,8 @@ import (
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/observability"
-	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/types"
+	"github.com/B777B2056-2/kugelblitz/runtime/engine/worker"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -23,33 +23,29 @@ type DAGTaskExecutor struct {
 	provider            coretypes.ILMProvider
 	streamMode          bool
 	cancel              context.CancelFunc
-	cancelMu            sync.Mutex                   // protects cancel
-	workerHooks         core.AgentEventHooks         // set by Planner.RegisterEventHooks
-	workerAgentIdentity constants.AgentIdentity      // set by Kernel
-	workerFactory       WorkerFactory                // builds each WorkerAgent; injected by composition root
-	humanToolFactory    infra.HumanToolFactory       // builds ask_human tool; nil = omit
-	PauseGate           *infra.PauseGate             // shared pause gate for all workers
-	hitlAgents          map[string]*infra.ReactAgent // taskID → waiting worker (HITL)
-	hitlMu              sync.Mutex                    // protects hitlAgents
-	stepTracer          *observability.StepTracer    // per-step instrumentation
+	cancelMu            sync.Mutex                  // protects cancel
+	workerHooks         core.AgentEventHooks        // set by Planner.RegisterEventHooks
+	workerAgentIdentity constants.AgentIdentity     // set by Kernel
+	workerFactory       worker.WorkerFactory        // builds each Worker; injected by composition root
+	humanToolFactory    worker.HumanToolFactory     // builds ask_human tool; nil = omit
+	PauseGate           worker.PauseGate            // shared pause gate for all workers
+	hitlAgents          map[string]worker.HitlAgent // taskID → waiting worker (HITL)
+	hitlMu              sync.Mutex                  // protects hitlAgents
+	stepTracer          *observability.StepTracer   // per-step instrumentation
 }
 
-// WorkerFactory creates a WorkerAgent for a single task. Injected by the
-// composition root so dag owns construction wiring without hardcoding
-// infra.NewWorkerAgent. Returning a concrete *infra.WorkerAgent keeps the
-// dag→infra type reference within the same engine layer.
-type WorkerFactory func(provider coretypes.ILMProvider, streamMode bool) *infra.WorkerAgent
-
-// NewDAGTaskExecutor creates an executor that spawns WorkerAgents via the
-// injected workerFactory and shares the injected pauseGate across all workers.
-func NewDAGTaskExecutor(provider coretypes.ILMProvider, streamMode bool, workerFactory WorkerFactory, pauseGate *infra.PauseGate) *DAGTaskExecutor {
+// NewDAGTaskExecutor creates an executor that spawns workers via the injected
+// workerFactory (worker.WorkerFactory) and shares the injected pauseGate across
+// all workers. The executor depends only on the worker contract, not on concrete
+// infra implementations.
+func NewDAGTaskExecutor(provider coretypes.ILMProvider, streamMode bool, workerFactory worker.WorkerFactory, pauseGate worker.PauseGate) *DAGTaskExecutor {
 	return &DAGTaskExecutor{
 		provider:            provider,
 		streamMode:          streamMode,
 		workerFactory:       workerFactory,
 		workerAgentIdentity: constants.AgentWorker,
 		PauseGate:           pauseGate,
-		hitlAgents:          make(map[string]*infra.ReactAgent),
+		hitlAgents:          make(map[string]worker.HitlAgent),
 	}
 }
 
@@ -59,7 +55,7 @@ func (d *DAGTaskExecutor) SetWorkerHooks(hooks core.AgentEventHooks) {
 
 // SetHumanToolFactory injects the factory used to build each worker's local
 // ask_human tool. When nil, workers run with no ask_human tool.
-func (d *DAGTaskExecutor) SetHumanToolFactory(f infra.HumanToolFactory) {
+func (d *DAGTaskExecutor) SetHumanToolFactory(f worker.HumanToolFactory) {
 	d.humanToolFactory = f
 }
 
@@ -88,7 +84,7 @@ func (d *DAGTaskExecutor) AnyWorkerInHumanLoopWaiting() bool {
 // ResumeAnyWorkerWithHumanResponse delivers a human response to the first waiting worker.
 func (d *DAGTaskExecutor) ResumeAnyWorkerWithHumanResponse(ctx context.Context, response string) error {
 	d.hitlMu.Lock()
-	var target *infra.ReactAgent
+	var target worker.HitlAgent
 	for id, gate := range d.hitlAgents {
 		if gate.HumanLoopWaiting() {
 			target = gate
@@ -199,18 +195,18 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 					}
 					return nil
 				}
-				worker := d.workerFactory(d.provider, d.streamMode)
-				worker.SetHooks(d.workerHooks)
-				worker.SetStepTracer(d.stepTracer)
-				worker.SetPauseGate(d.PauseGate)
-				worker.SetHumanToolFactory(d.humanToolFactory)
-				worker.SetOnHITL(func(agent *infra.ReactAgent, reason, prompt string) {
+				w := d.workerFactory(d.provider, d.streamMode)
+				w.SetHooks(d.workerHooks)
+				w.SetStepTracer(d.stepTracer)
+				w.SetPauseGate(d.PauseGate)
+				w.SetHumanToolFactory(d.humanToolFactory)
+				w.SetOnHITL(func(agent worker.HitlAgent, reason, prompt string) {
 					d.hitlMu.Lock()
 					d.hitlAgents[task.ID] = agent
 					d.hitlMu.Unlock()
 					d.Pause()
 				})
-				output, usage, err := worker.ExecuteTask(gctx, task.Goal, task.Action)
+				output, usage, err := w.ExecuteTask(gctx, task.Goal, task.Action)
 				planMu, _ := working.GetPlan(plan.ID)
 				if planMu == nil {
 					return nil
