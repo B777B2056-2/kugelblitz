@@ -23,6 +23,7 @@ var stateToolsMap = map[constants.PlanState][]string{
 		"dir_create", "dir_copy",
 		"memory_store", "memory_search", "memory_get_section",
 		"memory_remove", "memory_list_sections", "memory_stats",
+		"memory_extract", "context_compress",
 		"skill_use", "ask_human",
 	},
 	constants.PlanStateInit: {
@@ -32,7 +33,7 @@ var stateToolsMap = map[constants.PlanState][]string{
 		"memory_extract",
 		"skill_use",
 	},
-	constants.PlanStateConfirmed: {"ask_human", "confirm_plan"},
+	constants.PlanStateConfirmed: {"ask_human", "confirm_plan", "memory_extract"},
 	constants.PlanStateDoing:     {"task_query", "task_status_update"},
 	constants.PlanStateUpdating: {
 		"memory_store", "memory_search", "memory_get_section",
@@ -41,8 +42,8 @@ var stateToolsMap = map[constants.PlanState][]string{
 		"skill_use",
 		"task_insert", "task_delete", "task_query", "plan_query",
 	},
-	constants.PlanStateDone:     {"task_query", "plan_query"},
-	constants.PlanStateFailed:   {"task_query", "plan_query"},
+	constants.PlanStateDone:     {"task_query", "plan_query", "memory_extract"},
+	constants.PlanStateFailed:   {"task_query", "plan_query", "memory_extract"},
 	constants.PlanStateRejected: {},
 }
 

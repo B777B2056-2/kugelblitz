@@ -35,6 +35,7 @@ type ReactExecutor interface {
 	ExecuteWithTools(ctx context.Context, systemMessage coretypes.Message, userMessages []coretypes.Message, tools []string) ([]coretypes.Message, error)
 	GetAgentIdentity() constants.AgentIdentity
 	NotifyPlanRollback(id constants.AgentIdentity, planID string, targetVersion int, planName string)
+	NotifyBeforeCompress(id constants.AgentIdentity)
 }
 
 // DAGExecutor is the minimal surface of the DAG executor the FSM needs.
@@ -61,12 +62,12 @@ type SessionStore interface {
 // concrete types, so the FSM no longer reaches into process-wide singletons
 // (working/persist/core/prompts globals) and stays decoupled from dag/infra.
 type Dependencies struct {
-	React      ReactExecutor
-	DAG        DAGExecutor
-	Reviewer   DriftReviewer
-	Session    SessionStore
-	Summarizer memory.Summarizer // replaces the concrete *memory.Compressor
-	Config     MachineConfig
+	React       ReactExecutor
+	DAG         DAGExecutor
+	Reviewer    DriftReviewer
+	Session     SessionStore
+	Summarizer  memory.Summarizer // replaces the concrete *memory.Compressor
+	Config      MachineConfig
 	HandleDrift func(ctx *Context, reason string) // set by Machine
 
 	// Injected hidden globals (formerly reached directly from working/persist/
@@ -83,6 +84,8 @@ type Dependencies struct {
 type MachineConfig struct {
 	MaxCycles               int
 	CompressMaxAttempts     int
+	KeepLastN               int
+	MinMessagesToCompress   int
 	ReviewInterval          int
 	MaxFailuresBeforeReview int
 

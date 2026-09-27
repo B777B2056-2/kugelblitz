@@ -63,7 +63,8 @@ func handleContextExceeded(ctx *Context, sysMsg coretypes.Message, tools []strin
 	sessionCtx := core.WithSessionID(ctx.Ctx, deps.Session.SessionID())
 
 	for i := 0; i < deps.Config.CompressMaxAttempts; i++ {
-		_, _ = deps.Session.Compress(ctx.Ctx, deps.Summarizer, 4, 1)
+		deps.React.NotifyBeforeCompress(deps.React.GetAgentIdentity())
+		_, _ = deps.Session.Compress(ctx.Ctx, deps.Summarizer, deps.Config.KeepLastN, deps.Config.MinMessagesToCompress)
 
 		history := deps.Session.GetHistoryMessages()
 		result, err := deps.React.ExecuteWithTools(sessionCtx, sysMsg, history, tools)

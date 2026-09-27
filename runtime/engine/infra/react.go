@@ -27,29 +27,29 @@ type HumanToolFactory func(gate core.HumanGate) tools.Tool
 type humanLoopState struct {
 	localTools map[string]coretypes.ToolCallFunc   // instance‑local tools (e.g. ask_human)
 	localDefs  map[string]coretypes.ToolDefinition // definitions for local tools
-	responseCh chan string                    // buffers one human response
-	isWaiting  atomic.Bool                    // true while WaitForHuman is blocking
+	responseCh chan string                         // buffers one human response
+	isWaiting  atomic.Bool                         // true while WaitForHuman is blocking
 }
 
 type ReactAgent struct {
-	provider        coretypes.ILMProvider
-	providerMu      sync.RWMutex
-	toolRegistry    *core.ToolRegistry
-	StreamMode      bool
-	EventHooks      core.AgentEventHooks
-	agentIdentity   constants.AgentIdentity
-	abortSignal     chan struct{}
-	EnableThinking  *bool
-	ReasoningEffort string
-	toolNames       []string                  // nil=all tools; non-nil=whitelist
-	visibleCache    []coretypes.ToolDefinition     // cached filtered tool list; invalidated by WithTools
-	stepCount       int                       // ReAct loop iterations
-	maxSteps        int                       // max ReAct iterations; 0 = unlimited
-	OnToolResult    OnToolResult              // per-tool-execution callback
-	stepTracer      *observability.StepTracer // per-step trace instrumentation
-	humanLoop       *humanLoopState
+	provider         coretypes.ILMProvider
+	providerMu       sync.RWMutex
+	toolRegistry     *core.ToolRegistry
+	StreamMode       bool
+	EventHooks       core.AgentEventHooks
+	agentIdentity    constants.AgentIdentity
+	abortSignal      chan struct{}
+	EnableThinking   *bool
+	ReasoningEffort  string
+	toolNames        []string                   // nil=all tools; non-nil=whitelist
+	visibleCache     []coretypes.ToolDefinition // cached filtered tool list; invalidated by WithTools
+	stepCount        int                        // ReAct loop iterations
+	maxSteps         int                        // max ReAct iterations; 0 = unlimited
+	OnToolResult     OnToolResult               // per-tool-execution callback
+	stepTracer       *observability.StepTracer  // per-step trace instrumentation
+	humanLoop        *humanLoopState
 	humanToolFactory HumanToolFactory // builds the local ask_human tool; nil = omit
-	pauseGate       *PauseGate // shared gate; nil=no pausing; WaitIfPaused blocks tool calls
+	pauseGate        *PauseGate       // shared gate; nil=no pausing; WaitIfPaused blocks tool calls
 }
 
 func NewReactAgent(provider coretypes.ILMProvider, streamMode bool) *ReactAgent {
@@ -102,6 +102,15 @@ func (a *ReactAgent) GetAgentIdentity() constants.AgentIdentity {
 func (a *ReactAgent) NotifyPlanRollback(id constants.AgentIdentity, planID string, targetVersion int, planName string) {
 	if a.EventHooks.OnPlanRollback != nil {
 		a.EventHooks.OnPlanRollback(id, planID, targetVersion, planName)
+	}
+}
+
+// NotifyBeforeCompress fires the OnBeforeCompress hook, if registered. It is part
+// of the fsm.ReactExecutor interface so the FSM can signal an imminent context
+// compression through the interface without reaching into EventHooks directly.
+func (a *ReactAgent) NotifyBeforeCompress(id constants.AgentIdentity) {
+	if a.EventHooks.OnBeforeCompress != nil {
+		a.EventHooks.OnBeforeCompress(id)
 	}
 }
 

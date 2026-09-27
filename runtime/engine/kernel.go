@@ -63,6 +63,8 @@ func NewKernel(
 		Config: fsm.MachineConfig{
 			MaxCycles:               cfg.Runtime.MaxStateMachineCycles,
 			CompressMaxAttempts:     cfg.ContextCompress.MaxAttempts,
+			KeepLastN:               cfg.ContextCompress.KeepLastN,
+			MinMessagesToCompress:   cfg.ContextCompress.MinMessagesToCompress,
 			ReviewInterval:          cfg.TargetDrift.ReviewInterval,
 			MaxFailuresBeforeReview: cfg.TargetDrift.MaxFailuresBeforeReview,
 			ForceMode:               cfg.Runtime.ForceMode,
@@ -98,6 +100,16 @@ func (sm *Kernel) RegisterEventHooks(hooks core.AgentEventHooks) {
 // Compressor returns the session memory compressor.
 func (sm *Kernel) Compressor() *memory.Compressor {
 	return sm.compressor
+}
+
+// CompressContext manually compresses the session history into a summary,
+// freeing context-window space. It applies the configured KeepLastN /
+// MinMessagesToCompress policy and returns the LLM token usage of the
+// summarization call. OnBeforeCompress fires before the compression so
+// observers (e.g. long-term memory extraction) can run first.
+func (sm *Kernel) CompressContext(ctx context.Context) (*coretypes.Usage, error) {
+	sm.mainReact.NotifyBeforeCompress(constants.AgentMain)
+	return sm.sessionMem.Compress(ctx, sm.compressor, sm.cfg.ContextCompress.KeepLastN, sm.cfg.ContextCompress.MinMessagesToCompress)
 }
 
 // Run executes the state machine main loop.

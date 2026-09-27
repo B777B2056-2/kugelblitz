@@ -108,6 +108,7 @@ func initLTM(provider coretypes.ILMProvider, al *AgentLoop) error {
 	al.indexMgr = longterm.NewIndexManager(mgr.Vector(), ltm)
 	al.writePipeline = longterm.NewWritePipeline(provider, ltm, al.indexMgr, 0.15)
 	internals.RegisterMemoryTools(ltm, al.indexMgr, al.writePipeline)
+	internals.RegisterContextCompressTool()
 
 	graphStore := longterm.NewGraphStore(mgr.JSONL(), "memory/longterm/memory_graph.jsonl")
 	_ = graphStore.Load(context.Background())
@@ -178,6 +179,13 @@ func initSemanticJudge(provider coretypes.ILMProvider) {
 
 // SessionID returns the ID of the underlying session memory.
 func (a *AgentLoop) SessionID() string { return a.sessionMem.SessionID() }
+
+// CompressContext manually compresses the session history into a summary,
+// freeing context-window space. It applies the configured compression policy
+// and returns the LLM token usage of the summarization call.
+func (a *AgentLoop) CompressContext(ctx context.Context) (*coretypes.Usage, error) {
+	return a.planner.CompressContext(ctx)
+}
 
 // RegisterEventHooks saves hooks for the next Execute call.
 func (a *AgentLoop) RegisterEventHooks(hooks core.AgentEventHooks) {
@@ -287,6 +295,9 @@ func (a *AgentLoop) execute(ctx context.Context, input coretypes.AgentInput) (me
 		}
 	})
 
+	// wire context_compress to the planner's manual compression entry point
+	internals.BindContextCompress(a.planner.CompressContext)
+
 	// Resolve provider: if input has media, switch to configured multimodal model
 	a.planner.SetProvider(a.resolveProvider())
 
@@ -352,7 +363,8 @@ func (a *AgentLoop) rewriteEventHooks(userHooks core.AgentEventHooks) core.Agent
 	return core.Chain(userHooks, sysHooks)
 }
 
-// extractMemories runs the LTM write pipeline before compresses session memory.
+// extractMemories runs the LTM write pipeline before session memory is
+// compressed, so facts in soon-to-be-summarized messages are preserved.
 func (a *AgentLoop) extractMemories() {
 	input := longterm.ExtractionInput{
 		Conversation:   a.sessionMem.GetHistoryMessages(),

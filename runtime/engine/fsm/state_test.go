@@ -100,6 +100,32 @@ func TestToolsForState_DoneFailedTools(t *testing.T) {
 	}
 }
 
+func TestToolsForState_MemoryExtractAvailableToAgents(t *testing.T) {
+	// LTM writing is a first-class tool for the simple-mode agent (Direct) and
+	// the plan-mode main agent (Init/Confirmed/Updating/Done/Failed).
+	for _, status := range []constants.PlanState{
+		constants.PlanStateDirect,
+		constants.PlanStateInit,
+		constants.PlanStateConfirmed,
+		constants.PlanStateUpdating,
+		constants.PlanStateDone,
+		constants.PlanStateFailed,
+	} {
+		assert.Contains(t, ToolsForState(status, nil), "memory_extract",
+			"memory_extract should be available in %s", status)
+	}
+
+	// Not available to the classification phase (Intent) or DAG workers (Doing).
+	assert.NotContains(t, ToolsForState(constants.PlanStateIntent, nil), "memory_extract")
+	assert.NotContains(t, ToolsForState(constants.PlanStateDoing, nil), "memory_extract")
+	assert.NotContains(t, ToolsForState(constants.PlanStateRejected, nil), "memory_extract")
+}
+
+func TestToolsForState_ContextCompressInDirect(t *testing.T) {
+	// Manual context compression is exposed in the single-turn (Direct) mode.
+	assert.Contains(t, ToolsForState(constants.PlanStateDirect, nil), "context_compress")
+}
+
 func TestBuildPrompt_ConfirmedShowsFullPlan(t *testing.T) {
 	plan := &working.Plan{
 		ID:    "plan-001",
