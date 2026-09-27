@@ -11,11 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestServer(t *testing.T) *Server {
-	t.Helper()
-	return NewServer()
-}
-
 // ── Session CRUD ──
 
 func TestHandleCreateSession(t *testing.T) {
