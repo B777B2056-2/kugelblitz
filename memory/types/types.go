@@ -23,6 +23,17 @@ type MemoryItem struct {
 	UpdatedAt  time.Time // last update timestamp
 }
 
+// MemoryItemCandidate is a raw fact produced by the LLM before conflict
+// resolution and dedup. It carries extraction metadata (source evidence,
+// suggested confidence) that the resolved MemoryItem drops.
+type MemoryItemCandidate struct {
+	Section             string  `json:"section"`
+	Key                 string  `json:"key"`
+	Value               string  `json:"value"`
+	SourceEvidence      string  `json:"source_evidence"`
+	SuggestedConfidence float64 `json:"suggested_confidence"`
+}
+
 // PipelineResult aggregates metrics from a write pipeline run.
 type PipelineResult struct {
 	ItemsExtracted  int // Raw fact candidates from LLM

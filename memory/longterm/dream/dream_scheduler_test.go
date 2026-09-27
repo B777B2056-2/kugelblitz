@@ -1,4 +1,4 @@
-package longterm
+package dream
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/llm"
+	"github.com/B777B2056-2/kugelblitz/memory/longterm"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,10 +17,10 @@ import (
 // newSchedulerTestDreamer builds a Dreamer backed by an isolated tmp dir with a
 // single LTM item and a scripted provider that scores it high, so a full dream
 // cycle produces a non-empty report that gets persisted as DREAMS.md.
-func newSchedulerTestDreamer(t *testing.T) (*LongTermMemory, *Dreamer) {
+func newSchedulerTestDreamer(t *testing.T) (*longterm.LongTermMemory, *Dreamer) {
 	t.Helper()
-	graph := NewGraphStore(nil, "")
-	ltm, err := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())), WithGraph(graph))
+	graph := longterm.NewGraphStore(nil, "")
+	ltm, err := longterm.NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())), longterm.WithGraph(graph))
 	require.NoError(t, err)
 	_, _, _ = ltm.Store("s", "k", "v")
 	d := NewDreamer(llm.NewCaller(&dreamProvider{
@@ -56,7 +57,7 @@ func TestDreamScheduler_NoDreamWhenActive(t *testing.T) {
 
 	ds.maybeDream()
 
-	assert.False(t, d.ltm.mdStore.Exists(context.Background(), "DREAMS.md"))
+	assert.False(t, d.ltm.MarkdownExists(context.Background(), "DREAMS.md"))
 }
 
 func TestDreamScheduler_NoDreamBeforeCooldown(t *testing.T) {
@@ -67,7 +68,7 @@ func TestDreamScheduler_NoDreamBeforeCooldown(t *testing.T) {
 
 	ds.maybeDream()
 
-	assert.False(t, d.ltm.mdStore.Exists(context.Background(), "DREAMS.md"))
+	assert.False(t, d.ltm.MarkdownExists(context.Background(), "DREAMS.md"))
 }
 
 func TestDreamScheduler_DreamsWhenIdleAndCooldownElapsed(t *testing.T) {
@@ -78,13 +79,13 @@ func TestDreamScheduler_DreamsWhenIdleAndCooldownElapsed(t *testing.T) {
 
 	ds.maybeDream()
 
-	data, err := d.ltm.mdStore.Load(context.Background(), "DREAMS.md")
+	data, err := d.ltm.LoadMarkdown(context.Background(), "DREAMS.md")
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "# Dream Report")
 }
 
 func TestDreamScheduler_NoOpWhenNoCandidates(t *testing.T) {
-	ltm, err := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
+	ltm, err := longterm.NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
 	require.NoError(t, err)
 	d := NewDreamer(llm.NewCaller(&dreamProvider{}, nil), ltm, nil)
 	ds := NewDreamSchedulerWithIntervals(d, time.Hour, 6*time.Hour, 5*time.Minute)
@@ -93,7 +94,7 @@ func TestDreamScheduler_NoOpWhenNoCandidates(t *testing.T) {
 
 	ds.maybeDream()
 
-	assert.False(t, ltm.mdStore.Exists(context.Background(), "DREAMS.md"))
+	assert.False(t, ltm.MarkdownExists(context.Background(), "DREAMS.md"))
 }
 
 func TestDreamScheduler_AutoDream_Fires(t *testing.T) {
@@ -105,7 +106,7 @@ func TestDreamScheduler_AutoDream_Fires(t *testing.T) {
 	defer ds.Stop()
 
 	require.Eventually(t, func() bool {
-		return ltm.mdStore.Exists(context.Background(), "DREAMS.md")
+		return ltm.MarkdownExists(context.Background(), "DREAMS.md")
 	}, 2*time.Second, 5*time.Millisecond)
 
 	assert.GreaterOrEqual(t, calls.Load(), int32(2))

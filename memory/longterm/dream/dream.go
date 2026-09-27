@@ -1,4 +1,4 @@
-package longterm
+package dream
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/core"
 	"github.com/B777B2056-2/kugelblitz/llm"
+	"github.com/B777B2056-2/kugelblitz/memory/longterm"
+	"github.com/B777B2056-2/kugelblitz/memory/pipeline"
 	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 	"github.com/B777B2056-2/kugelblitz/prompts"
 )
@@ -62,13 +64,13 @@ type dreamCandidate struct {
 // Dreamer runs background memory consolidation cycles.
 type Dreamer struct {
 	caller *llm.Caller
-	ltm    *LongTermMemory
-	graph  *GraphStore
+	ltm    *longterm.LongTermMemory
+	graph  *longterm.GraphStore
 }
 
 // NewDreamer constructs a Dreamer with all dependencies injected. caller
 // provides the LLM for deep-sleep scoring and REM insight extraction.
-func NewDreamer(caller *llm.Caller, ltm *LongTermMemory, graph *GraphStore) *Dreamer {
+func NewDreamer(caller *llm.Caller, ltm *longterm.LongTermMemory, graph *longterm.GraphStore) *Dreamer {
 	return &Dreamer{caller: caller, ltm: ltm, graph: graph}
 }
 
@@ -166,54 +168,71 @@ func (ds *DreamScheduler) maybeDream() {
 	}
 }
 
-// Run executes the full dream cycle: Light Sleep → Deep Sleep → REM.
+// Run executes the full dream cycle as an ordered set of steps:
+// Light Sleep → Deep Sleep → REM.
 func (d *Dreamer) Run(ctx context.Context) (*DreamReport, error) {
 	start := time.Now()
 	report := &DreamReport{Timestamp: start}
 
-	// Phase 1: Light Sleep — collect candidates
-	candidates, err := d.lightSleep(ctx)
-	if err != nil {
+	var (
+		candidates []dreamCandidate
+		scored     []deepSleepResult
+	)
+
+	steps := pipeline.New(
+		pipeline.Step{Name: "light_sleep", Run: func(ctx context.Context) error {
+			cs, err := d.lightSleep(ctx)
+			if err != nil {
+				return err
+			}
+			candidates = cs
+			report.Candidates = len(cs)
+			return nil
+		}},
+		pipeline.Step{Name: "deep_sleep", Run: func(ctx context.Context) error {
+			if len(candidates) == 0 {
+				return nil // nothing to consolidate
+			}
+			sc, err := d.deepSleep(ctx, candidates)
+			report.LLMCalls++
+			if err != nil {
+				return err
+			}
+			scored = sc
+			for _, s := range scored {
+				if s.Score >= 7 {
+					report.ScoredHigh++
+					report.Consolidated++
+				}
+				if s.Score <= 3 {
+					report.ScoredLow++
+				}
+			}
+			return nil
+		}},
+		pipeline.Step{Name: "rem", Run: func(ctx context.Context) error {
+			var highItems []memorytypes.MemoryItem
+			for _, s := range scored {
+				if s.Score >= 8 {
+					highItems = append(highItems, s.Item)
+				}
+			}
+			if len(highItems) == 0 {
+				return nil
+			}
+			insights, summary, err := d.rem(ctx, highItems)
+			report.LLMCalls++
+			if err == nil {
+				report.Insights = insights
+				report.Summary = summary
+			}
+			return nil
+		}},
+	)
+
+	if err := steps.Run(ctx); err != nil {
 		return report, err
 	}
-	report.Candidates = len(candidates)
-	if len(candidates) == 0 {
-		report.Duration = time.Since(start)
-		return report, nil
-	}
-
-	// Phase 2: Deep Sleep — LLM scores and filters
-	scored, err := d.deepSleep(ctx, candidates)
-	report.LLMCalls++
-	if err != nil {
-		return report, err
-	}
-	for _, s := range scored {
-		if s.Score >= 7 {
-			report.ScoredHigh++
-			report.Consolidated++
-		}
-		if s.Score <= 3 {
-			report.ScoredLow++
-		}
-	}
-
-	// Phase 3: REM — pattern extraction from high-value items
-	var highItems []memorytypes.MemoryItem
-	for _, s := range scored {
-		if s.Score >= 8 {
-			highItems = append(highItems, s.Item)
-		}
-	}
-	if len(highItems) > 0 {
-		insights, summary, err := d.rem(ctx, highItems)
-		report.LLMCalls++
-		if err == nil {
-			report.Insights = insights
-			report.Summary = summary
-		}
-	}
-
 	report.Duration = time.Since(start)
 	return report, nil
 }
@@ -349,4 +368,12 @@ func (d *Dreamer) rem(ctx context.Context, highItems []memorytypes.MemoryItem) (
 	}
 
 	return insights, result.Summary, nil
+}
+
+// truncate shortens s to maxLen bytes, appending an ellipsis when cut.
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
 }

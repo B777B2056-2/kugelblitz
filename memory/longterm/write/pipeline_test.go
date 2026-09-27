@@ -1,18 +1,19 @@
-package longterm
+package write
 
 import (
 	"context"
 	"testing"
 
 	"github.com/B777B2056-2/kugelblitz/llm"
+	"github.com/B777B2056-2/kugelblitz/memory/longterm"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func newTestLTMPipeline(t *testing.T) *LongTermMemory {
+func newTestLTMPipeline(t *testing.T) *longterm.LongTermMemory {
 	t.Helper()
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
+	ltm, _ := longterm.NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
 	return ltm
 }
 

@@ -1,4 +1,4 @@
-package longterm
+package write
 
 import (
 	"context"

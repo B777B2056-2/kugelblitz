@@ -12,6 +12,8 @@ import (
 	"github.com/B777B2056-2/kugelblitz/llm"
 	"github.com/B777B2056-2/kugelblitz/memory"
 	"github.com/B777B2056-2/kugelblitz/memory/longterm"
+	"github.com/B777B2056-2/kugelblitz/memory/longterm/dream"
+	"github.com/B777B2056-2/kugelblitz/memory/longterm/write"
 	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/persist"
@@ -30,8 +32,8 @@ type AgentLoop struct {
 	// LTM subsystem
 	ltm            *longterm.LongTermMemory
 	indexMgr       *longterm.IndexManager
-	writePipeline  *longterm.WritePipeline
-	dreamScheduler *longterm.DreamScheduler
+	writePipeline  *write.WritePipeline
+	dreamScheduler *dream.DreamScheduler
 
 	// session
 	sessionMem *memory.SessionMemory
@@ -113,15 +115,15 @@ func initLTM(provider coretypes.ILMProvider, al *AgentLoop) error {
 	}
 	al.ltm = ltm
 	al.indexMgr = longterm.NewIndexManager(mgr.Vector(), ltm)
-	al.writePipeline = longterm.NewWritePipeline(caller, ltm, al.indexMgr, 0.15)
+	al.writePipeline = write.NewWritePipeline(caller, ltm, al.indexMgr, 0.15)
 	internals.RegisterMemoryTools(ltm, al.indexMgr, al.writePipeline)
 	internals.RegisterContextCompressTool()
 
 	if !al.cfg.AutoDream.Enabled {
 		return nil
 	}
-	al.dreamScheduler = longterm.NewDreamSchedulerWithIntervals(
-		longterm.NewDreamer(caller, ltm, graphStore),
+	al.dreamScheduler = dream.NewDreamSchedulerWithIntervals(
+		dream.NewDreamer(caller, ltm, graphStore),
 		dreamInterval(al.cfg.AutoDream.CheckIntervalSec, 30*time.Minute),
 		dreamInterval(al.cfg.AutoDream.CooldownSec, 6*time.Hour),
 		dreamInterval(al.cfg.AutoDream.IdleThresholdSec, 5*time.Minute),

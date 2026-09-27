@@ -31,7 +31,7 @@ func NewConflictResolver(ltm *LongTermMemory, confidenceGap float64) *ConflictRe
 
 // ResolveResult captures the outcome of resolving a single fact candidate against existing LTM.
 type ResolveResult struct {
-	Candidate MemoryItemCandidate
+	Candidate memorytypes.MemoryItemCandidate
 	Decision  ConflictDecision
 	Winner    memorytypes.MemoryItem // The winning fact
 	OldFact   *memorytypes.MemoryItem
@@ -39,7 +39,7 @@ type ResolveResult struct {
 
 // Resolve processes a batch of fact candidates against existing LTM items.
 // When confidence gap is narrow, the existing fact is kept.
-func (cr *ConflictResolver) Resolve(candidates []MemoryItemCandidate) []memorytypes.MemoryItem {
+func (cr *ConflictResolver) Resolve(candidates []memorytypes.MemoryItemCandidate) []memorytypes.MemoryItem {
 	var stored []memorytypes.MemoryItem
 	for _, c := range candidates {
 		result := cr.resolveOne(c)
@@ -51,7 +51,7 @@ func (cr *ConflictResolver) Resolve(candidates []MemoryItemCandidate) []memoryty
 	return stored
 }
 
-func (cr *ConflictResolver) resolveOne(c MemoryItemCandidate) ResolveResult {
+func (cr *ConflictResolver) resolveOne(c memorytypes.MemoryItemCandidate) ResolveResult {
 	existing, exists := cr.ltm.Get(c.Section, c.Key)
 
 	if !exists {

@@ -1,4 +1,4 @@
-package longterm
+package dream
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/llm"
+	"github.com/B777B2056-2/kugelblitz/memory/longterm"
 	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 	"github.com/B777B2056-2/kugelblitz/persist"
 	"github.com/stretchr/testify/assert"
@@ -31,11 +32,11 @@ func (m *dreamProvider) Generate(ctx context.Context, params coretypes.GenerateP
 	}, nil
 }
 
-func setupDreamer(t *testing.T) (*LongTermMemory, *Dreamer) {
+func setupDreamer(t *testing.T) (*longterm.LongTermMemory, *Dreamer) {
 	t.Helper()
 
-	graph := NewGraphStore(nil, "")
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())), WithGraph(graph))
+	graph := longterm.NewGraphStore(nil, "")
+	ltm, _ := longterm.NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())), longterm.WithGraph(graph))
 
 	// Populate some memories
 	_, _, _ = ltm.Store("user_preferences", "language", "Go")
@@ -44,11 +45,11 @@ func setupDreamer(t *testing.T) (*LongTermMemory, *Dreamer) {
 	_, _, _ = ltm.Store("lessons", "tdd_workflow", "Always write tests first")
 
 	// Add graph data
-	graph.UpsertEntity(EntityCandidate{Name: "Go", Type: "language"})
-	graph.UpsertEntity(EntityCandidate{Name: "kugelblitz", Type: "project"})
-	graph.UpsertEntity(EntityCandidate{Name: "plan_mode.go", Type: "file"})
-	graph.AddRelationship(RelCandidate{From: "Go", To: "kugelblitz", Type: "implements", Weight: 1.0})
-	graph.AddRelationship(RelCandidate{From: "kugelblitz", To: "plan_mode.go", Type: "contains", Weight: 1.0})
+	graph.UpsertEntity(longterm.EntityCandidate{Name: "Go", Type: "language"})
+	graph.UpsertEntity(longterm.EntityCandidate{Name: "kugelblitz", Type: "project"})
+	graph.UpsertEntity(longterm.EntityCandidate{Name: "plan_mode.go", Type: "file"})
+	graph.AddRelationship(longterm.RelCandidate{From: "Go", To: "kugelblitz", Type: "implements", Weight: 1.0})
+	graph.AddRelationship(longterm.RelCandidate{From: "kugelblitz", To: "plan_mode.go", Type: "contains", Weight: 1.0})
 
 	return ltm, NewDreamer(llm.NewCaller(&dreamProvider{}, nil), ltm, graph)
 }
@@ -204,7 +205,7 @@ func TestDreamReport_ToMarkdown(t *testing.T) {
 }
 
 func TestDreamer_EmptyMemories_NoOp(t *testing.T) {
-	ltm, _ := NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
+	ltm, _ := longterm.NewLongTermMemory(persist.NewMarkdownPersist(persist.NewFilePersist(t.TempDir())))
 	d := NewDreamer(llm.NewCaller(&dreamProvider{}, nil), ltm, nil)
 
 	report, err := d.Run(context.Background())

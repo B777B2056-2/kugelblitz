@@ -80,6 +80,17 @@ func (ltm *LongTermMemory) StoreMarkdown(ctx context.Context, path string, data 
 	return ltm.mdStore.Store(ctx, path, data)
 }
 
+// LoadMarkdown reads a markdown document (e.g. DREAMS.md) through the
+// underlying MarkdownPersist, mirroring StoreMarkdown.
+func (ltm *LongTermMemory) LoadMarkdown(ctx context.Context, path string) ([]byte, error) {
+	return ltm.mdStore.Load(ctx, path)
+}
+
+// MarkdownExists reports whether a markdown document exists.
+func (ltm *LongTermMemory) MarkdownExists(ctx context.Context, path string) bool {
+	return ltm.mdStore.Exists(ctx, path)
+}
+
 // indexKey builds the normalized index key for O(1) lookup.
 func (ltm *LongTermMemory) indexKey(section, key string) string {
 	return ltm.normalize(section) + "\x00" + key

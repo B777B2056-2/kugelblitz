@@ -1,4 +1,4 @@
-package longterm
+package write
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
 	"github.com/B777B2056-2/kugelblitz/llm"
+	"github.com/B777B2056-2/kugelblitz/memory/longterm"
 	memorytypes "github.com/B777B2056-2/kugelblitz/memory/types"
 	"github.com/B777B2056-2/kugelblitz/prompts"
 )
@@ -22,15 +23,6 @@ type ExtractionContext struct {
 	CheckpointGoals []string                 // Active plan goals from checkpoints
 }
 
-// MemoryItemCandidate is a raw fact produced by the LLM before conflict resolution.
-type MemoryItemCandidate struct {
-	Section             string  `json:"section"`
-	Key                 string  `json:"key"`
-	Value               string  `json:"value"`
-	SourceEvidence      string  `json:"source_evidence"`
-	SuggestedConfidence float64 `json:"suggested_confidence"`
-}
-
 // Extractor uses a unified LLM caller to extract long-term memories from conversations.
 type Extractor struct {
 	caller *llm.Caller
@@ -43,8 +35,8 @@ func NewExtractor(caller *llm.Caller) *Extractor {
 
 // Extract runs the LLM extraction and returns fact candidates.
 // All memory types (items, episodic, lessons, patterns) are extracted as
-// MemoryItemCandidate entries with different section names.
-func (e *Extractor) Extract(ctx context.Context, ec *ExtractionContext) ([]MemoryItemCandidate, *coretypes.Usage, error) {
+// memorytypes.MemoryItemCandidate entries with different section names.
+func (e *Extractor) Extract(ctx context.Context, ec *ExtractionContext) ([]memorytypes.MemoryItemCandidate, *coretypes.Usage, error) {
 	prompt := e.buildPrompt(ec)
 
 	res, err := e.caller.Call(ctx, llm.Request{
@@ -152,7 +144,7 @@ func (e *Extractor) compactArgs(args map[string]any) string {
 }
 
 // parseResponse extracts JSON from the LLM response.
-func (e *Extractor) parseResponse(text string) ([]MemoryItemCandidate, error) {
+func (e *Extractor) parseResponse(text string) ([]memorytypes.MemoryItemCandidate, error) {
 	start := strings.Index(text, "[")
 	end := strings.LastIndex(text, "]")
 	if start < 0 || end <= start {
@@ -160,7 +152,7 @@ func (e *Extractor) parseResponse(text string) ([]MemoryItemCandidate, error) {
 	}
 	jsonStr := text[start : end+1]
 
-	var candidates []MemoryItemCandidate
+	var candidates []memorytypes.MemoryItemCandidate
 	if err := json.Unmarshal([]byte(jsonStr), &candidates); err != nil {
 		return nil, fmt.Errorf("json decode: %w", err)
 	}
@@ -176,9 +168,9 @@ func truncate(s string, maxLen int) string {
 
 // ExtractionFullResult is the LLM's full extraction output including graph data.
 type ExtractionFullResult struct {
-	Items         []MemoryItemCandidate `json:"items"`
-	Entities      []EntityCandidate     `json:"entities"`
-	Relationships []RelCandidate        `json:"relationships"`
+	Items         []memorytypes.MemoryItemCandidate `json:"items"`
+	Entities      []longterm.EntityCandidate        `json:"entities"`
+	Relationships []longterm.RelCandidate           `json:"relationships"`
 }
 
 // ExtractFull runs the LLM extraction and returns the full result including entities and relationships.

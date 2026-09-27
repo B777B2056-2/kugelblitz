@@ -13,7 +13,7 @@ func TestConflictResolver_NoConflict_NewFact(t *testing.T) {
 	ltm := &LongTermMemory{index: make(map[string]int)}
 	cr := NewConflictResolver(ltm, 0.15)
 
-	candidates := []MemoryItemCandidate{
+	candidates := []memorytypes.MemoryItemCandidate{
 		{Section: "prefs", Key: "lang", Value: "Go", SuggestedConfidence: 0.9},
 	}
 	stored := cr.Resolve(candidates)
@@ -28,7 +28,7 @@ func TestConflictResolver_SemanticMatch_NoConflict(t *testing.T) {
 	ltm.judge = func(old, new string) bool { return true }
 
 	cr := NewConflictResolver(ltm, 0.15)
-	candidates := []MemoryItemCandidate{
+	candidates := []memorytypes.MemoryItemCandidate{
 		{Section: "prefs", Key: "lang", Value: "Golang", SuggestedConfidence: 0.9},
 	}
 	stored := cr.Resolve(candidates)
@@ -45,7 +45,7 @@ func TestConflictResolver_ClearWinner_NewWins(t *testing.T) {
 	ltm.rebuildIndex()
 
 	cr := NewConflictResolver(ltm, 0.15)
-	candidates := []MemoryItemCandidate{
+	candidates := []memorytypes.MemoryItemCandidate{
 		{Section: "prefs", Key: "lang", Value: "Go", SuggestedConfidence: 0.9},
 	}
 	stored := cr.Resolve(candidates)
@@ -62,7 +62,7 @@ func TestConflictResolver_ClearWinner_OldWins(t *testing.T) {
 	ltm.rebuildIndex()
 
 	cr := NewConflictResolver(ltm, 0.15)
-	candidates := []MemoryItemCandidate{
+	candidates := []memorytypes.MemoryItemCandidate{
 		{Section: "prefs", Key: "lang", Value: "Go", SuggestedConfidence: 0.3},
 	}
 	stored := cr.Resolve(candidates)
@@ -79,7 +79,7 @@ func TestConflictResolver_NarrowGap_KeepsExisting(t *testing.T) {
 	ltm.rebuildIndex()
 
 	cr := NewConflictResolver(ltm, 0.15)
-	candidates := []MemoryItemCandidate{
+	candidates := []memorytypes.MemoryItemCandidate{
 		{Section: "prefs", Key: "lang", Value: "Go", SuggestedConfidence: 0.7},
 	}
 	stored := cr.Resolve(candidates)
@@ -92,7 +92,7 @@ func TestConflictResolver_MultipleCandidates(t *testing.T) {
 	ltm := &LongTermMemory{index: make(map[string]int)}
 	cr := NewConflictResolver(ltm, 0.15)
 
-	candidates := []MemoryItemCandidate{
+	candidates := []memorytypes.MemoryItemCandidate{
 		{Section: "prefs", Key: "lang", Value: "Go", SuggestedConfidence: 0.9},
 		{Section: "prefs", Key: "editor", Value: "VSCode", SuggestedConfidence: 0.8},
 		{Section: "items", Key: "deploy", Value: "prod", SuggestedConfidence: 0.95},
@@ -110,7 +110,7 @@ func TestConflictResolver_SameConfidence_KeepsExisting(t *testing.T) {
 	ltm.rebuildIndex()
 
 	cr := NewConflictResolver(ltm, 0.15)
-	candidates := []MemoryItemCandidate{
+	candidates := []memorytypes.MemoryItemCandidate{
 		{Section: "prefs", Key: "lang", Value: "Go", SuggestedConfidence: 0.8},
 	}
 	stored := cr.Resolve(candidates)
@@ -125,7 +125,7 @@ func TestConflictResolver_DefaultGap(t *testing.T) {
 
 func TestResolveResult_AcceptNewWins(t *testing.T) {
 	cr := NewConflictResolver(&LongTermMemory{index: make(map[string]int)}, 0.15)
-	result := cr.resolveOne(MemoryItemCandidate{
+	result := cr.resolveOne(memorytypes.MemoryItemCandidate{
 		Section: "prefs", Key: "lang", Value: "Go", SuggestedConfidence: 0.9,
 	})
 	assert.Equal(t, ConflictAcceptNew, result.Decision)
