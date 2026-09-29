@@ -9,6 +9,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/events"
 	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/worker"
 )
@@ -31,7 +32,9 @@ type ReactAgent struct {
 	providerMu       sync.RWMutex
 	toolRegistry     *core.ToolRegistry
 	StreamMode       bool
-	EventHooks       core.AgentEventHooks
+	bus              *events.Bus // shared per-loop bus; events are emitted here
+	instance         string      // disambiguates concurrent agents on a shared bus
+	unsub            func()      // combined unsubscribe for RegisterEventHooks (overwrite semantics)
 	agentIdentity    constants.AgentIdentity
 	abortSignal      chan struct{}
 	EnableThinking   *bool
@@ -52,6 +55,7 @@ func NewReactAgent(provider coretypes.ILMProvider, streamMode bool) *ReactAgent 
 		provider:     provider,
 		toolRegistry: core.GetToolRegistry(),
 		StreamMode:   streamMode,
+		bus:          events.NewBus(),
 		abortSignal:  make(chan struct{}, 1),
 	}
 }
@@ -87,30 +91,24 @@ func (a *ReactAgent) SetProvider(p coretypes.ILMProvider) {
 	a.providerMu.Unlock()
 }
 
-func (a *ReactAgent) GetAgentIdentity() constants.AgentIdentity {
-	return a.agentIdentity
+// SetBus attaches the shared per-loop bus this agent emits into. A nil bus is
+// replaced by a fresh private bus so standalone agents (e.g. tests) still work.
+func (a *ReactAgent) SetBus(bus *events.Bus) {
+	if bus == nil {
+		bus = events.NewBus()
+	}
+	a.bus = bus
 }
 
-// NotifyPlanRollback fires the OnPlanRollback hook, if registered. It is part of
-// the fsm.ReactExecutor interface so the FSM can signal rollbacks through the
-// interface without reaching into ReactAgent.EventHooks directly.
-func (a *ReactAgent) NotifyPlanRollback(id constants.AgentIdentity, planID string, targetVersion int, planName string) {
-	if a.EventHooks.OnPlanRollback != nil {
-		a.EventHooks.OnPlanRollback(id, planID, targetVersion, planName)
-	}
-}
-
-// NotifyBeforeCompress fires the OnBeforeCompress hook, if registered. It is part
-// of the fsm.ReactExecutor interface so the FSM can signal an imminent context
-// compression through the interface without reaching into EventHooks directly.
-func (a *ReactAgent) NotifyBeforeCompress(id constants.AgentIdentity) {
-	if a.EventHooks.OnBeforeCompress != nil {
-		a.EventHooks.OnBeforeCompress(id)
-	}
-}
+// SetInstance tags events emitted by this agent with a unique instance ID, used
+// to tell concurrent DAG workers apart on a shared bus.
+func (a *ReactAgent) SetInstance(instance string) { a.instance = instance }
 
 func (a *ReactAgent) RegisterEventHooks(hooks core.AgentEventHooks) {
-	a.EventHooks = hooks
+	if a.unsub != nil {
+		a.unsub()
+	}
+	a.unsub = hooks.Subscribe(a.bus)
 }
 
 func (a *ReactAgent) WithPauseGate(g worker.PauseGate) *ReactAgent {
@@ -275,9 +273,7 @@ func (a *ReactAgent) executeTools(ctx context.Context, details []coretypes.ToolC
 	for i, detail := range details {
 		result := a.callTool(ctx, detail)
 		results[i] = result
-		if a.EventHooks.OnToolCallEnd != nil {
-			a.EventHooks.OnToolCallEnd(a.agentIdentity, result)
-		}
+		events.Emit(a.bus, events.ToolCallEnd{Identity: a.agentIdentity, Instance: a.instance, Result: result})
 	}
 	return results
 }
@@ -359,9 +355,7 @@ func (a *ReactAgent) WaitForHuman(ctx context.Context, reason, prompt string) (s
 	if a.humanLoop == nil {
 		return "", fmt.Errorf("human-in-the-loop not enabled")
 	}
-	if a.EventHooks.OnWaitForHumanAction != nil {
-		a.EventHooks.OnWaitForHumanAction(a.agentIdentity, reason, prompt)
-	}
+	events.Emit(a.bus, events.WaitForHumanAction{Identity: a.agentIdentity, Instance: a.instance, Reason: reason, Prompt: prompt})
 	a.humanLoop.isWaiting.Store(true)
 	defer a.humanLoop.isWaiting.Store(false)
 
@@ -420,8 +414,8 @@ func (a *ReactAgent) callTool(ctx context.Context, detail coretypes.ToolCallDeta
 	return a.toolRegistry.Call(ctx, detail)
 }
 
-// modelEventHandler returns a ModelEventHandler for the provider by creating
-// a bridge from the AgentEventHooks callback fields.
+// modelEventHandler returns a ModelEventHandler that emits each provider callback
+// as a typed event on the bus, tagged with this agent's identity and instance.
 func (a *ReactAgent) modelEventHandler() coretypes.ModelEventHandler {
-	return a.EventHooks.AsModelEventHandler(a.agentIdentity)
+	return core.NewBusModelHandler(a.bus, a.agentIdentity, a.instance)
 }

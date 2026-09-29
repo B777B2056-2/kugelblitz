@@ -8,6 +8,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/events"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/prompts"
 )
@@ -63,7 +64,7 @@ func handleContextExceeded(ctx *Context, sysMsg coretypes.Message, tools []strin
 	sessionCtx := core.WithSessionID(ctx.Ctx, deps.Session.SessionID())
 
 	for i := 0; i < deps.Config.CompressMaxAttempts; i++ {
-		deps.React.NotifyBeforeCompress(deps.React.GetAgentIdentity())
+		emitBus(ctx.Deps.Bus, events.BeforeCompress{Identity: constants.AgentMain})
 		_, _ = deps.Session.Compress(ctx.Ctx, deps.Summarizer, deps.Config.KeepLastN, deps.Config.MinMessagesToCompress)
 
 		history := deps.Session.GetHistoryMessages()

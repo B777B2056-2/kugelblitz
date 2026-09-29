@@ -8,6 +8,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/events"
 	"github.com/B777B2056-2/kugelblitz/llm"
 	"github.com/B777B2056-2/kugelblitz/memory"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
@@ -32,15 +33,23 @@ type Kernel struct {
 	compressor *memory.Compressor
 	reviewer   *infra.Reviewer
 	cfg        config.Config
+	bus        *events.Bus
+	unsub      func() // combined unsubscribe for RegisterEventHooks (overwrite semantics)
 }
 
-// NewKernel creates a Kernel with all dependencies wired up.
+// NewKernel creates a Kernel with all dependencies wired up. bus is the shared
+// per-loop event bus every sub-agent emits into; a nil bus is replaced by a
+// fresh private one.
 func NewKernel(
 	sessionMem *memory.SessionMemory,
 	cfg config.Config,
+	bus *events.Bus,
 ) *Kernel {
 	if sessionMem == nil {
 		panic(fmt.Errorf("nil session memory"))
+	}
+	if bus == nil {
+		bus = events.NewBus()
 	}
 
 	mainReact := infra.NewReactAgent(cfg.Model.Provider, cfg.Model.StreamMode)
@@ -49,6 +58,7 @@ func NewKernel(
 	}
 	mainReact.SetHumanToolFactory(internals.NewAskHumanTool)
 	mainReact.EnableHumanInTheLoop()
+	mainReact.SetBus(bus)
 
 	tracer := otel.Tracer("kugelblitz")
 	compressor := memory.NewCompressor(llm.NewCaller(cfg.Model.Provider, tracer))
@@ -56,7 +66,9 @@ func NewKernel(
 		func(p coretypes.ILMProvider, s bool) worker.Worker { return infra.NewWorkerAgent(p, s) },
 		infra.NewPauseGate())
 	dagExec.SetHumanToolFactory(internals.NewAskHumanTool)
+	dagExec.SetBus(bus)
 	reviewer := infra.NewReviewer(llm.NewCaller(cfg.Model.Provider, tracer))
+	reviewer.SetBus(bus)
 
 	machine := fsm.NewMachine(fsm.Dependencies{
 		React:      mainReact,
@@ -64,6 +76,7 @@ func NewKernel(
 		Reviewer:   reviewer,
 		Session:    sessionMem,
 		Summarizer: compressor,
+		Bus:        bus,
 		Config: fsm.MachineConfig{
 			MaxCycles:               cfg.Runtime.MaxStateMachineCycles,
 			CompressMaxAttempts:     cfg.ContextCompress.MaxAttempts,
@@ -89,16 +102,19 @@ func NewKernel(
 		compressor: compressor,
 		reviewer:   reviewer,
 		cfg:        cfg,
+		bus:        bus,
 	}
 }
 
-// RegisterEventHooks forwards hooks to all sub-agents.
+// RegisterEventHooks subscribes the given hooks onto the shared bus, replacing any
+// prior subscription (overwrite semantics — callers such as ACP re-register per
+// prompt and must not accumulate duplicate subscriptions).
 func (sm *Kernel) RegisterEventHooks(hooks core.AgentEventHooks) {
 	sm.mainReact.SetAgentIdentity(constants.AgentMain)
-	sm.mainReact.RegisterEventHooks(hooks)
-
-	sm.dagExec.SetWorkerHooks(hooks)
-	sm.reviewer.SetHooks(hooks)
+	if sm.unsub != nil {
+		sm.unsub()
+	}
+	sm.unsub = hooks.Subscribe(sm.bus)
 }
 
 // Compressor returns the session memory compressor.
@@ -112,7 +128,7 @@ func (sm *Kernel) Compressor() *memory.Compressor {
 // summarization call. OnBeforeCompress fires before the compression so
 // observers (e.g. long-term memory extraction) can run first.
 func (sm *Kernel) CompressContext(ctx context.Context) (*coretypes.Usage, error) {
-	sm.mainReact.NotifyBeforeCompress(constants.AgentMain)
+	events.Emit(sm.bus, events.BeforeCompress{Identity: constants.AgentMain})
 	return sm.sessionMem.Compress(ctx, sm.compressor, sm.cfg.ContextCompress.KeepLastN, sm.cfg.ContextCompress.MinMessagesToCompress)
 }
 

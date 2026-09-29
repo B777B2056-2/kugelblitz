@@ -9,6 +9,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/events"
 	"github.com/B777B2056-2/kugelblitz/llm"
 	"github.com/B777B2056-2/kugelblitz/memory"
 	"github.com/B777B2056-2/kugelblitz/memory/longterm"
@@ -47,6 +48,7 @@ type AgentLoop struct {
 
 	// hooks & callbacks
 	eventHooks core.AgentEventHooks
+	bus        *events.Bus // shared per-loop event bus; injected into the planner
 
 	// config
 	cfg   config.Config
@@ -70,6 +72,7 @@ func WithExistingSessionID(sessionID string) AgentLoopOption {
 func NewAgentLoop(cfg config.Config, opts ...AgentLoopOption) (*AgentLoop, error) {
 	al := &AgentLoop{
 		cfg: cfg,
+		bus: events.NewBus(),
 	}
 
 	// Apply opts (session reuse, observer)
@@ -80,6 +83,10 @@ func NewAgentLoop(cfg config.Config, opts ...AgentLoopOption) (*AgentLoop, error
 	// LTM subsystem
 	if err := initLTM(cfg.Model.Provider, al); err != nil {
 		return nil, err
+	}
+	// The dream scheduler listens for agent activity on the shared bus (idle reset).
+	if al.dreamScheduler != nil {
+		al.dreamScheduler.SubscribeActivity(al.bus)
 	}
 
 	// Skills (registers globally)
@@ -95,7 +102,7 @@ func NewAgentLoop(cfg config.Config, opts ...AgentLoopOption) (*AgentLoop, error
 		_ = al.indexMgr.RebuildIfStale(context.Background())
 	}
 
-	al.planner = engine.NewKernel(al.sessionMem, cfg)
+	al.planner = engine.NewKernel(al.sessionMem, cfg, al.bus)
 	return al, nil
 }
 
@@ -193,6 +200,10 @@ func (a *AgentLoop) RegisterEventHooks(hooks core.AgentEventHooks) {
 	a.eventHooks = hooks
 }
 
+// EventBus returns the shared per-loop event bus, for components (e.g. the dream
+// scheduler) that subscribe directly rather than through AgentEventHooks.
+func (a *AgentLoop) EventBus() *events.Bus { return a.bus }
+
 // Run starts the agent loop in a background goroutine.
 func (a *AgentLoop) Run(ctx context.Context, input coretypes.AgentInput) {
 	ctx, a.cancelFn = context.WithCancel(ctx)
@@ -200,11 +211,13 @@ func (a *AgentLoop) Run(ctx context.Context, input coretypes.AgentInput) {
 	go func() {
 		defer close(a.done)
 		defer a.Cancel()
+		events.Emit(a.bus, events.RunStarted{SessionID: a.SessionID()})
 		if a.dreamScheduler != nil {
 			a.dreamScheduler.Start()
 			defer a.dreamScheduler.Stop()
 		}
 		_, err := a.execute(ctx, input)
+		events.Emit(a.bus, events.RunEnded{SessionID: a.SessionID(), Err: err})
 		if err != nil && a.eventHooks.OnError != nil {
 			a.eventHooks.OnError(constants.AgentMain, err)
 		}
@@ -263,9 +276,7 @@ func (a *AgentLoop) execute(ctx context.Context, input coretypes.AgentInput) (me
 		return nil, err
 	}
 	a.input = input
-	if a.dreamScheduler != nil {
-		a.dreamScheduler.NotifyActivity()
-	}
+	events.Emit(a.bus, events.AgentActivity{Identity: constants.AgentMain})
 
 	// observability — zero-config: noop if InitTracer not called
 	tracer := otel.Tracer("kugelblitz")
@@ -285,7 +296,13 @@ func (a *AgentLoop) execute(ctx context.Context, input coretypes.AgentInput) (me
 	ctx, _ = a.stepTracer.SetTrace(ctx, tracer, a.input.Text)
 	a.planner.SetStepTracer(a.stepTracer)
 
-	a.planner.RegisterEventHooks(a.rewriteEventHooks(a.eventHooks))
+	// System subscriptions (stepTracer / compress / extract) are registered first
+	// so they fire before user hooks, preserving the prior sys-before-user order.
+	unsubSystem := a.subscribeSystem(a.bus)
+	defer unsubSystem()
+
+	// User hooks subscribe onto the shared bus (overwrite semantics).
+	a.planner.RegisterEventHooks(a.eventHooks)
 
 	// wire memory_extract input
 	internals.BindMemoryExtractInput(func() memorytypes.ExtractionInput {
@@ -318,50 +335,45 @@ func (a *AgentLoop) backgroundCtx() context.Context {
 	return context.Background()
 }
 
-// rewriteEventHooks merges AgentLoop internal callbacks with user hooks.
-// AgentLoop callbacks fire first, then user callbacks.
-func (a *AgentLoop) rewriteEventHooks(userHooks core.AgentEventHooks) core.AgentEventHooks {
-	// AgentLoop system wrappers: compress + extract + then user.
-	sysHooks := core.AgentEventHooks{
-		OnToolCallEnd: func(id constants.AgentIdentity, result coretypes.ToolCallResult) {
-			a.sessionMem.CompressToolResult(a.backgroundCtx(),
-				a.planner.Compressor(), a.cfg.ContextCompress.MaxToolResultChars, &result)
-		},
-		OnBeforeCompress: func(id constants.AgentIdentity) {
-			a.extractMemories()
-		},
-	}
+// subscribeSystem registers the AgentLoop's internal consumers on the shared bus
+// and returns a combined unsubscribe. Registered before user hooks so system
+// consumers fire first. These subscriptions are per-run and torn down in execute's
+// defer, so a loop reused across multiple Run calls does not accumulate them.
+func (a *AgentLoop) subscribeSystem(bus *events.Bus) func() {
+	var unsubs []func()
 
-	// Instrumentation: wrap user callbacks so the observer receives events first.
+	// Tool-result compression: applied to every executed tool (main and workers).
+	unsubs = append(unsubs, events.On(bus, func(ev events.ToolCallEnd) {
+		a.sessionMem.CompressToolResult(a.backgroundCtx(),
+			a.planner.Compressor(), a.cfg.ContextCompress.MaxToolResultChars, &ev.Result)
+	}))
+
+	// Pre-compress memory extraction: run the LTM write pipeline before session
+	// history is summarized.
+	unsubs = append(unsubs, events.On(bus, func(ev events.BeforeCompress) {
+		a.extractMemories()
+	}))
+
+	// Instrumentation: forward model events to the StepTracer.
 	if a.stepTracer != nil {
 		instrH := a.stepTracer.EventHandler()
-		sysHooks.OnReplyChunk = func(id constants.AgentIdentity, chunk string) {
-			instrH.OnReplyChunk(chunk)
-		}
-		sysHooks.OnThinkingChunk = func(id constants.AgentIdentity, chunk string) {
-			instrH.OnThinkingChunk(chunk)
-		}
-		sysHooks.OnBlockReply = func(id constants.AgentIdentity, text string) {
-			instrH.OnBlockReply(text)
-		}
-		sysHooks.OnBlockThinking = func(id constants.AgentIdentity, reasoning string) {
-			instrH.OnBlockThinking(reasoning)
-		}
-		sysHooks.OnFunctionCall = func(id constants.AgentIdentity, detail coretypes.ToolCallDetail) {
-			instrH.OnFunctionCall(detail)
-		}
-		sysHooks.OnModelFinished = func(id constants.AgentIdentity, reason string) {
-			instrH.OnFinished(reason)
-		}
-		sysHooks.OnUsageUpdated = func(id constants.AgentIdentity, usage coretypes.Usage) {
-			instrH.OnUsageUpdated(usage)
-		}
-		sysHooks.OnError = func(id constants.AgentIdentity, err error) {
-			instrH.OnError(err)
-		}
+		unsubs = append(unsubs,
+			events.On(bus, func(ev events.ReplyChunk) { instrH.OnReplyChunk(ev.Chunk) }),
+			events.On(bus, func(ev events.ThinkingChunk) { instrH.OnThinkingChunk(ev.Chunk) }),
+			events.On(bus, func(ev events.BlockReply) { instrH.OnBlockReply(ev.Text) }),
+			events.On(bus, func(ev events.BlockThinking) { instrH.OnBlockThinking(ev.Reasoning) }),
+			events.On(bus, func(ev events.FunctionCall) { instrH.OnFunctionCall(ev.Detail) }),
+			events.On(bus, func(ev events.ModelFinished) { instrH.OnFinished(ev.Reason) }),
+			events.On(bus, func(ev events.UsageUpdated) { instrH.OnUsageUpdated(ev.Usage) }),
+			events.On(bus, func(ev events.AgentError) { instrH.OnError(ev.Err) }),
+		)
 	}
 
-	return core.Chain(userHooks, sysHooks)
+	return func() {
+		for _, u := range unsubs {
+			u()
+		}
+	}
 }
 
 // extractMemories runs the LTM write pipeline before session memory is

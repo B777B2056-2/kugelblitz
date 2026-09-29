@@ -7,6 +7,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/events"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 )
 
@@ -181,8 +182,10 @@ func (m *Machine) handleDrift(ctx *Context, reason string) {
 		Text: fmt.Sprintf("⚠️ 自动审查检测到执行可能偏离目标（%s），计划已回滚至版本 %d。请根据当前任务进度和目标偏差，调整任务计划，完成后系统将进入确认阶段。", reason, targetVersion),
 	}))
 
-	ctx.Deps.React.NotifyPlanRollback(
-		ctx.Deps.React.GetAgentIdentity(),
-		plan.ID, targetVersion, plan.Name,
-	)
+	emitBus(ctx.Deps.Bus, events.PlanRollback{
+		Identity:      constants.AgentMain,
+		PlanID:        plan.ID,
+		TargetVersion: targetVersion,
+		PlanName:      plan.Name,
+	})
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/B777B2056-2/kugelblitz/core"
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/events"
 	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/tools"
 )
@@ -37,12 +38,12 @@ type HumanToolFactory func(gate core.HumanGate) tools.Tool
 // Worker is the minimal surface of a task-execution unit the DAG orchestrator
 // needs: configure it, then run a single task.
 type Worker interface {
-	SetHooks(hooks core.AgentEventHooks)
+	SetBus(bus *events.Bus)
 	SetStepTracer(st *observability.StepTracer)
 	SetPauseGate(g PauseGate)
 	SetHumanToolFactory(f HumanToolFactory)
 	SetOnHITL(fn func(agent HitlAgent, reason, prompt string))
-	ExecuteTask(ctx context.Context, goal, action string) (string, *coretypes.Usage, error)
+	ExecuteTask(ctx context.Context, taskID, goal, action string) (string, *coretypes.Usage, error)
 }
 
 // WorkerFactory creates a Worker for a single task. Injected by the composition

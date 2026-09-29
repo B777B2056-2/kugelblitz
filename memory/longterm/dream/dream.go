@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/B777B2056-2/kugelblitz/core"
+	"github.com/B777B2056-2/kugelblitz/events"
 	"github.com/B777B2056-2/kugelblitz/llm"
 	"github.com/B777B2056-2/kugelblitz/memory/longterm"
 	"github.com/B777B2056-2/kugelblitz/memory/pipeline"
@@ -109,11 +110,15 @@ func NewDreamSchedulerWithIntervals(dreamer *Dreamer, checkInterval, cooldown, i
 	}
 }
 
-// NotifyActivity marks that the agent just handled a request (resets idle timer).
-func (ds *DreamScheduler) NotifyActivity() {
-	ds.mu.Lock()
-	ds.lastActivity = time.Now()
-	ds.mu.Unlock()
+// SubscribeActivity subscribes the scheduler to AgentActivity events on bus, so
+// that every agent request resets the idle timer. It returns an unsubscribe
+// function; the scheduler lives for the loop's lifetime, so callers may ignore it.
+func (ds *DreamScheduler) SubscribeActivity(bus *events.Bus) func() {
+	return events.On(bus, func(ev events.AgentActivity) {
+		ds.mu.Lock()
+		ds.lastActivity = time.Now()
+		ds.mu.Unlock()
+	})
 }
 
 // Start begins the background polling loop. Call once; runs until Stop().

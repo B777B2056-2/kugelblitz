@@ -25,7 +25,7 @@ func TestWorkerAgent_ExecuteTask_NoDuplicateOutput_StreamMode(t *testing.T) {
 		},
 	}
 	w := NewWorkerAgent(provider, true)
-	out, _, err := w.ExecuteTask(context.Background(), "goal", "action")
+	out, _, err := w.ExecuteTask(context.Background(), "task-1", "goal", "action")
 	require.NoError(t, err)
 	require.Equal(t, "Hello World", out)
 }
@@ -42,7 +42,7 @@ func TestWorkerAgent_ExecuteTask_BlockMode_CapturesOutput(t *testing.T) {
 		},
 	}
 	w := NewWorkerAgent(provider, false)
-	out, _, err := w.ExecuteTask(context.Background(), "goal", "action")
+	out, _, err := w.ExecuteTask(context.Background(), "task-1", "goal", "action")
 	require.NoError(t, err)
 	require.Equal(t, "Hello World", out)
 }
@@ -66,7 +66,7 @@ func TestWorkerAgent_ExecuteTask_CompositeReply(t *testing.T) {
 		},
 	}
 	w := NewWorkerAgent(provider, true)
-	out, _, err := w.ExecuteTask(context.Background(), "goal", "action")
+	out, _, err := w.ExecuteTask(context.Background(), "task-1", "goal", "action")
 	require.NoError(t, err)
 	require.Equal(t, "final answer", out)
 }

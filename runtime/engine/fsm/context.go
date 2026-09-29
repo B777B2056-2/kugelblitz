@@ -3,8 +3,8 @@ package fsm
 import (
 	"context"
 
-	"github.com/B777B2056-2/kugelblitz/constants"
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/events"
 	"github.com/B777B2056-2/kugelblitz/memory"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/prompts"
@@ -33,9 +33,6 @@ type Context struct {
 // package and can be driven by test doubles.
 type ReactExecutor interface {
 	ExecuteWithTools(ctx context.Context, systemMessage coretypes.Message, userMessages []coretypes.Message, tools []string) ([]coretypes.Message, error)
-	GetAgentIdentity() constants.AgentIdentity
-	NotifyPlanRollback(id constants.AgentIdentity, planID string, targetVersion int, planName string)
-	NotifyBeforeCompress(id constants.AgentIdentity)
 }
 
 // DAGExecutor is the minimal surface of the DAG executor the FSM needs.
@@ -70,6 +67,11 @@ type Dependencies struct {
 	Config      MachineConfig
 	HandleDrift func(ctx *Context, reason string) // set by Machine
 
+	// Bus is the shared per-loop event bus the FSM emits PlanRollback /
+	// BeforeCompress onto. It may be nil (tests that do not observe these
+	// signals), in which case the emits are no-ops.
+	Bus *events.Bus
+
 	// Injected hidden globals (formerly reached directly from working/persist/
 	// core/prompts singletons). Wired by the composition root (kernel.go).
 	GetPlan          func(id string) (*working.Plan, bool)
@@ -92,4 +94,14 @@ type MachineConfig struct {
 	// ForceMode skips the Intent phase and starts directly in the given mode.
 	// "" or "auto" → intent classification; "plan" → init; "simple" → direct.
 	ForceMode string
+}
+
+// emitBus delivers ev onto bus when a bus is configured. FSM unit tests that
+// build a Dependencies without a Bus rely on this no-op, and it keeps the emit
+// sites free of nil checks.
+func emitBus[T any](bus *events.Bus, ev T) {
+	if bus == nil {
+		return
+	}
+	events.Emit(bus, ev)
 }

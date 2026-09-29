@@ -10,6 +10,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/events"
 	"github.com/B777B2056-2/kugelblitz/tools/internals"
 
 	"github.com/stretchr/testify/assert"
@@ -284,13 +285,30 @@ func TestReactAgent_Execute_StreamMode_CallsEventHandler(t *testing.T) {
 	assert.Equal(t, []string{"stop"}, handler.finishReasons)
 }
 
-func TestReactAgent_RegisterEventHooks_StoresCorrectly(t *testing.T) {
+func TestReactAgent_RegisterEventHooks_SubscribesToBus(t *testing.T) {
 	agent := NewReactAgent(nil, false)
-	hooks := core.AgentEventHooks{
-		OnToolCallEnd: func(id constants.AgentIdentity, result coretypes.ToolCallResult) {},
-	}
-	agent.RegisterEventHooks(hooks)
-	assert.NotNil(t, agent.EventHooks.OnToolCallEnd)
+	var got string
+	agent.RegisterEventHooks(core.AgentEventHooks{
+		OnToolCallEnd: func(id constants.AgentIdentity, r coretypes.ToolCallResult) { got = r.ToolName },
+	})
+	events.Emit(agent.bus, events.ToolCallEnd{
+		Identity: constants.AgentMain, Result: coretypes.ToolCallResult{ToolName: "t"},
+	})
+	assert.Equal(t, "t", got)
+}
+
+func TestReactAgent_RegisterEventHooks_OverwritesPrevious(t *testing.T) {
+	agent := NewReactAgent(nil, false)
+	var first, second int
+	agent.RegisterEventHooks(core.AgentEventHooks{
+		OnToolCallEnd: func(id constants.AgentIdentity, r coretypes.ToolCallResult) { first++ },
+	})
+	agent.RegisterEventHooks(core.AgentEventHooks{
+		OnToolCallEnd: func(id constants.AgentIdentity, r coretypes.ToolCallResult) { second++ },
+	})
+	events.Emit(agent.bus, events.ToolCallEnd{Identity: constants.AgentMain, Result: coretypes.ToolCallResult{}})
+	assert.Equal(t, 0, first, "old subscription must be removed on re-register")
+	assert.Equal(t, 1, second)
 }
 
 func TestReactAgent_Interrupt_SendsSignal(t *testing.T) {

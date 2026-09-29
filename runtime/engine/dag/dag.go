@@ -9,6 +9,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/events"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/types"
@@ -24,7 +25,7 @@ type DAGTaskExecutor struct {
 	streamMode          bool
 	cancel              context.CancelFunc
 	cancelMu            sync.Mutex                  // protects cancel
-	workerHooks         core.AgentEventHooks        // set by Planner.RegisterEventHooks
+	bus                 *events.Bus                 // shared per-loop bus (set by Kernel)
 	workerAgentIdentity constants.AgentIdentity     // set by Kernel
 	workerFactory       worker.WorkerFactory        // builds each Worker; injected by composition root
 	humanToolFactory    worker.HumanToolFactory     // builds ask_human tool; nil = omit
@@ -46,11 +47,17 @@ func NewDAGTaskExecutor(provider coretypes.ILMProvider, streamMode bool, workerF
 		workerAgentIdentity: constants.AgentWorker,
 		PauseGate:           pauseGate,
 		hitlAgents:          make(map[string]worker.HitlAgent),
+		bus:                 events.NewBus(),
 	}
 }
 
-func (d *DAGTaskExecutor) SetWorkerHooks(hooks core.AgentEventHooks) {
-	d.workerHooks = hooks
+// SetBus attaches the shared per-loop bus the executor emits TaskUpdated into and
+// relays to spawned workers.
+func (d *DAGTaskExecutor) SetBus(bus *events.Bus) {
+	if bus == nil {
+		bus = events.NewBus()
+	}
+	d.bus = bus
 }
 
 // SetHumanToolFactory injects the factory used to build each worker's local
@@ -196,7 +203,7 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 					return nil
 				}
 				w := d.workerFactory(d.provider, d.streamMode)
-				w.SetHooks(d.workerHooks)
+				w.SetBus(d.bus)
 				w.SetStepTracer(d.stepTracer)
 				w.SetPauseGate(d.PauseGate)
 				w.SetHumanToolFactory(d.humanToolFactory)
@@ -206,7 +213,7 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 					d.hitlMu.Unlock()
 					d.Pause()
 				})
-				output, usage, err := w.ExecuteTask(gctx, task.Goal, task.Action)
+				output, usage, err := w.ExecuteTask(gctx, task.ID, task.Goal, task.Action)
 				planMu, _ := working.GetPlan(plan.ID)
 				if planMu == nil {
 					return nil
@@ -242,9 +249,14 @@ func (d *DAGTaskExecutor) ExecuteBatch(ctx context.Context, plan *working.Plan,
 					core.Warn("dag: persist plan", "plan", planMu.ID, "err", err)
 				}
 
-				if d.workerHooks.OnTaskUpdated != nil {
-					d.workerHooks.OnTaskUpdated(d.workerAgentIdentity, task.ID, task.Goal, string(taskMu.Status), output)
-				}
+				events.Emit(d.bus, events.TaskUpdated{
+					Identity: d.workerAgentIdentity,
+					Instance: task.ID,
+					TaskID:   task.ID,
+					Goal:     task.Goal,
+					Status:   string(taskMu.Status),
+					Output:   output,
+				})
 				return nil
 			})
 		}

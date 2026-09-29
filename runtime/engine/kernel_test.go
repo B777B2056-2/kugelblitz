@@ -9,6 +9,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/events"
 	"github.com/B777B2056-2/kugelblitz/memory"
 
 	"github.com/stretchr/testify/assert"
@@ -34,6 +35,7 @@ func newTestKernel() *Kernel {
 			ContextCompress: config.ContextCompressConfig{MaxAttempts: 1},
 			TargetDrift:     config.TargetDriftConfig{ReviewInterval: 12, MaxFailuresBeforeReview: 5},
 		},
+		events.NewBus(),
 	)
 }
 
@@ -50,7 +52,7 @@ func TestNewKernel_CreatesWithValidDeps(t *testing.T) {
 
 func TestNewKernel_PanicsOnNilSession(t *testing.T) {
 	assert.Panics(t, func() {
-		NewKernel(nil, config.Config{})
+		NewKernel(nil, config.Config{}, nil)
 	})
 }
 
@@ -62,13 +64,14 @@ func TestKernel_Compressor(t *testing.T) {
 func TestKernel_RegisterEventHooks(t *testing.T) {
 	k := newTestKernel()
 
-	hooks := core.AgentEventHooks{
-		OnToolCallEnd: func(id constants.AgentIdentity, result coretypes.ToolCallResult) {},
-	}
-	k.RegisterEventHooks(hooks)
+	called := false
+	k.RegisterEventHooks(core.AgentEventHooks{
+		OnToolCallEnd: func(id constants.AgentIdentity, result coretypes.ToolCallResult) { called = true },
+	})
 
-	// Verify hooks were forwarded
-	assert.NotNil(t, k.mainReact.EventHooks.OnToolCallEnd)
+	// Verify hooks are subscribed onto the kernel's shared bus.
+	events.Emit(k.bus, events.ToolCallEnd{Identity: constants.AgentMain, Result: coretypes.ToolCallResult{}})
+	assert.True(t, called)
 }
 
 func TestKernel_HumanLoopWaiting_InitiallyFalse(t *testing.T) {
@@ -98,7 +101,7 @@ func TestKernel_CompressContext(t *testing.T) {
 			MaxAttempts: 1, KeepLastN: 2, MinMessagesToCompress: 1,
 		},
 		TargetDrift: config.TargetDriftConfig{ReviewInterval: 12, MaxFailuresBeforeReview: 5},
-	})
+	}, events.NewBus())
 
 	usage, err := k.CompressContext(context.Background())
 	require.NoError(t, err)
@@ -122,7 +125,7 @@ func TestKernel_CompressContext_FiresBeforeCompressHook(t *testing.T) {
 			MaxAttempts: 1, KeepLastN: 2, MinMessagesToCompress: 1,
 		},
 		TargetDrift: config.TargetDriftConfig{ReviewInterval: 12, MaxFailuresBeforeReview: 5},
-	})
+	}, events.NewBus())
 
 	fired := false
 	k.RegisterEventHooks(core.AgentEventHooks{

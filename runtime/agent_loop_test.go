@@ -12,6 +12,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/events"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/infra"
 
@@ -74,6 +75,37 @@ func TestAgentLoop_AutoDreamEnabled_BuildsScheduler(t *testing.T) {
 func TestDreamInterval_DefaultOnZero(t *testing.T) {
 	assert.Equal(t, 30*time.Minute, dreamInterval(0, 30*time.Minute))
 	assert.Equal(t, time.Second, dreamInterval(1, 30*time.Minute))
+}
+
+func TestAgentLoop_Run_EmitsLifecycleEvents(t *testing.T) {
+	core.GetWorkspace().SetDir(t.TempDir())
+	working.ResetPlans()
+	provider := &MockProvider{
+		GenerateFn: func(ctx context.Context, params coretypes.GenerateParams) (*coretypes.Message, error) {
+			msg := coretypes.NewAssistantMessage(coretypes.TextContent{Text: "done"})
+			msg.FinishReason = "stop"
+			return &msg, nil
+		},
+	}
+	cfg := testCfg(provider)
+	cfg.Runtime.ForceMode = "simple"
+
+	al := mustNewAgentLoop(t, cfg)
+	var started []events.RunStarted
+	var ended []events.RunEnded
+	events.On(al.EventBus(), func(ev events.RunStarted) { started = append(started, ev) })
+	events.On(al.EventBus(), func(ev events.RunEnded) { ended = append(ended, ev) })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	al.Run(ctx, coretypes.AgentInput{Text: "hi"})
+	<-al.Done()
+
+	require.Len(t, started, 1)
+	require.Len(t, ended, 1)
+	assert.Equal(t, al.SessionID(), started[0].SessionID)
+	assert.Equal(t, al.SessionID(), ended[0].SessionID)
+	assert.NoError(t, ended[0].Err)
 }
 
 func TestPlanner_ContextError_TriggersRetry(t *testing.T) {
@@ -140,7 +172,7 @@ func TestWorkerAgent_ExecuteTask_Simple(t *testing.T) {
 	}
 
 	worker := infra.NewWorkerAgent(provider, false)
-	output, usage, err := worker.ExecuteTask(context.Background(), "test goal", "do it")
+	output, usage, err := worker.ExecuteTask(context.Background(), "task-1", "test goal", "do it")
 
 	require.NoError(t, err)
 	assert.Contains(t, output, "task completed")
@@ -156,7 +188,7 @@ func TestWorkerAgent_ExecuteTask_Error(t *testing.T) {
 	}
 
 	worker := infra.NewWorkerAgent(provider, false)
-	output, usage, err := worker.ExecuteTask(context.Background(), "goal", "action")
+	output, usage, err := worker.ExecuteTask(context.Background(), "task-1", "goal", "action")
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "api failure")

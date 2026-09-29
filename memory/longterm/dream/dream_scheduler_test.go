@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/B777B2056-2/kugelblitz/constants"
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/events"
 	"github.com/B777B2056-2/kugelblitz/llm"
 	"github.com/B777B2056-2/kugelblitz/memory/longterm"
 	"github.com/B777B2056-2/kugelblitz/persist"
@@ -110,4 +112,21 @@ func TestDreamScheduler_AutoDream_Fires(t *testing.T) {
 	}, 2*time.Second, 5*time.Millisecond)
 
 	assert.GreaterOrEqual(t, calls.Load(), int32(2))
+}
+
+func TestDreamScheduler_SubscribeActivity_ResetsIdleTimer(t *testing.T) {
+	_, d := newSchedulerTestDreamer(t)
+	ds := NewDreamSchedulerWithIntervals(d, time.Hour, time.Hour, 5*time.Minute)
+	ds.lastActivity = time.Now().Add(-time.Hour) // idle 1h ≥ 5min → would dream
+	ds.lastDreamed = time.Time{}                 // cooldown satisfied
+
+	bus := events.NewBus()
+	unsub := ds.SubscribeActivity(bus)
+	defer unsub()
+
+	events.Emit(bus, events.AgentActivity{Identity: constants.AgentMain})
+
+	ds.maybeDream()
+	assert.False(t, d.ltm.MarkdownExists(context.Background(), "DREAMS.md"),
+		"AgentActivity must reset the idle timer and prevent dreaming")
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/B777B2056-2/kugelblitz/constants"
 	"github.com/B777B2056-2/kugelblitz/core"
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/events"
 	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/prompts"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/worker"
@@ -37,7 +38,7 @@ type WorkerAgent struct {
 	provider         coretypes.ILMProvider
 	streamMode       bool
 	maxSteps         int                                                 // safety limit on ReAct loop iterations
-	hooks            core.AgentEventHooks                                // set by DAG executor; relayed to worker's ReactAgent
+	bus              *events.Bus                                         // shared per-loop bus (set by DAG executor)
 	pauseGate        worker.PauseGate                                    // shared DAG pause gate; nil = no pausing
 	onHITL           func(agent worker.HitlAgent, reason, prompt string) // fire on worker HITL
 	stepTracer       *observability.StepTracer                           // per-step OTel instrumentation (shared from DAG)
@@ -50,11 +51,17 @@ func NewWorkerAgent(provider coretypes.ILMProvider, streamMode bool) *WorkerAgen
 		provider:   provider,
 		streamMode: streamMode,
 		maxSteps:   10,
+		bus:        events.NewBus(),
 	}
 }
 
-// SetHooks sets the event hooks relayed to the worker's ReactAgent.
-func (w *WorkerAgent) SetHooks(hooks core.AgentEventHooks) { w.hooks = hooks }
+// SetBus sets the shared bus relayed to the worker's inner ReactAgent.
+func (w *WorkerAgent) SetBus(bus *events.Bus) {
+	if bus == nil {
+		bus = events.NewBus()
+	}
+	w.bus = bus
+}
 
 // SetPauseGate sets the shared DAG pause gate.
 func (w *WorkerAgent) SetPauseGate(g worker.PauseGate) { w.pauseGate = g }
@@ -106,8 +113,10 @@ func (r *workerResult) setErr(err error) {
 	}
 }
 
-// ExecuteTask runs the worker to complete a single task.
-func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (string, *coretypes.Usage, error) {
+// ExecuteTask runs the worker to complete a single task. taskID tags the events
+// this worker emits on the shared bus so concurrent workers (and this worker's
+// own collectors) can tell each other apart.
+func (w *WorkerAgent) ExecuteTask(ctx context.Context, taskID, goal, action string) (string, *coretypes.Usage, error) {
 	result := &workerResult{}
 
 	sysPrompt, err := prompts.DefaultFactory.Render(prompts.TypeWorker, prompts.WorkerParams{
@@ -124,6 +133,9 @@ func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (str
 
 	agent := NewReactAgent(w.provider, w.streamMode)
 	agent.SetMaxSteps(w.maxSteps)
+	agent.SetAgentIdentity(constants.AgentWorker)
+	agent.SetBus(w.bus)
+	agent.SetInstance(taskID)
 
 	// Wire per-step OTel tracing for this task
 	if w.stepTracer != nil {
@@ -137,29 +149,12 @@ func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (str
 		agent.WithPauseGate(w.pauseGate)
 	}
 
-	// Compose hooks: Chain preserves user callbacks.
-	// NOTE: reply text is collected from the returned messages (single source),
-	// not from OnReplyChunk/OnBlockReply, to avoid duplicating the output (B17).
-	hooks := core.Chain(w.hooks, core.AgentEventHooks{
-		OnUsageUpdated: func(id constants.AgentIdentity, usage coretypes.Usage) {
-			result.addUsage(usage)
-		},
-		OnError: func(id constants.AgentIdentity, err error) {
-			result.setErr(err)
-		},
-		OnToolCallEnd: func(id constants.AgentIdentity, r coretypes.ToolCallResult) {
-			if errMsg, ok := r.Outputs["error"]; ok {
-				result.write(fmt.Sprintf("[tool error: %s → %v]", r.ToolName, errMsg))
-			}
-		},
-		OnWaitForHumanAction: func(id constants.AgentIdentity, reason, prompt string) {
-			if w.onHITL != nil {
-				w.onHITL(agent, reason, prompt)
-			}
-		},
-	})
-	agent.SetAgentIdentity(constants.AgentWorker)
-	agent.RegisterEventHooks(hooks)
+	// Collect usage / errors / tool errors / HITL from the shared bus, filtered
+	// to this worker's own events via Instance == taskID. The reply text itself is
+	// still captured from the returned messages (single source) to avoid
+	// duplicating the output (B17).
+	unsub := w.subscribeCollectors(taskID, agent, result)
+	defer unsub()
 
 	go func() {
 		<-ctx.Done()
@@ -188,6 +183,47 @@ func (w *WorkerAgent) ExecuteTask(ctx context.Context, goal, action string) (str
 		return result.output.String(), usage, result.err
 	}
 	return result.output.String(), usage, nil
+}
+
+// subscribeCollectors subscribes the worker's private collectors (usage, error,
+// tool error, HITL) on the shared bus, filtered by Instance == taskID so they
+// only observe this worker's own events. It returns a combined unsubscribe.
+func (w *WorkerAgent) subscribeCollectors(taskID string, agent worker.HitlAgent, result *workerResult) func() {
+	if w.bus == nil {
+		return func() {}
+	}
+	unsubUsage := events.On(w.bus, func(ev events.UsageUpdated) {
+		if ev.Instance == taskID {
+			result.addUsage(ev.Usage)
+		}
+	})
+	unsubErr := events.On(w.bus, func(ev events.AgentError) {
+		if ev.Instance == taskID {
+			result.setErr(ev.Err)
+		}
+	})
+	unsubToolEnd := events.On(w.bus, func(ev events.ToolCallEnd) {
+		if ev.Instance != taskID {
+			return
+		}
+		if errMsg, ok := ev.Result.Outputs["error"]; ok {
+			result.write(fmt.Sprintf("[tool error: %s → %v]", ev.Result.ToolName, errMsg))
+		}
+	})
+	unsubHITL := events.On(w.bus, func(ev events.WaitForHumanAction) {
+		if ev.Instance != taskID {
+			return
+		}
+		if w.onHITL != nil {
+			w.onHITL(agent, ev.Reason, ev.Prompt)
+		}
+	})
+	return func() {
+		unsubUsage()
+		unsubErr()
+		unsubToolEnd()
+		unsubHITL()
+	}
 }
 
 // extractReplyText extracts the text portion of a message content for the

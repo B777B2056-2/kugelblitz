@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/B777B2056-2/kugelblitz/core"
 	coretypes "github.com/B777B2056-2/kugelblitz/core/types"
+	"github.com/B777B2056-2/kugelblitz/events"
 	"github.com/B777B2056-2/kugelblitz/memory/working"
 	"github.com/B777B2056-2/kugelblitz/observability"
 	"github.com/B777B2056-2/kugelblitz/runtime/engine/worker"
@@ -22,12 +22,12 @@ type fakeWorker struct {
 	calls  int
 }
 
-func (f *fakeWorker) SetHooks(core.AgentEventHooks)                    {}
-func (f *fakeWorker) SetStepTracer(*observability.StepTracer)          {}
-func (f *fakeWorker) SetPauseGate(worker.PauseGate)                    {}
-func (f *fakeWorker) SetHumanToolFactory(worker.HumanToolFactory)      {}
-func (f *fakeWorker) SetOnHITL(func(worker.HitlAgent, string, string)) {}
-func (f *fakeWorker) ExecuteTask(_ context.Context, goal, action string) (string, *coretypes.Usage, error) {
+func (f *fakeWorker) SetBus(*events.Bus)                                 {}
+func (f *fakeWorker) SetStepTracer(*observability.StepTracer)             {}
+func (f *fakeWorker) SetPauseGate(worker.PauseGate)                       {}
+func (f *fakeWorker) SetHumanToolFactory(worker.HumanToolFactory)         {}
+func (f *fakeWorker) SetOnHITL(func(worker.HitlAgent, string, string))    {}
+func (f *fakeWorker) ExecuteTask(_ context.Context, taskID, goal, action string) (string, *coretypes.Usage, error) {
 	f.calls++
 	f.goal = goal
 	f.action = action
